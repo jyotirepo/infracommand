@@ -12,9 +12,9 @@ pipeline {
         IMAGE_TAG      = "${BUILD_NUMBER}"
 
         // ── Nexus private registry (primary — K8s pulls from here) ───────────
-        NEXUS_REGISTRY = "192.168.101.80:8082"
-        NEXUS_BACKEND  = "192.168.101.80:8082/infracommand-backend"
-        NEXUS_FRONTEND = "192.168.101.80:8082/infracommand-frontend"
+        NEXUS_REGISTRY = "192.168.101.80:8081"
+        NEXUS_BACKEND  = "192.168.101.80:8081/infracommand-backend"
+        NEXUS_FRONTEND = "192.168.101.80:8081/infracommand-frontend"
 
         // ── Kubernetes ────────────────────────────────────────────────────────
         K8S_NAMESPACE  = "infracommand"
