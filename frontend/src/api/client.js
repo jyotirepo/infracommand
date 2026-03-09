@@ -1,0 +1,12 @@
+import axios from 'axios';
+const api = axios.create({ baseURL: process.env.REACT_APP_API_URL || '/api', timeout: 20000 });
+export const getSummary      = ()          => api.get('/summary');
+export const getHosts        = ()          => api.get('/hosts');
+export const getMetricsHistory = ()        => api.get('/metrics/history');
+export const getLogs         = (p={})      => api.get('/logs', { params: p });
+export const getHostLogs     = (id, p={})  => api.get(`/hosts/${id}/logs`, { params: p });
+export const getPatches      = ()          => api.get('/patches');
+export const getAlerts       = ()          => api.get('/alerts');
+export const triggerScan     = (id)        => api.post(`/hosts/${id}/scan`);
+export const addHost         = (b)         => api.post('/hosts', b);
+export const deleteHost      = (id)        => api.delete(`/hosts/${id}`);
