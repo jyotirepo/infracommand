@@ -103,10 +103,10 @@ pytest tests/ -v
 
 ```bash
 # 1. Build and push images to Nexus
-docker build -t 192.168.1.12:8082/infracommand-backend:1  ./backend
-docker build -t 192.168.1.12:8082/infracommand-frontend:1 ./frontend
-docker push 192.168.1.12:8082/infracommand-backend:1
-docker push 192.168.1.12:8082/infracommand-frontend:1
+docker build -t 192.168.101.80:8082/infracommand-backend:1  ./backend
+docker build -t 192.168.101.80:8082/infracommand-frontend:1 ./frontend
+docker push 192.168.101.80:8082/infracommand-backend:1
+docker push 192.168.101.80:8082/infracommand-frontend:1
 
 # 2. Apply manifests
 kubectl apply -f k8s/00-namespace.yaml
@@ -116,7 +116,7 @@ kubectl apply -f k8s/03-ingress.yaml
 kubectl apply -f k8s/04-hpa.yaml
 
 # 3. Add to /etc/hosts on your machine
-echo "192.168.1.21  infracommand.local" | sudo tee -a /etc/hosts
+echo "192.168.101.80  infracommand.local" | sudo tee -a /etc/hosts
 
 # 4. Open in browser
 # http://infracommand.local
@@ -161,9 +161,9 @@ Interactive Swagger docs: http://infracommand.local/api/docs
 |-----------------------|----------------------------------|
 | InfraCommand App      | http://infracommand.local        |
 | InfraCommand API Docs | http://infracommand.local/api/docs |
-| Jenkins               | http://192.168.1.10:8080         |
-| SonarQube             | http://192.168.1.11:9000         |
-| Nexus UI              | http://192.168.1.12:8081         |
-| Nexus Docker Registry | http://192.168.1.12:8082         |
-| Grafana               | http://192.168.1.30:3000         |
-| Prometheus            | http://192.168.1.30:9090         |
+| Jenkins               | http://192.168.101.80:8080         |
+| SonarQube             | http://192.168.101.80:9000         |
+| Nexus UI              | http://192.168.101.80:8081         |
+| Nexus Docker Registry | http://192.168.101.80:8082         |
+| Grafana               | http://192.168.101.80:3000         |
+| Prometheus            | http://192.168.101.80:9090         |

@@ -12,15 +12,15 @@ pipeline {
         IMAGE_TAG      = "${BUILD_NUMBER}"
 
         // ── Nexus private registry (primary — K8s pulls from here) ───────────
-        NEXUS_REGISTRY = "192.168.1.12:8082"
-        NEXUS_BACKEND  = "192.168.1.12:8082/infracommand-backend"
-        NEXUS_FRONTEND = "192.168.1.12:8082/infracommand-frontend"
+        NEXUS_REGISTRY = "192.168.101.80:8082"
+        NEXUS_BACKEND  = "192.168.101.80:8082/infracommand-backend"
+        NEXUS_FRONTEND = "192.168.101.80:8082/infracommand-frontend"
 
         // ── Kubernetes ────────────────────────────────────────────────────────
         K8S_NAMESPACE  = "infracommand"
 
         // ── Grafana ───────────────────────────────────────────────────────────
-        GRAFANA_URL          = "http://192.168.1.30:3000"
+        GRAFANA_URL          = "http://192.168.101.80:3000"
         GRAFANA_DASHBOARD_ID = "infracommand-cicd"
     }
 
@@ -244,7 +244,7 @@ pipeline {
                 withKubeConfig(
                     credentialsId: 'k8-cred',
                     namespace: 'infracommand',
-                    serverUrl: 'https://192.168.1.20:6443'
+                    serverUrl: 'https://192.168.101.80:6443'
                 ) {
                     withCredentials([usernamePassword(
                         credentialsId: 'nexus-cred',
@@ -295,7 +295,7 @@ pipeline {
                 withKubeConfig(
                     credentialsId: 'k8-cred',
                     namespace: 'infracommand',
-                    serverUrl: 'https://192.168.1.20:6443'
+                    serverUrl: 'https://192.168.101.80:6443'
                 ) {
                     sh "kubectl get pods    -n ${K8S_NAMESPACE}"
                     sh "kubectl get svc     -n ${K8S_NAMESPACE}"
