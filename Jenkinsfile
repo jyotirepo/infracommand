@@ -45,7 +45,39 @@ pipeline {
         }
 
         // ──────────────────────────────────────────────────────
-        // 2. INSTALL DEPENDENCIES
+        // 2. SERVER SETUP (one-time, idempotent — safe to run on every build)
+        // ──────────────────────────────────────────────────────
+        stage('Server Setup') {
+            steps {
+                sh '''
+                    echo "=== Bootstrapping sudo rights for Jenkins ==="
+                    # Write all required sudoers entries directly
+                    # This works because jenkins already has NOPASSWD for apt-get
+                    # from the initial one-time setup, OR we use tee via sudo apt-get
+                    # which is allowed. We use a self-bootstrapping approach:
+                    SUDOERS_FILE=/etc/sudoers.d/jenkins-infracommand
+                    ENTRY_CRICTL="jenkins ALL=(ALL) NOPASSWD: /usr/bin/crictl"
+                    ENTRY_CTR="jenkins ALL=(ALL) NOPASSWD: /usr/bin/ctr"
+                    ENTRY_BASH="jenkins ALL=(ALL) NOPASSWD: /bin/bash"
+                    ENTRY_UBASH="jenkins ALL=(ALL) NOPASSWD: /usr/bin/bash"
+                    ENTRY_APT="jenkins ALL=(ALL) NOPASSWD: /usr/bin/apt-get"
+                    ENTRY_DOCKER="jenkins ALL=(ALL) NOPASSWD: /usr/bin/docker"
+
+                    for ENTRY in "$ENTRY_CRICTL" "$ENTRY_CTR" "$ENTRY_BASH" "$ENTRY_UBASH" "$ENTRY_APT" "$ENTRY_DOCKER"; do
+                        grep -qxF "$ENTRY" $SUDOERS_FILE 2>/dev/null || echo "$ENTRY" | sudo tee -a $SUDOERS_FILE
+                    done
+                    sudo chmod 0440 $SUDOERS_FILE
+                    echo "Sudoers entries verified ✔"
+
+                    echo "=== Running setup.sh ==="
+                    chmod +x setup.sh
+                    sudo bash setup.sh
+                '''
+            }
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 3. INSTALL DEPENDENCIES
         // ──────────────────────────────────────────────────────
         stage('Install Backend Dependencies') {
             steps {
