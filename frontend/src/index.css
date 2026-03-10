@@ -1,0 +1,16 @@
+:root {
+  --bg:#060a0f; --bg2:#0c1219; --bg3:#111920;
+  --border:#1e2d3d; --border2:#243447;
+  --accent:#00d4ff; --green:#00e676; --yellow:#ffd740;
+  --red:#ff4569; --orange:#ff9100; --purple:#9c6bff;
+  --text:#e2eaf4; --text2:#7a99b8; --text3:#4a6685;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'JetBrains Mono','Courier New',monospace;background:var(--bg);color:var(--text);min-height:100vh}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.fade-up{animation:fadeUp .3s ease}
