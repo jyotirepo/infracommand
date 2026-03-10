@@ -27,8 +27,9 @@ spec:
               mountPath: /data
       volumes:
         - name: db-storage
-          persistentVolumeClaim:
-            claimName: infracommand-db-pvc
+          hostPath:
+            path: /opt/infracommand/db
+            type: DirectoryOrCreate
       imagePullSecrets:
         - name: nexus-pull-secret
 ---
@@ -43,15 +44,3 @@ spec:
   ports:
     - port: 5000
       targetPort: 5000
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: infracommand-db-pvc
-  namespace: infracommand
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi

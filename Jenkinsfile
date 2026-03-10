@@ -320,6 +320,11 @@ pipeline {
 
                     sh """
                         kubectl apply -f k8s/00-namespace.yaml
+
+                        # Clean up any stuck PVCs from old deployments
+                        kubectl delete pvc infracommand-db-pvc -n ${K8S_NAMESPACE} --ignore-not-found=true
+                        kubectl delete hpa infracommand-backend-hpa -n ${K8S_NAMESPACE} --ignore-not-found=true
+
                         kubectl apply -f k8s/01-backend.yaml
                         kubectl apply -f k8s/02-frontend.yaml
                         kubectl apply -f k8s/03-ingress.yaml
