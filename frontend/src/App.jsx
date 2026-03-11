@@ -126,10 +126,17 @@ function AddHostModal({onClose,onAdded}) {
     if(!form.name||!form.ip) return setMsg({t:"e",text:"Name and IP required"});
     setBusy(true);setMsg(null);
     try {
-      const r=await api.post("/hosts",{...form,ssh_port:Number(form.ssh_port)});
+      const r=await api.post("/hosts",{...form,ssh_port:Number(form.ssh_port),winrm_port:Number(form.winrm_port)});
       setMsg({t:"ok",text:r.data.message});
-      setTimeout(()=>{onAdded();onClose();},1600);
-    } catch(e){setMsg({t:"e",text:e.response?.data?.detail||"Failed"});}
+      setTimeout(()=>{onAdded();onClose();},2000);
+    } catch(e){
+      // Handle FastAPI 422 (validation), 500, and network errors
+      const detail=e.response?.data?.detail;
+      const errText=Array.isArray(detail)
+        ? detail.map(d=>`${d.loc?.join(".")}: ${d.msg}`).join(", ")
+        : (typeof detail==="string" ? detail : e.message || "Save failed — check browser console");
+      setMsg({t:"e",text:errText});
+    }
     setBusy(false);
   };
   return (

@@ -179,14 +179,36 @@ def add_host(data: HostCreate, db: Session = Depends(get_db)):
     host = {**data.model_dump(), "id":hid, "status":"online",
             "created_at": datetime.now(timezone.utc).isoformat()}
     db_save_host(db, host)
-    # Collect metrics + patch + VMs immediately on add
-    m = _collect_metrics(host);  db_save_metrics(db, hid, m)
-    p = _collect_patch(host);    db_save_patch(db, hid, p)
-    vms = _collect_vms(host);    db_save_vms(db, hid, vms)
+
+    # Each collection step is independent — failure of one never blocks save
+    m = {}
+    try:
+        m = _collect_metrics(host)
+        db_save_metrics(db, hid, m)
+    except Exception as e:
+        m = {"source": "error", "reason": str(e)[:200]}
+        db_save_metrics(db, hid, m)
+
+    p = {}
+    try:
+        p = _collect_patch(host)
+        db_save_patch(db, hid, p)
+    except Exception as e:
+        db_save_patch(db, hid, {"status": "error", "reason": str(e)[:200]})
+
+    vms = []
+    try:
+        vms = _collect_vms(host)
+        db_save_vms(db, hid, vms)
+    except Exception as e:
+        pass  # VM discovery failure is non-fatal
+
     connected = m.get("source") == "live"
-    return {"id":hid, "name":host["name"], "connected":connected, "vms_found": len(vms),
-            "message": f"Connected ✔ — {len(vms)} VMs discovered" if connected
-                       else f"Added (could not connect — {m.get('reason','check credentials')})"}
+    msg = f"Connected ✔ — OS: {m.get('os_info',{}).get('os_pretty','detected')}, {len(vms)} VMs found" \
+          if connected else \
+          f"Host saved. Connection issue: {m.get('reason', 'check credentials/network')}"
+    return {"id": hid, "name": host["name"], "connected": connected,
+            "vms_found": len(vms), "message": msg}
 
 @app.put("/api/hosts/{hid}")
 def update_host(hid: str, data: HostUpdate, db: Session = Depends(get_db)):
@@ -205,15 +227,33 @@ def delete_host(hid: str, db: Session = Depends(get_db)):
 # ── User-triggered refresh (explicit only) ────────────────────────────────────
 @app.post("/api/hosts/{hid}/refresh")
 def refresh_host(hid: str, db: Session = Depends(get_db)):
-    """Collect fresh metrics + patch + VMs for this host. Called only on user action."""
+    """Collect fresh metrics + patch + VMs. Each step independent — never fails whole request."""
     h = db_get_host(db, hid)
-    if not h: raise HTTPException(404,"Host not found")
-    m    = _collect_metrics(h);  db_save_metrics(db, hid, m)
-    p    = _collect_patch(h);    db_save_patch(db, hid, p)
-    vms  = _collect_vms(h);      db_save_vms(db, hid, vms)
-    return {"status":"ok", "source":m.get("source"), "vms":len(vms),
-            "os": m.get("os_info",{}).get("os_pretty",""),
-            "message": f"Refreshed — {len(vms)} VMs found, source: {m.get('source')}"}
+    if not h: raise HTTPException(404, "Host not found")
+
+    m = {}
+    try:
+        m = _collect_metrics(h); db_save_metrics(db, hid, m)
+    except Exception as e:
+        m = {"source": "error", "reason": str(e)[:200]}
+        db_save_metrics(db, hid, m)
+
+    try:
+        p = _collect_patch(h); db_save_patch(db, hid, p)
+    except Exception as e:
+        db_save_patch(db, hid, {"status": "error", "reason": str(e)[:200]})
+
+    vms = []
+    try:
+        vms = _collect_vms(h); db_save_vms(db, hid, vms)
+    except Exception as e:
+        pass
+
+    src = m.get("source", "error")
+    os_name = m.get("os_info", {}).get("os_pretty", "")
+    return {"status": "ok", "source": src, "vms": len(vms), "os": os_name,
+            "message": f"Refreshed — {os_name or src}, {len(vms)} VMs" if src=="live"
+                       else f"Connection error: {m.get('reason','check host')}"}
 
 @app.get("/api/hosts/{hid}/metrics")
 def get_metrics(hid: str, db: Session = Depends(get_db)):
