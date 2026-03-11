@@ -1107,11 +1107,7 @@ function DebugConsole() {
                 if(s.step.startsWith("TCP")) hint=`Port unreachable — check firewall, confirm the IP is correct, and that SSH/WinRM is running. Run: nc -zv ${result.ip} ${form.os_type==="linux"?form.ssh_port:form.winrm_port}`;
                 else if(s.step==="SSH") hint="Auth failed — verify username/password. If key auth, ensure the key is correct. Try: ssh "+form.username+"@"+result.ip;
                 else if(s.step.startsWith("WinRM")) {
-                  hint="WinRM failed. On the Windows host run:
-  winrm quickconfig
-  winrm set winrm/config/service/auth @{Basic="true"}
-  winrm set winrm/config/service @{AllowUnencrypted="true"}
-  netsh advfirewall firewall add rule name=WinRM dir=in action=allow protocol=TCP localport=5985";
+                  hint="WinRM failed. On the Windows host run (PowerShell as Admin):\n  winrm quickconfig\n  winrm set winrm/config/service/auth @{Basic=\"true\"}\n  winrm set winrm/config/service @{AllowUnencrypted=\"true\"}\n  netsh advfirewall firewall add rule name=WinRM dir=in action=allow protocol=TCP localport=5985";
                 }
                 else if(s.step==="Metrics") hint="SSH connected but metrics collection failed — likely a missing command. Check if top/free/df are available.";
                 return hint?<div key={i} style={{marginBottom:8}}>
