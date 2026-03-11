@@ -69,12 +69,25 @@ def get_db():
 
 # ── Helper CRUD ──────────────────────────────────────────────────────────────
 def db_save_host(db: Session, host: dict):
-    existing = db.get(HostModel, host["id"])
+    # Normalize created_at: column is DateTime, dict may have ISO string
+    clean = {}
+    for k, v in host.items():
+        if k == "created_at" and isinstance(v, str):
+            try:
+                from datetime import datetime, timezone
+                clean[k] = datetime.fromisoformat(v.replace("Z", "+00:00"))
+            except Exception:
+                clean[k] = datetime.now(timezone.utc)
+        else:
+            clean[k] = v
+
+    existing = db.get(HostModel, clean["id"])
     if existing:
-        for k, v in host.items():
-            if hasattr(existing, k): setattr(existing, k, v)
+        for k, v in clean.items():
+            if hasattr(existing, k):
+                setattr(existing, k, v)
     else:
-        db.add(HostModel(**{k: v for k, v in host.items() if hasattr(HostModel, k)}))
+        db.add(HostModel(**{k: v for k, v in clean.items() if hasattr(HostModel, k)}))
     db.commit()
 
 def db_get_hosts(db: Session) -> list:

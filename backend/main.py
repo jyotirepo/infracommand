@@ -176,9 +176,12 @@ def get_host(hid: str, db: Session = Depends(get_db)):
 @app.post("/api/hosts", status_code=201)
 def add_host(data: HostCreate, db: Session = Depends(get_db)):
     hid  = f"h{uuid.uuid4().hex[:8]}"
-    host = {**data.model_dump(), "id":hid, "status":"online",
+    host = {**data.model_dump(), "id": hid, "status": "online",
             "created_at": datetime.now(timezone.utc).isoformat()}
-    db_save_host(db, host)
+    try:
+        db_save_host(db, host)
+    except Exception as e:
+        raise HTTPException(400, f"Database error saving host: {str(e)[:300]}")
 
     # Each collection step is independent — failure of one never blocks save
     m = {}

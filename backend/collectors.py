@@ -30,9 +30,16 @@ def ssh_connect(host: dict) -> paramiko.SSHClient:
     return c
 
 
-def run(c, cmd: str) -> str:
-    _, out, _ = c.exec_command(cmd, timeout=20)
+def run(c, cmd: str, timeout: int = 30) -> str:
+    _, out, _ = c.exec_command(cmd, timeout=timeout)
     return out.read().decode(errors="ignore").strip()
+
+
+def run_tolerant(c, cmd: str, timeout: int = 60) -> str:
+    """Like run() but also reads stderr and never raises on non-zero exit."""
+    _, out, err = c.exec_command(cmd, timeout=timeout)
+    stdout = out.read().decode(errors="ignore").strip()
+    return stdout  # yum exits 100 when updates exist - we only need stdout
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -232,6 +239,8 @@ def collect_linux_patch(host: dict) -> dict:
         try:
             os_i    = detect_os(c)
             pkg_mgr = run(c, "which apt-get dnf yum zypper 2>/dev/null | head -1")
+            updates = security = "0"
+            latest_k = last_p = "N/A"
             if "apt" in pkg_mgr:
                 updates  = run(c, "apt list --upgradable 2>/dev/null | grep -vc 'Listing' || echo 0")
                 security = run(c, "apt list --upgradable 2>/dev/null | grep -c security 2>/dev/null || echo 0")
@@ -239,16 +248,15 @@ def collect_linux_patch(host: dict) -> dict:
                 last_p   = run(c, r"awk '/install|upgrade/{print $1;exit}' /var/log/dpkg.log 2>/dev/null || echo N/A")
             elif any(x in pkg_mgr for x in ["dnf", "yum"]):
                 mgr = "dnf" if "dnf" in pkg_mgr else "yum"
-                updates  = run(c, f"{mgr} check-update 2>/dev/null | grep -c '^[a-zA-Z]' || echo 0")
-                security = run(c, f"{mgr} updateinfo list security 2>/dev/null | grep -c 'Important\\|Critical' || echo 0")
-                latest_k = run(c, f"{mgr} info kernel 2>/dev/null | awk '/Version/{{print $3}}' | tail -1 || echo N/A")
+                # yum check-update exits 100 when updates exist — that's normal, not an error
+                updates  = run_tolerant(c, f"{mgr} check-update 2>/dev/null | grep -c '^[a-zA-Z]' || echo 0", timeout=90)
+                security = run_tolerant(c, f"{mgr} updateinfo list security 2>/dev/null | grep -c 'Important\\|Critical' || echo 0", timeout=60)
+                latest_k = run(c, "rpm -q --last kernel 2>/dev/null | head -1 | awk '{print $1}' | sed 's/kernel-//' || echo N/A")
                 last_p   = run(c, "rpm -qa --last 2>/dev/null | head -1 | awk '{print $2,$3,$4}' || echo N/A")
             elif "zypper" in pkg_mgr:
                 updates  = run(c, "zypper lu 2>/dev/null | grep -c '|' || echo 0")
                 security = run(c, "zypper lp 2>/dev/null | grep -c security || echo 0")
                 latest_k = "N/A"; last_p = "N/A"
-            else:
-                updates = security = "0"; latest_k = last_p = "N/A"
         finally:
             c.close()
 
