@@ -109,6 +109,19 @@ function AddHostModal({onClose,onAdded}) {
   const [busy,setBusy]=useState(false);
   const [msg,setMsg]=useState(null);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const [testResult,setTestResult]=useState(null);
+  const [testing,setTesting]=useState(false);
+
+  const testConn=async()=>{
+    if(!form.ip) return setMsg({t:"e",text:"Enter IP address first"});
+    setTesting(true);setTestResult(null);setMsg(null);
+    try {
+      const r=await api.post("/test-connection",{...form,ssh_port:Number(form.ssh_port),name:form.name||"test"});
+      setTestResult(r.data);
+    } catch(e){setTestResult({status:"fail",error:e.response?.data?.detail||"Request failed",steps:[]});}
+    setTesting(false);
+  };
+
   const submit=async()=>{
     if(!form.name||!form.ip) return setMsg({t:"e",text:"Name and IP required"});
     setBusy(true);setMsg(null);
@@ -154,12 +167,34 @@ function AddHostModal({onClose,onAdded}) {
             :<div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>SSH Private Key</label>
                <textarea rows={5} value={form.ssh_key} onChange={e=>set("ssh_key",e.target.value)} placeholder={"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"}/></div>}
         </div>
+        {testResult&&(
+          <div style={{marginTop:12,padding:"10px 14px",borderRadius:8,fontSize:12,
+            background:testResult.status==="ok"?"#f0fdf4":"#fff7ed",
+            border:`1px solid ${testResult.status==="ok"?"#bbf7d0":"#fed7aa"}`}}>
+            <div style={{fontWeight:700,marginBottom:8,color:testResult.status==="ok"?T.green:T.amber}}>
+              {testResult.status==="ok"?"✅ Connection Successful":"⚠ Connection Diagnostics"}
+            </div>
+            {testResult.steps?.map((s,i)=>(
+              <div key={i} style={{display:"flex",gap:8,marginBottom:4,alignItems:"flex-start"}}>
+                <span style={{color:s.status==="ok"?T.green:T.red,flexShrink:0}}>{s.status==="ok"?"✔":"✗"}</span>
+                <span style={{color:T.sub,minWidth:120,flexShrink:0}}>{s.step}</span>
+                <span style={{color:s.status==="ok"?T.text:T.red}}>{s.msg}</span>
+              </div>
+            ))}
+            {testResult.error&&<div style={{marginTop:6,color:T.red,fontWeight:600}}>{testResult.error}</div>}
+            {testResult.os&&<div style={{marginTop:6,color:T.green}}>OS: {testResult.os.os_pretty}</div>}
+          </div>
+        )}
         {msg&&<div style={{marginTop:12,padding:"9px 13px",borderRadius:7,fontSize:12,
           background:msg.t==="ok"?"#dcfce7":"#fee2e2",color:msg.t==="ok"?"#166534":"#991b1b"}}>{msg.text}</div>}
-        <div style={{display:"flex",gap:8,marginTop:20,justifyContent:"flex-end"}}>
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={submit} disabled={busy}>
-            {busy?<><span className="spinner"/>Connecting...</>:"Connect Host"}</button>
+        <div style={{display:"flex",gap:8,marginTop:20,justifyContent:"space-between",alignItems:"center"}}>
+          <button className="btn btn-ghost" onClick={testConn} disabled={testing}>
+            {testing?<><span className="spinner"/>Testing...</>:"🔌 Test Connection"}</button>
+          <div style={{display:"flex",gap:8}}>
+            <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+            <button className="btn btn-primary" onClick={submit} disabled={busy}>
+              {busy?<><span className="spinner"/>Connecting...</>:"Save & Connect"}</button>
+          </div>
         </div>
       </div>
     </div>

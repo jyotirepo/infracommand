@@ -54,8 +54,88 @@ def _collect_vms(host: dict) -> list:
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
-@app.get("/api/health")
-def health():
+@app.post("/api/test-connection")
+def test_connection(data: HostCreate):
+    """Test SSH/WinRM connectivity before saving. Returns detailed error info."""
+    host = data.model_dump()
+    host["id"] = "test"
+    import socket, time
+    result = {"ip": host["ip"], "steps": []}
+
+    # Step 1: basic TCP reachability
+    port = host.get("winrm_port", 5985) if host["os_type"] == "windows" else host.get("ssh_port", 22)
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(5)
+        t = time.time()
+        rc = s.connect_ex((host["ip"], port))
+        s.close()
+        elapsed = round(time.time()-t, 2)
+        if rc == 0:
+            result["steps"].append({"step": f"TCP :{port}", "status": "ok", "msg": f"Port open ({elapsed}s)"})
+        else:
+            result["steps"].append({"step": f"TCP :{port}", "status": "fail", "msg": f"Port {port} refused/unreachable (err {rc})"})
+            result["status"] = "fail"
+            result["error"]  = f"Cannot reach {host['ip']}:{port} — check firewall or IP"
+            return result
+    except Exception as e:
+        result["steps"].append({"step": f"TCP :{port}", "status": "fail", "msg": str(e)})
+        result["status"] = "fail"
+        result["error"]  = f"Network error: {e}"
+        return result
+
+    # Step 2: auth
+    if host["os_type"] == "linux":
+        try:
+            from collectors import ssh_connect, run, detect_os
+            c = ssh_connect(host)
+            result["steps"].append({"step": "SSH Auth", "status": "ok", "msg": f"Logged in as {host['username']}"})
+            os_info = detect_os(c)
+            result["steps"].append({"step": "OS Detect", "status": "ok", "msg": os_info.get("os_pretty","detected")})
+            whoami = run(c, "whoami")
+            id_out = run(c, "id")
+            result["steps"].append({"step": "Permissions", "status": "ok", "msg": f"whoami={whoami} | {id_out[:80]}"})
+            c.close()
+            result["status"] = "ok"
+            result["os"] = os_info
+        except Exception as e:
+            result["steps"].append({"step": "SSH Auth", "status": "fail", "msg": str(e)})
+            result["status"] = "fail"
+            result["error"]  = f"SSH failed: {e}"
+    else:
+        try:
+            import winrm
+            for transport in ["ntlm", "basic"]:
+                try:
+                    s = winrm.Session(
+                        f"http://{host['ip']}:{host.get('winrm_port',5985)}/wsman",
+                        auth=(host["username"], host.get("password","")),
+                        transport=transport,
+                    )
+                    r = s.run_cmd("whoami")
+                    if r.status_code == 0:
+                        result["steps"].append({"step": f"WinRM ({transport})", "status": "ok",
+                                                "msg": r.std_out.decode().strip()[:80]})
+                        r2 = s.run_ps("(Get-WmiObject Win32_OperatingSystem).Caption")
+                        os_name = r2.std_out.decode().strip() if r2.status_code==0 else "Windows"
+                        result["steps"].append({"step": "OS Detect", "status": "ok", "msg": os_name})
+                        result["status"] = "ok"
+                        result["os"] = {"os_pretty": os_name}
+                        break
+                    else:
+                        result["steps"].append({"step": f"WinRM ({transport})", "status": "fail",
+                                                "msg": r.std_err.decode().strip()[:120]})
+                except Exception as e2:
+                    result["steps"].append({"step": f"WinRM ({transport})", "status": "fail", "msg": str(e2)[:120]})
+            if "status" not in result:
+                result["status"] = "fail"
+                result["error"] = "All WinRM transports failed — check WinRM enabled and credentials"
+        except Exception as e:
+            result["status"] = "fail"
+            result["error"] = f"WinRM error: {e}"
+    return result
+
+
     return {"status":"ok","ts":datetime.now(timezone.utc).isoformat()}
 
 @app.get("/api/summary")
