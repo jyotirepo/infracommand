@@ -985,9 +985,152 @@ function Logs({hosts}) {
   );
 }
 
+
+// ── Debug Console ─────────────────────────────────────────────────────────────
+function DebugConsole() {
+  const [form,setForm]=useState({ip:"",os_type:"linux",username:"root",password:"",
+    ssh_port:22,winrm_port:5985,auth_type:"password",name:"debug",ssh_key:""});
+  const [result,setResult]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  const run=async()=>{
+    if(!form.ip) return;
+    setBusy(true);setResult(null);
+    try {
+      const r=await api.post("/debug/connect",{...form,ssh_port:Number(form.ssh_port),winrm_port:Number(form.winrm_port)});
+      setResult(r.data);
+    } catch(e){
+      setResult({error: e.response?.data?.detail||e.message, steps:[]});
+    }
+    setBusy(false);
+  };
+
+  const [winrmSetup,setWinrmSetup]=useState(null);
+  const loadWinrmSetup=async()=>{
+    try{const r=await api.get("/winrm-setup");setWinrmSetup(r.data);}catch(e){}
+  };
+
+  const stepColor=ok=>ok?T.green:T.red;
+  const stepIcon=ok=>ok?"✔":"✗";
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14,maxWidth:900}}>
+      <div style={{fontWeight:700,fontSize:15}}>Connection Debug Console</div>
+      <div style={{fontSize:12,color:T.muted}}>
+        Tests TCP → Auth → OS detect → Metrics → Patch → VMs step by step and shows exact error at each stage.
+      </div>
+
+      <div className="card shadow" style={{padding:18}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+          {[["IP Address","ip","text","192.168.1.100"],["Username","username","text","root"]].map(([l,k,t,p])=>(
+            <div key={k}><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>{l}</label>
+              <input type={t} value={form[k]} onChange={e=>set(k,e.target.value)} placeholder={p}/></div>
+          ))}
+          <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>OS Type</label>
+            <select value={form.os_type} onChange={e=>set("os_type",e.target.value)}>
+              <option value="linux">🐧 Linux</option>
+              <option value="windows">🪟 Windows</option>
+            </select></div>
+          <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>
+            {form.os_type==="linux"?"SSH Port":"WinRM Port"}</label>
+            <input type="number" value={form.os_type==="linux"?form.ssh_port:form.winrm_port}
+              onChange={e=>set(form.os_type==="linux"?"ssh_port":"winrm_port",e.target.value)}/></div>
+          <div style={{gridColumn:"1/-1"}}>
+            <label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>Password</label>
+            <input type="password" value={form.password} onChange={e=>set("password",e.target.value)}/></div>
+        </div>
+        <button className="btn btn-primary" onClick={run} disabled={busy||!form.ip}>
+          {busy?<><span className="spinner"/>Running diagnostics...</>:"▶ Run Full Diagnostics"}</button>
+      </div>
+
+      {result&&(
+        <div className="card shadow" style={{padding:18}}>
+          <div style={{fontWeight:700,fontSize:14,marginBottom:14}}>
+            Diagnostic Results — {result.ip}
+            {result.error&&!result.steps?.length&&(
+              <span style={{color:T.red,fontWeight:400,fontSize:12,marginLeft:10}}>{result.error}</span>
+            )}
+          </div>
+
+          {/* Steps */}
+          {result.steps?.map((s,i)=>(
+            <div key={i} style={{marginBottom:12,padding:"10px 14px",borderRadius:8,
+              background:s.ok?"#f0fdf4":"#fff5f5",border:`1px solid ${s.ok?"#bbf7d0":"#fecaca"}`}}>
+              <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:s.detail?6:0}}>
+                <span style={{color:stepColor(s.ok),fontSize:16,fontWeight:700}}>{stepIcon(s.ok)}</span>
+                <span style={{fontWeight:700,minWidth:120}}>{s.step}</span>
+                <span className="badge" style={{background:s.ok?"#dcfce7":"#fee2e2",color:s.ok?T.green:T.red}}>
+                  {s.ok?"PASS":"FAIL"}</span>
+              </div>
+              {s.detail&&(
+                <pre style={{fontSize:10,color:s.ok?T.sub:T.red,fontFamily:"IBM Plex Mono",
+                  background:s.ok?"#f8fafc":"#fff0f0",padding:"6px 10px",borderRadius:6,
+                  overflowX:"auto",whiteSpace:"pre-wrap",wordBreak:"break-all",margin:0}}>
+                  {s.detail}
+                </pre>
+              )}
+            </div>
+          ))}
+
+          {/* Top-level error */}
+          {result.error&&result.steps?.length>0&&(
+            <div style={{padding:"10px 14px",borderRadius:8,background:"#fff5f5",
+              border:"1px solid #fecaca",color:T.red,fontSize:12}}>
+              <strong>Final error:</strong> {result.error}
+            </div>
+          )}
+
+          {/* WinRM setup for Windows */}
+          {form.os_type==="windows" && result?.steps?.some(s=>!s.ok && s.step.startsWith("WinRM")) && (
+            <div style={{marginTop:14,padding:"14px 16px",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8}}>
+              <div style={{fontWeight:700,marginBottom:10,color:T.blue}}>🪟 WinRM Setup Required</div>
+              {!winrmSetup
+                ?<button className="btn btn-ghost btn-sm" onClick={loadWinrmSetup}>Show setup commands</button>
+                :<div>
+                  <div style={{fontSize:11,color:T.muted,marginBottom:8}}>{winrmSetup.note}</div>
+                  <pre style={{background:"#1e293b",color:"#e2e8f0",padding:"12px 14px",borderRadius:8,
+                    fontSize:11,fontFamily:"IBM Plex Mono",overflowX:"auto",whiteSpace:"pre"}}>
+{winrmSetup.commands?.join("\n")}
+                  </pre>
+                </div>}
+            </div>
+          )}
+
+          {/* Remediation hints */}
+          {result.steps?.some(s=>!s.ok)&&(
+            <div style={{marginTop:14,padding:"12px 16px",background:"#fffbeb",
+              border:"1px solid #fde68a",borderRadius:8,fontSize:12}}>
+              <div style={{fontWeight:700,marginBottom:8,color:T.amber}}>💡 Remediation hints</div>
+              {result.steps.filter(s=>!s.ok).map((s,i)=>{
+                let hint="";
+                if(s.step.startsWith("TCP")) hint=`Port unreachable — check firewall, confirm the IP is correct, and that SSH/WinRM is running. Run: nc -zv ${result.ip} ${form.os_type==="linux"?form.ssh_port:form.winrm_port}`;
+                else if(s.step==="SSH") hint="Auth failed — verify username/password. If key auth, ensure the key is correct. Try: ssh "+form.username+"@"+result.ip;
+                else if(s.step.startsWith("WinRM")) {
+                  hint="WinRM failed. On the Windows host run:
+  winrm quickconfig
+  winrm set winrm/config/service/auth @{Basic="true"}
+  winrm set winrm/config/service @{AllowUnencrypted="true"}
+  netsh advfirewall firewall add rule name=WinRM dir=in action=allow protocol=TCP localport=5985";
+                }
+                else if(s.step==="Metrics") hint="SSH connected but metrics collection failed — likely a missing command. Check if top/free/df are available.";
+                return hint?<div key={i} style={{marginBottom:8}}>
+                  <span style={{fontWeight:600,color:T.amber}}>{s.step}: </span>
+                  <pre style={{display:"inline",fontFamily:"inherit",whiteSpace:"pre-wrap"}}>{hint}</pre>
+                </div>:null;
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── App Shell ─────────────────────────────────────────────────────────────────
 const VIEWS=[{id:"overview",icon:"📊",label:"Overview"},{id:"infra",icon:"🖧",label:"Infrastructure"},
-             {id:"logs",icon:"📋",label:"Logs"},{id:"alerts",icon:"🔔",label:"Alerts"},{id:"patches",icon:"🔧",label:"Patches"}];
+             {id:"logs",icon:"📋",label:"Logs"},{id:"alerts",icon:"🔔",label:"Alerts"},
+             {id:"patches",icon:"🔧",label:"Patches"},{id:"debug",icon:"🛠",label:"Debug"}];
 
 export default function App() {
   const [view,setView]=useState("overview");
@@ -1049,6 +1192,7 @@ export default function App() {
             {view==="logs"     && <Logs hosts={hosts}/>}
             {view==="alerts"   && <Alerts/>}
             {view==="patches"  && <Patches/>}
+            {view==="debug"    && <DebugConsole/>}
           </div>
         </div>
       </div>

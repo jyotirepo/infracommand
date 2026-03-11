@@ -400,3 +400,106 @@ def get_all_scans(db: Session = Depends(get_db)):
             vs=db_get_scan(db, vm["id"])
             if vs: results.append(vs)
     return results
+
+# ── Debug endpoint — shows raw exception for any host operation ───────────────
+
+@app.get("/api/winrm-setup")
+def winrm_setup():
+    cmd1 = 'winrm set winrm/config/service/auth @{Basic="true"}'
+    cmd2 = 'winrm set winrm/config/service @{AllowUnencrypted="true"}'
+    cmd3 = 'winrm set winrm/config/winrs @{MaxMemoryPerShellMB="512"}'
+    return {
+        "commands": [
+            "# Run in PowerShell as Administrator:",
+            "winrm quickconfig -q",
+            cmd1, cmd2, cmd3,
+            "Set-Item WSMan:\\localhost\\Service\\Auth\\Basic -Value $true",
+            "Set-Item WSMan:\\localhost\\Service\\AllowUnencrypted -Value $true",
+            "netsh advfirewall firewall add rule name=WinRM-HTTP dir=in action=allow protocol=TCP localport=5985",
+            "Restart-Service WinRM",
+        ],
+        "note": "Use username=Administrator and Windows password. Port 5985 must be reachable from K8s node."
+    }
+
+@app.post("/api/debug/connect")
+def debug_connect(data: HostCreate):
+    """Full debug: returns every exception with full traceback"""
+    import traceback, socket, time
+    host = {**data.model_dump(), "id": "debug"}
+    out  = {"ip": host["ip"], "os_type": host["os_type"], "username": host["username"], "steps": []}
+
+    # TCP check
+    port = host.get("winrm_port", 5985) if host["os_type"]=="windows" else host.get("ssh_port", 22)
+    try:
+        s = socket.socket(); s.settimeout(5)
+        rc = s.connect_ex((host["ip"], port)); s.close()
+        out["steps"].append({"step": f"TCP:{port}", "ok": rc==0, "detail": f"rc={rc}"})
+        if rc != 0:
+            out["error"] = f"TCP port {port} unreachable on {host['ip']} — rc={rc}"
+            return out
+    except Exception as e:
+        out["steps"].append({"step": f"TCP:{port}", "ok": False, "detail": str(e)})
+        out["error"] = str(e); return out
+
+    if host["os_type"] == "linux":
+        # SSH
+        try:
+            from collectors import ssh_connect, run, detect_os
+            c = ssh_connect(host)
+            out["steps"].append({"step": "SSH", "ok": True, "detail": "connected"})
+            try:
+                os_i = detect_os(c)
+                out["steps"].append({"step": "OS", "ok": True, "detail": str(os_i)})
+            except Exception as e:
+                out["steps"].append({"step": "OS", "ok": False, "detail": traceback.format_exc()})
+            try:
+                from collectors import collect_linux_metrics
+                m = collect_linux_metrics(host)
+                out["steps"].append({"step": "Metrics", "ok": m.get("source")=="live", "detail": str(m)[:300]})
+            except Exception as e:
+                out["steps"].append({"step": "Metrics", "ok": False, "detail": traceback.format_exc()})
+            try:
+                from collectors import collect_linux_patch
+                p = collect_linux_patch(host)
+                out["steps"].append({"step": "Patch", "ok": True, "detail": str(p)[:300]})
+            except Exception as e:
+                out["steps"].append({"step": "Patch", "ok": False, "detail": traceback.format_exc()})
+            try:
+                from collectors import collect_kvm_vms
+                vms = collect_kvm_vms(host)
+                out["steps"].append({"step": "VMs", "ok": True, "detail": f"{len(vms)} VMs: {[v['name'] for v in vms]}"})
+            except Exception as e:
+                out["steps"].append({"step": "VMs", "ok": False, "detail": traceback.format_exc()})
+            c.close()
+        except Exception as e:
+            out["steps"].append({"step": "SSH", "ok": False, "detail": traceback.format_exc()})
+            out["error"] = str(e)
+    else:
+        # WinRM
+        try:
+            import winrm
+            for transport in ["ntlm", "basic"]:
+                try:
+                    s = winrm.Session(
+                        f"http://{host['ip']}:{host.get('winrm_port',5985)}/wsman",
+                        auth=(host["username"], host.get("password","")),
+                        transport=transport,
+                    )
+                    r = s.run_cmd("whoami")
+                    out["steps"].append({"step": f"WinRM-{transport}", "ok": r.status_code==0,
+                        "detail": r.std_out.decode().strip() or r.std_err.decode().strip()})
+                    if r.status_code == 0:
+                        r2 = s.run_ps("(Get-WmiObject Win32_OperatingSystem).Caption")
+                        out["steps"].append({"step": "OS", "ok": True, "detail": r2.std_out.decode().strip()})
+                        try:
+                            from collectors import collect_windows_metrics
+                            m = collect_windows_metrics(host)
+                            out["steps"].append({"step": "Metrics", "ok": m.get("source")=="live", "detail": str(m)[:300]})
+                        except Exception as e:
+                            out["steps"].append({"step": "Metrics", "ok": False, "detail": traceback.format_exc()})
+                        break
+                except Exception as e2:
+                    out["steps"].append({"step": f"WinRM-{transport}", "ok": False, "detail": traceback.format_exc()})
+        except Exception as e:
+            out["error"] = traceback.format_exc()
+    return out
