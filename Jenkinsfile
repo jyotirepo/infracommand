@@ -328,7 +328,7 @@ pipeline {
                         kubectl apply -f k8s/01-backend.yaml
                         kubectl apply -f k8s/02-frontend.yaml
                         kubectl apply -f k8s/03-ingress.yaml
-                        kubectl apply -f k8s/04-hpa.yaml
+                        # HPA disabled for single-node — kubectl apply -f k8s/04-hpa.yaml
                     """
 
                     sh """

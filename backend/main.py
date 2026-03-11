@@ -76,8 +76,11 @@ def get_hosts(db: Session = Depends(get_db)):
     hosts = db_get_hosts(db)
     result = []
     for h in hosts:
-        m = db_get_metrics(db, h["id"]) or {}
-        result.append({**h, "metrics": m, "password":"***", "ssh_key":"***" if h.get("ssh_key") else None})
+        m    = db_get_metrics(db, h["id"]) or {}
+        vms  = db_get_vms(db, h["id"])
+        patch = db_get_patch(db, h["id"]) or {}
+        result.append({**h, "metrics": m, "vms": vms, "patch": patch,
+                       "password":"***", "ssh_key":"***" if h.get("ssh_key") else None})
     return result
 
 @app.get("/api/hosts/{hid}")
@@ -96,14 +99,14 @@ def add_host(data: HostCreate, db: Session = Depends(get_db)):
     host = {**data.model_dump(), "id":hid, "status":"online",
             "created_at": datetime.now(timezone.utc).isoformat()}
     db_save_host(db, host)
-    # Immediately collect metrics + patch on add
-    m = _collect_metrics(host)
-    db_save_metrics(db, hid, m)
-    p = _collect_patch(host)
-    db_save_patch(db, hid, p)
+    # Collect metrics + patch + VMs immediately on add
+    m = _collect_metrics(host);  db_save_metrics(db, hid, m)
+    p = _collect_patch(host);    db_save_patch(db, hid, p)
+    vms = _collect_vms(host);    db_save_vms(db, hid, vms)
     connected = m.get("source") == "live"
-    return {"id":hid, "name":host["name"], "connected":connected,
-            "message": "Connected ✔" if connected else f"Added (could not connect — {m.get('reason','check credentials')})"}
+    return {"id":hid, "name":host["name"], "connected":connected, "vms_found": len(vms),
+            "message": f"Connected ✔ — {len(vms)} VMs discovered" if connected
+                       else f"Added (could not connect — {m.get('reason','check credentials')})"}
 
 @app.put("/api/hosts/{hid}")
 def update_host(hid: str, data: HostUpdate, db: Session = Depends(get_db)):
