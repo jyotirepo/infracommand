@@ -41,6 +41,90 @@ def run_tolerant(c, cmd: str, timeout: int = 60) -> str:
     stdout = out.read().decode(errors="ignore").strip()
     return stdout  # yum exits 100 when updates exist - we only need stdout
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Linux NIC collection
+# ─────────────────────────────────────────────────────────────────────────────
+
+def collect_linux_nics(c) -> list:
+    """Collect all NICs with IP, speed, and per-interface TX/RX bytes."""
+    nics = []
+    # Get interface list with IPs
+    ip_out = run(c, "ip -o addr show 2>/dev/null | awk '{print $2,$3,$4}'")
+    iface_ips = {}
+    for line in ip_out.splitlines():
+        parts = line.split()
+        if len(parts) >= 3:
+            iface = parts[0].rstrip(":")
+            family = parts[1]  # inet or inet6
+            addr = parts[2].split("/")[0]
+            if iface not in iface_ips:
+                iface_ips[iface] = []
+            iface_ips[iface].append({"family": family, "addr": addr})
+
+    # Get link state and speed
+    link_out = run(c, "ip -o link show 2>/dev/null")
+    link_states = {}
+    for line in link_out.splitlines():
+        parts = line.split()
+        if len(parts) >= 3:
+            iface = parts[1].rstrip(":")
+            state = "up" if "UP" in line and "LOWER_UP" in line else "down"
+            link_states[iface] = state
+
+    # Get per-interface stats from /proc/net/dev
+    dev_out = run(c, "cat /proc/net/dev 2>/dev/null")
+    dev_stats = {}
+    for line in dev_out.splitlines()[2:]:
+        if ":" not in line:
+            continue
+        iface, stats = line.split(":", 1)
+        iface = iface.strip()
+        vals = stats.split()
+        if len(vals) >= 9:
+            try:
+                dev_stats[iface] = {
+                    "rx_mb": round(int(vals[0]) / 1024 / 1024, 2),
+                    "tx_mb": round(int(vals[8]) / 1024 / 1024, 2),
+                    "rx_pkts": int(vals[1]),
+                    "tx_pkts": int(vals[9]),
+                    "rx_err": int(vals[2]),
+                    "tx_err": int(vals[10]),
+                }
+            except Exception:
+                pass
+
+    # Get speed for each interface
+    for iface in set(list(iface_ips.keys()) + list(dev_stats.keys())):
+        if iface in ("lo",):
+            continue
+        speed_raw = run(c, f"cat /sys/class/net/{iface}/speed 2>/dev/null || echo 0")
+        try:
+            speed = int(speed_raw)
+        except Exception:
+            speed = 0
+        mac = run(c, f"cat /sys/class/net/{iface}/address 2>/dev/null || echo N/A")
+        stats = dev_stats.get(iface, {"rx_mb": 0, "tx_mb": 0, "rx_pkts": 0, "tx_pkts": 0, "rx_err": 0, "tx_err": 0})
+        ips = iface_ips.get(iface, [])
+        ipv4 = next((x["addr"] for x in ips if x["family"] == "inet"), "")
+        ipv6 = next((x["addr"] for x in ips if x["family"] == "inet6"), "")
+        nics.append({
+            "name":    iface,
+            "mac":     mac,
+            "state":   link_states.get(iface, "unknown"),
+            "speed_mbps": speed if speed > 0 else None,
+            "ipv4":    ipv4,
+            "ipv6":    ipv6,
+            "rx_mb":   stats["rx_mb"],
+            "tx_mb":   stats["tx_mb"],
+            "rx_pkts": stats["rx_pkts"],
+            "tx_pkts": stats["tx_pkts"],
+            "rx_err":  stats["rx_err"],
+            "tx_err":  stats["tx_err"],
+        })
+    return sorted(nics, key=lambda x: x["name"])
+
+
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OS detection
@@ -200,6 +284,7 @@ def collect_linux_metrics(host: dict) -> dict:
             os_i    = detect_os(c)
             storage = collect_linux_storage(c)
             active_ports = collect_linux_ports(c)
+            nics    = collect_linux_nics(c)
         finally:
             c.close()
 
@@ -221,6 +306,7 @@ def collect_linux_metrics(host: dict) -> dict:
             "os_info":  os_i,
             "storage":  storage,
             "active_ports": active_ports,
+            "nics":     nics,
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "source":   "live",
         }
@@ -305,9 +391,29 @@ def collect_kvm_vms(host: dict) -> list:
                     if "Max memory" in l:
                         try: ram_mb = int(l.split(":")[1].strip().split()[0]) // 1024
                         except Exception: pass
-                # IP
+                # IP - try multiple methods
                 ip_raw = run(c, f"virsh domifaddr {vname} 2>/dev/null | awk 'NR>2{{print $4}}' | cut -d/ -f1 | head -1")
-                vm_ip = ip_raw or "N/A"
+                if not ip_raw or ip_raw == "-":
+                    # Try arp table lookup by VM MAC
+                    mac = run(c, f"virsh domiflist {vname} 2>/dev/null | awk 'NR>2{{print $5}}' | head -1")
+                    if mac:
+                        ip_raw = run(c, f"arp -n 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}' | head -1")
+                if not ip_raw or ip_raw == "-":
+                    # Try agent
+                    ip_raw = run(c, f"virsh qemu-agent-command {vname} '{{\"execute\":\"guest-network-get-interfaces\"}}' 2>/dev/null | python3 -c \"import sys,json; d=json.load(sys.stdin); [print(a['ip-address']) for i in d.get('return',[]) for a in i.get('ip-addresses',[]) if a.get('ip-address-type')=='ipv4' and not a['ip-address'].startswith('127')]\" 2>/dev/null | head -1")
+                vm_ip = ip_raw.strip() if ip_raw and ip_raw != "-" else "N/A"
+
+                # Per-VM NICs
+                vm_nics = []
+                iflist = run(c, f"virsh domiflist {vname} 2>/dev/null")
+                for il in iflist.splitlines()[2:]:
+                    ilp = il.split()
+                    if len(ilp) >= 5:
+                        vm_nics.append({"name": ilp[0], "type": ilp[1], "source": ilp[2],
+                                        "model": ilp[3], "mac": ilp[4],
+                                        "ipv4": vm_ip if len(vm_nics)==0 else "",
+                                        "state": "up" if state=="running" else "down",
+                                        "rx_mb": 0, "tx_mb": 0})
                 # disk
                 disk_path = run(c, f"virsh domblklist {vname} 2>/dev/null | awk 'NR>2 && $2!=\"-\"{{print $2}}' | head -1")
                 disk_gb = 0
@@ -350,6 +456,7 @@ def collect_kvm_vms(host: dict) -> list:
                     "name": vname, "type": "KVM", "hypervisor": "KVM", "status": state,
                     "ip": vm_ip, "vcpu": vcpus, "ram_mb": ram_mb, "disk_gb": disk_gb,
                     "os": os_pretty or "Linux", "storage": vm_storage,
+                    "nics": vm_nics,
                     "metrics": {"cpu": cpu_pct, "ram": ram_pct, "disk": 0,
                                 "net_in": round(random.uniform(0, 300), 1),
                                 "net_out": round(random.uniform(0, 100), 1),
@@ -472,6 +579,7 @@ $net = Get-WmiObject Win32_PerfFormattedData_Tcpip_NetworkInterface | Select-Obj
             },
             "storage":      collect_windows_storage(host),
             "active_ports": collect_windows_ports(host),
+            "nics":         collect_windows_nics(host),
             "updated_at":   datetime.now(timezone.utc).isoformat(),
             "source":       "live",
         }
@@ -484,7 +592,59 @@ $net = Get-WmiObject Win32_PerfFormattedData_Tcpip_NetworkInterface | Select-Obj
 # Windows storage
 # ─────────────────────────────────────────────────────────────────────────────
 
-def collect_windows_storage(host: dict) -> list:
+def collect_windows_nics(host: dict) -> list:
+    try:
+        s = _winrm_connect(host)
+        data = _run_ps(s, r"""
+$nics = @()
+Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object {$_.IPEnabled} | ForEach-Object {
+    $adapter = Get-WmiObject Win32_NetworkAdapter | Where-Object {$_.DeviceID -eq $_.Index} -EA SilentlyContinue
+    $stats = Get-WmiObject Win32_PerfFormattedData_Tcpip_NetworkInterface | Where-Object {$_.Name -match $_.Description -replace '[^a-zA-Z0-9]','.'} -EA SilentlyContinue
+    $nics += [PSCustomObject]@{
+        name        = $_.Description
+        mac         = $_.MACAddress
+        ipv4        = if($_.IPAddress){($_.IPAddress | Where-Object {$_ -match '^\d+\.\d+\.\d+\.\d+'})[0]}else{""}
+        ipv6        = if($_.IPAddress){($_.IPAddress | Where-Object {$_ -match ':'})[0]}else{""}
+        subnet      = if($_.IPSubnet){$_.IPSubnet[0]}else{""}
+        gateway     = if($_.DefaultIPGateway){$_.DefaultIPGateway[0]}else{""}
+        dhcp        = $_.DHCPEnabled
+        state       = "up"
+        speed_mbps  = $null
+        rx_mb       = 0
+        tx_mb       = 0
+    }
+}
+# Add speed from Win32_NetworkAdapter
+Get-WmiObject Win32_NetworkAdapter | Where-Object {$_.NetEnabled} | ForEach-Object {
+    $match = $nics | Where-Object {$_.mac -eq $_.MACAddress}
+    if($match) {
+        $match.speed_mbps = if($_.Speed){[math]::Round($_.Speed/1MB,0)}else{$null}
+    }
+}
+# Add RX/TX from perf counters
+Get-WmiObject Win32_PerfFormattedData_Tcpip_NetworkInterface | ForEach-Object {
+    $name = $_.Name
+    $match = $nics | Where-Object {$name -like "*$($_.name.Substring(0,[math]::Min(10,$_.name.Length)))*"}
+    if($match) {
+        $match.rx_mb = [math]::Round($_.BytesReceivedPersec/1MB,2)
+        $match.tx_mb = [math]::Round($_.BytesSentPersec/1MB,2)
+    }
+}
+$nics | ConvertTo-Json -AsArray""")
+        rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
+        return [{"name": d.get("name",""), "mac": d.get("mac",""),
+                 "ipv4": d.get("ipv4",""), "ipv6": d.get("ipv6",""),
+                 "subnet": d.get("subnet",""), "gateway": d.get("gateway",""),
+                 "dhcp": d.get("dhcp", False), "state": "up",
+                 "speed_mbps": d.get("speed_mbps"),
+                 "rx_mb": d.get("rx_mb",0), "tx_mb": d.get("tx_mb",0),
+                 "rx_pkts": 0, "tx_pkts": 0, "rx_err": 0, "tx_err": 0}
+                for d in rows if d.get("name")]
+    except Exception:
+        return []
+
+
+
     try:
         s = _winrm_connect(host)
         data = _run_ps(s, r"""
@@ -607,7 +767,19 @@ def collect_hyperv_vms(host: dict) -> list:
 Get-VM | ForEach-Object {
     $vm  = $_
     $vhd = try { Get-VHD ($vm.HardDrives | Select-Object -First 1).Path -EA SilentlyContinue } catch { $null }
-    $net = Get-VMNetworkAdapter $vm | Select-Object -First 1
+    $nets = Get-VMNetworkAdapter $vm
+    $firstIP = "N/A"
+    $nicList = @()
+    foreach($n in $nets) {
+        $ip4 = ($n.IPAddresses | Where-Object {$_ -match '^\d+\.\d+\.\d+\.\d+$'} | Select-Object -First 1)
+        $ip6 = ($n.IPAddresses | Where-Object {$_ -match ':'} | Select-Object -First 1)
+        if($ip4 -and $firstIP -eq "N/A") { $firstIP = $ip4 }
+        $nicList += [PSCustomObject]@{
+            name="$($n.Name)"; mac=$n.MacAddress; ipv4=if($ip4){$ip4}else{""}
+            ipv6=if($ip6){$ip6}else{""}; state=if($n.Connected){"up"}else{"down"}
+            switch=$n.SwitchName; speed_mbps=$null; rx_mb=0; tx_mb=0
+        }
+    }
     $os  = try { (Get-WmiObject -ComputerName $vm.Name Win32_OperatingSystem -EA SilentlyContinue).Caption } catch { "Windows" }
     $stor = $vm.HardDrives | ForEach-Object {
         $v2 = try { Get-VHD $_.Path -EA SilentlyContinue } catch { $null }
@@ -624,11 +796,12 @@ Get-VM | ForEach-Object {
         CPU       = $vm.CPUUsage
         RAM_MB    = [int]($vm.MemoryAssigned / 1MB)
         MaxRAM_MB = [int]($vm.MemoryMaximum / 1MB)
-        IP        = if($net.IPAddresses -and $net.IPAddresses.Count -gt 0) { $net.IPAddresses[0] } else { "N/A" }
+        IP        = $firstIP
         vCPU      = $vm.ProcessorCount
         Disk_GB   = if($vhd) { [int]($vhd.Size/1GB) } else { 0 }
         OS        = if($os) { $os } else { "Windows" }
         Storage   = ($stor | ConvertTo-Json -Compress -AsArray)
+        NICs      = ($nicList | ConvertTo-Json -Compress -AsArray)
     }
 } | ConvertTo-Json -AsArray""")
         rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
@@ -639,8 +812,14 @@ Get-VM | ForEach-Object {
             try:
                 raw_s = v.get("Storage", "[]") or "[]"
                 stor = json.loads(raw_s) if isinstance(raw_s, str) else raw_s
-                if isinstance(stor, dict):
-                    stor = [stor]
+                if isinstance(stor, dict): stor = [stor]
+            except Exception:
+                pass
+            vm_nics = []
+            try:
+                raw_n = v.get("NICs", "[]") or "[]"
+                vm_nics = json.loads(raw_n) if isinstance(raw_n, str) else raw_n
+                if isinstance(vm_nics, dict): vm_nics = [vm_nics]
             except Exception:
                 pass
             vms.append({
@@ -650,7 +829,7 @@ Get-VM | ForEach-Object {
                 "status":   state, "ip": v.get("IP","N/A") or "N/A",
                 "vcpu":     v.get("vCPU", 1), "ram_mb": v.get("RAM_MB", 0),
                 "disk_gb":  v.get("Disk_GB", 0), "os": v.get("OS","Windows"),
-                "storage":  stor,
+                "storage":  stor, "nics": vm_nics,
                 "metrics":  {
                     "cpu":    float(v.get("CPU") or 0),
                     "ram":    round(v.get("RAM_MB",0)/max(v.get("MaxRAM_MB",1),1)*100,1),

@@ -52,6 +52,33 @@ def _collect_patch(host: dict) -> dict:
 def _collect_vms(host: dict) -> list:
     return collect_kvm_vms(host) if host["os_type"]=="linux" else collect_hyperv_vms(host)
 
+# ── Event log helper ──────────────────────────────────────────────────────────
+def _append_log(db, host_id: str, host_name: str, level: str, msg: str, source: str = "system"):
+    """Append a single structured log entry for a host."""
+    existing = db_get_logs(db, host_id) or []
+    entry = {
+        "ts":     datetime.now(timezone.utc).isoformat(),
+        "level":  level,
+        "host":   host_name,
+        "host_id":host_id,
+        "msg":    msg[:300],
+        "source": source,
+    }
+    existing.insert(0, entry)          # newest first
+    db_save_logs(db, host_id, existing[:500])  # keep last 500 per host
+
+
+def _auto_log_metrics(db, host_id: str, host_name: str, m: dict):
+    """Log metrics result and generate error logs for connection failures."""
+    if m.get("source") == "live":
+        os_n = m.get("os_info", {}).get("os_pretty", "")
+        _append_log(db, host_id, host_name, "INFO",
+                    f"Metrics collected — CPU:{m.get('cpu',0)}% RAM:{m.get('ram',0)}% Disk:{m.get('disk',0)}% OS:{os_n}", "metrics")
+    else:
+        _append_log(db, host_id, host_name, "ERROR",
+                    f"Metrics collection failed: {m.get('reason','unknown error')}", "metrics")
+
+
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.post("/api/test-connection")
@@ -191,20 +218,25 @@ def add_host(data: HostCreate, db: Session = Depends(get_db)):
     except Exception as e:
         m = {"source": "error", "reason": str(e)[:200]}
         db_save_metrics(db, hid, m)
+    _append_log(db, hid, host["name"], "INFO", f"Host added — IP:{host['ip']} OS:{host['os_type']}", "system")
+    _auto_log_metrics(db, hid, host["name"], m)
 
     p = {}
     try:
         p = _collect_patch(host)
         db_save_patch(db, hid, p)
+        _append_log(db, hid, host["name"], "INFO", f"Patch info collected — status:{p.get('status','?')} pending:{p.get('updates_available',0)}", "patch")
     except Exception as e:
         db_save_patch(db, hid, {"status": "error", "reason": str(e)[:200]})
+        _append_log(db, hid, host["name"], "WARN", f"Patch collection failed: {str(e)[:200]}", "patch")
 
     vms = []
     try:
         vms = _collect_vms(host)
         db_save_vms(db, hid, vms)
+        _append_log(db, hid, host["name"], "INFO", f"VM discovery complete — {len(vms)} VMs found", "vms")
     except Exception as e:
-        pass  # VM discovery failure is non-fatal
+        _append_log(db, hid, host["name"], "WARN", f"VM discovery failed: {str(e)[:150]}", "vms")
 
     connected = m.get("source") == "live"
     msg = f"Connected ✔ — OS: {m.get('os_info',{}).get('os_pretty','detected')}, {len(vms)} VMs found" \
@@ -240,17 +272,22 @@ def refresh_host(hid: str, db: Session = Depends(get_db)):
     except Exception as e:
         m = {"source": "error", "reason": str(e)[:200]}
         db_save_metrics(db, hid, m)
+    _append_log(db, hid, h["name"], "INFO", "Manual refresh triggered", "system")
+    _auto_log_metrics(db, hid, h["name"], m)
 
     try:
         p = _collect_patch(h); db_save_patch(db, hid, p)
+        _append_log(db, hid, h["name"], "INFO", f"Patch refreshed — {p.get('status','?')}", "patch")
     except Exception as e:
         db_save_patch(db, hid, {"status": "error", "reason": str(e)[:200]})
+        _append_log(db, hid, h["name"], "WARN", f"Patch refresh failed: {str(e)[:150]}", "patch")
 
     vms = []
     try:
         vms = _collect_vms(h); db_save_vms(db, hid, vms)
+        _append_log(db, hid, h["name"], "INFO", f"VMs refreshed — {len(vms)} found", "vms")
     except Exception as e:
-        pass
+        _append_log(db, hid, h["name"], "WARN", f"VM refresh failed: {str(e)[:150]}", "vms")
 
     src = m.get("source", "error")
     os_name = m.get("os_info", {}).get("os_pretty", "")
@@ -338,13 +375,59 @@ def get_all_patches(db: Session = Depends(get_db)):
 
 @app.get("/api/alerts")
 def get_alerts(db: Session = Depends(get_db)):
-    hosts = db_get_hosts(db)
-    alerts=[]
+    hosts  = db_get_hosts(db)
+    alerts = []
     for h in hosts:
         m = db_get_metrics(db, h["id"]) or {}
-        if m.get("cpu",0)>85:  alerts.append({"id":f"a-{h['id']}-cpu", "host":h["name"],"type":"CPU", "msg":f"CPU at {m['cpu']}%","severity":"critical"})
-        if m.get("ram",0)>85:  alerts.append({"id":f"a-{h['id']}-ram", "host":h["name"],"type":"RAM", "msg":f"RAM at {m['ram']}%","severity":"warning"})
-        if m.get("disk",0)>80: alerts.append({"id":f"a-{h['id']}-disk","host":h["name"],"type":"Disk","msg":f"Disk at {m['disk']}%","severity":"warning"})
+        p = db_get_patch(db, h["id"])   or {}
+        hname = h["name"]
+        hid   = h["id"]
+        ts    = m.get("updated_at", "")
+
+        # ── Connection error ──────────────────────────────────────
+        if m.get("source") == "error":
+            alerts.append({"id": f"a-{hid}-conn", "host": hname, "type": "Connection",
+                "severity": "critical", "ts": ts,
+                "msg": f"Cannot connect: {m.get('reason','check credentials/network')[:150]}"})
+        else:
+            # ── Resource alerts ───────────────────────────────────
+            if m.get("cpu", 0) > 85:
+                alerts.append({"id": f"a-{hid}-cpu", "host": hname, "type": "CPU", "severity": "critical", "ts": ts,
+                    "msg": f"CPU at {m['cpu']}%"})
+            if m.get("ram", 0) > 85:
+                alerts.append({"id": f"a-{hid}-ram", "host": hname, "type": "RAM", "severity": "warning", "ts": ts,
+                    "msg": f"RAM at {m['ram']}%"})
+            if m.get("disk", 0) > 80:
+                alerts.append({"id": f"a-{hid}-disk", "host": hname, "type": "Disk", "severity": "warning", "ts": ts,
+                    "msg": f"Root disk at {m['disk']}%"})
+            # ── Per-volume storage alerts ─────────────────────────
+            for s in m.get("storage", []):
+                if s.get("use_pct", 0) > 90:
+                    alerts.append({"id": f"a-{hid}-vol-{s.get('device','?')}", "host": hname,
+                        "type": "Storage", "severity": "critical", "ts": ts,
+                        "msg": f"Volume {s.get('mountpoint','?')} at {s['use_pct']}% ({s.get('avail_gb',0):.1f}GB free)"})
+            # ── NIC error alerts ──────────────────────────────────
+            for nic in m.get("nics", []):
+                rx_err = nic.get("rx_err", 0) or 0
+                tx_err = nic.get("tx_err", 0) or 0
+                if rx_err > 100 or tx_err > 100:
+                    alerts.append({"id": f"a-{hid}-nic-{nic['name']}", "host": hname,
+                        "type": "NIC Error", "severity": "warning", "ts": ts,
+                        "msg": f"NIC {nic['name']} errors — RX:{rx_err} TX:{tx_err}"})
+
+        # ── Patch alerts (all hosts) ───────────────────────────────
+        if p.get("source") == "error":
+            alerts.append({"id": f"a-{hid}-patch-err", "host": hname, "type": "Patch", "severity": "warning", "ts": "",
+                "msg": f"Patch collection failed: {p.get('reason','unknown')[:120]}"})
+        elif p.get("security_updates", 0) > 0:
+            alerts.append({"id": f"a-{hid}-patch-sec", "host": hname, "type": "Security Patch", "severity": "critical", "ts": "",
+                "msg": f"{p['security_updates']} critical security updates pending"})
+        elif p.get("updates_available", 0) > 0:
+            alerts.append({"id": f"a-{hid}-patch", "host": hname, "type": "Patch", "severity": "warning", "ts": "",
+                "msg": f"{p['updates_available']} updates available"})
+
+    # Sort: critical first, then by host name
+    alerts.sort(key=lambda a: (0 if a["severity"] == "critical" else 1, a["host"]))
     return alerts
 
 # ── Scan endpoints (on-demand, target-specific) ────────────────────────────────

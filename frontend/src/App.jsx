@@ -400,26 +400,38 @@ function DetailPanel({sel,hostData,onDbReload}) {
   const [tab,setTab]=useState("metrics");
   const [portModal,setPortModal]=useState(false);
   const [vulnModal,setVulnModal]=useState(false);
-  const [portScanBusy,setPortScanBusy]=useState(false);
   const [refreshing,setRefreshing]=useState(false);
   const [msg,setMsg]=useState(null);
+  const [logs,setLogs]=useState(null);
 
   const isVM    = sel?.type==="vm";
   const target  = isVM ? sel.vm : hostData;
   const m       = target?.metrics||{};
   const patch   = isVM ? {} : (hostData?.patch||{});
-  const storage = (isVM ? (target?.storage || m.storage) : m.storage) || [];
+  const storage = (isVM ? (target?.storage||m.storage) : m.storage)||[];
   const ports   = m.active_ports||[];
+  const nics    = m.nics||target?.nics||[];
   const ip      = target?.ip||"N/A";
   const osInfo  = m.os_info||{};
+  const hostId  = sel?.hostId;
+
+  const loadLogs=async()=>{
+    if(!hostId) return;
+    try{const r=await api.get(`/hosts/${hostId}/logs`);setLogs(r.data);}catch(e){}
+  };
+
+  useEffect(()=>{
+    setTab("metrics"); setLogs(null); setMsg(null);
+  },[sel?.hostId, sel?.vm?.id]);
 
   const doRefresh=async()=>{
     if(!sel) return;
     setRefreshing(true);setMsg(null);
     try {
-      const r=await api.post(`/hosts/${sel.hostId}/refresh`);
+      const r=await api.post(`/hosts/${hostId}/refresh`);
       setMsg({t:"ok",text:r.data.message});
-      await onDbReload(sel.hostId);
+      await onDbReload(hostId);
+      if(tab==="logs") loadLogs();
     } catch(e){setMsg({t:"e",text:"Refresh failed"});}
     setRefreshing(false);
   };
@@ -436,8 +448,61 @@ function DetailPanel({sel,hostData,onDbReload}) {
 
   const patchColor=s=>s==="UP TO DATE"?T.green:s==="CRITICAL UPDATE"?T.red:T.amber;
   const tabs = isVM
-    ? ["metrics","storage","ports"]
-    : ["metrics","storage","ports","patch","os"];
+    ? ["metrics","nics","storage","ports","logs"]
+    : ["metrics","nics","storage","ports","patch","os","logs"];
+
+  const tabLabel={metrics:"📊 Metrics",nics:"🌐 NICs",storage:"💾 Storage",
+                  ports:"🔌 Ports",patch:"🔧 Patches",os:"💻 OS Info",logs:"📋 Logs"};
+
+  // ── NIC sparkline mini-bar ───────────────────────────────────────────────
+  const NicBar=({val,max,color})=>{
+    const pct=max>0?Math.min(100,val/max*100):0;
+    return <div style={{height:4,background:"#f1f5f9",borderRadius:2,marginTop:3}}>
+      <div style={{height:4,width:`${pct}%`,background:color,borderRadius:2,transition:"width .3s"}}/>
+    </div>;
+  };
+
+  // ── NIC table row ────────────────────────────────────────────────────────
+  const NicRow=({n})=>{
+    const maxMB=Math.max(...nics.map(x=>Math.max(x.rx_mb||0,x.tx_mb||0)),1);
+    return (
+      <div style={{padding:"12px 0",borderBottom:"1px solid #f1f5f9"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontWeight:700,fontFamily:"IBM Plex Mono",fontSize:13}}>{n.name}</span>
+            <span className={`badge ${n.state==="up"?"b-ok":"b-stop"}`}>{n.state||"unknown"}</span>
+            {n.speed_mbps&&<span className="badge b-info">{n.speed_mbps>=1000?`${n.speed_mbps/1000}Gbps`:`${n.speed_mbps}Mbps`}</span>}
+          </div>
+          <div style={{fontSize:11,color:T.muted,fontFamily:"IBM Plex Mono"}}>{n.mac||""}</div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:11}}>
+          <div>
+            <div style={{color:T.muted}}>IPv4</div>
+            <div style={{fontWeight:600,color:T.blue}}>{n.ipv4||"—"}</div>
+            {n.ipv6&&<div style={{color:T.muted,fontSize:10}}>{n.ipv6.slice(0,30)}</div>}
+          </div>
+          <div>
+            <div style={{color:T.muted}}>RX</div>
+            <div style={{fontWeight:600,color:T.green}}>{n.rx_mb?.toFixed?.(1)||0} MB</div>
+            <NicBar val={n.rx_mb||0} max={maxMB} color={T.green}/>
+            {(n.rx_err>0)&&<div style={{color:T.red,fontSize:10}}>⚠ {n.rx_err} errors</div>}
+          </div>
+          <div>
+            <div style={{color:T.muted}}>TX</div>
+            <div style={{fontWeight:600,color:T.amber}}>{n.tx_mb?.toFixed?.(1)||0} MB</div>
+            <NicBar val={n.tx_mb||0} max={maxMB} color={T.amber}/>
+            {(n.tx_err>0)&&<div style={{color:T.red,fontSize:10}}>⚠ {n.tx_err} errors</div>}
+          </div>
+        </div>
+        {(n.gateway||n.subnet)&&(
+          <div style={{marginTop:6,fontSize:10,color:T.muted}}>
+            {n.subnet&&<span>Subnet: {n.subnet}  </span>}
+            {n.gateway&&<span>GW: {n.gateway}</span>}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -452,9 +517,10 @@ function DetailPanel({sel,hostData,onDbReload}) {
             <div>
               <div style={{fontWeight:700,fontSize:15}}>{target.name}</div>
               <div style={{color:T.muted,fontSize:11,marginTop:2,display:"flex",flexWrap:"wrap",gap:8}}>
-                <span>{ip}</span>
-                {isVM&&<span>{fmtRAM(target.ram_mb)} · {target.vcpu} vCPU · {target.disk_gb}GB disk</span>}
+                <span style={{fontFamily:"IBM Plex Mono",color:ip!=="N/A"?T.blue:T.muted}}>{ip}</span>
+                {isVM&&<span>{fmtRAM(target.ram_mb)} · {target.vcpu} vCPU · {target.disk_gb}GB</span>}
                 {osInfo.os_pretty&&<span style={{color:T.blue,fontWeight:500}}>{osInfo.os_pretty}</span>}
+                {nics.length>0&&<span style={{color:T.muted}}>{nics.length} NIC{nics.length>1?"s":""}</span>}
               </div>
             </div>
           </div>
@@ -477,8 +543,9 @@ function DetailPanel({sel,hostData,onDbReload}) {
       {/* Tabs */}
       <div className="tab-row">
         {tabs.map(t=>(
-          <button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>
-            {t==="metrics"?"📊 Metrics":t==="storage"?"💾 Storage":t==="ports"?"🔌 Active Ports":t==="patch"?"🔧 Patches":"💻 OS Info"}
+          <button key={t} className={`tab ${tab===t?"active":""}`}
+            onClick={()=>{setTab(t);if(t==="logs"&&!logs)loadLogs();}}>
+            {tabLabel[t]}
           </button>
         ))}
       </div>
@@ -499,7 +566,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <div className="card" style={{padding:14}}>
-              <div className="section-hd">Network I/O</div>
+              <div className="section-hd">Network I/O (total)</div>
               <div style={{display:"flex",gap:24}}>
                 <div><div style={{fontSize:10,color:T.muted}}>INBOUND</div><div style={{fontSize:20,fontWeight:700,color:T.green}}>{m.net_in} MB</div></div>
                 <div><div style={{fontSize:10,color:T.muted}}>OUTBOUND</div><div style={{fontSize:20,fontWeight:700,color:T.amber}}>{m.net_out} MB</div></div>
@@ -515,6 +582,21 @@ function DetailPanel({sel,hostData,onDbReload}) {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* NICs Tab */}
+      {tab==="nics"&&(
+        <div className="card shadow" style={{padding:18}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div className="section-hd" style={{margin:0}}>Network Interfaces ({nics.length})</div>
+            <div style={{fontSize:11,color:T.muted}}>RX/TX bars show relative utilization vs peak</div>
+          </div>
+          {nics.length===0
+            ?<div style={{textAlign:"center",color:T.muted,padding:"30px 0"}}>
+               No NIC data — click ↻ Refresh to collect
+             </div>
+            :nics.map(n=><NicRow key={n.name} n={n}/>)}
         </div>
       )}
 
@@ -534,13 +616,11 @@ function DetailPanel({sel,hostData,onDbReload}) {
         </div>
       )}
 
-      {/* Active Ports Tab */}
+      {/* Ports Tab */}
       {tab==="ports"&&(
         <div className="card shadow" style={{padding:18}}>
-          <div className="section-hd">Active Listening Ports (collected from host)</div>
-          <ActivePortsTable ports={ports}
-            onExternalScan={()=>setPortModal(true)}
-            scanBusy={portScanBusy}/>
+          <div className="section-hd">Active Listening Ports</div>
+          <ActivePortsTable ports={ports} onExternalScan={()=>setPortModal(true)} scanBusy={false}/>
         </div>
       )}
 
@@ -550,7 +630,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
             <div className="section-hd" style={{margin:0}}>Patch Status</div>
             <button className="btn btn-refresh btn-sm" onClick={async()=>{
-              try{await api.post(`/hosts/${sel.hostId}/patch/refresh`);await onDbReload(sel.hostId);}catch(e){}
+              try{await api.post(`/hosts/${hostId}/patch/refresh`);await onDbReload(hostId);}catch(e){}
             }}>↻ Check Now</button>
           </div>
           {patch.status?(
@@ -566,11 +646,10 @@ function DetailPanel({sel,hostData,onDbReload}) {
                   ["Latest Kernel",patch.latest_kernel],["Package Manager",patch.pkg_manager],
                   ["Pending Updates",patch.updates_available!=null?`${patch.updates_available} packages`:"N/A"],
                   ["Security Updates",patch.security_updates!=null?`${patch.security_updates} critical`:"N/A"],
-                  ["Last Patched",patch.last_patch],["Source",patch.source]].map(([l,v])=>(
-                  v!=null&&v!=""?<tr key={l}>
+                  ["Last Patched",patch.last_patch]].map(([l,v])=>(
+                  v!=null&&v!==""?<tr key={l}>
                     <td style={{color:T.muted,width:160,fontWeight:500}}>{l}</td>
-                    <td style={{fontWeight:600,
-                      fontFamily:l.includes("Kernel")?"IBM Plex Mono":"inherit",
+                    <td style={{fontWeight:600,fontFamily:l.includes("Kernel")?"IBM Plex Mono":"inherit",
                       fontSize:l.includes("Kernel")?11:12,
                       color:l==="Pending Updates"&&patch.updates_available>0?T.red
                            :l==="Security Updates"&&patch.security_updates>0?T.red
@@ -579,17 +658,17 @@ function DetailPanel({sel,hostData,onDbReload}) {
                 ))}
               </tbody></table>
             </>
-          ):<div style={{color:T.muted,textAlign:"center",padding:"20px 0"}}>Click "Check Now" to fetch patch info</div>}
+          ):<div style={{color:T.muted,textAlign:"center",padding:"20px 0"}}>Click "Check Now"</div>}
         </div>
       )}
 
-      {/* OS Info Tab */}
+      {/* OS Tab */}
       {tab==="os"&&!isVM&&(
         <div className="card shadow" style={{padding:18}}>
           <div className="section-hd">OS & System Information</div>
           {osInfo.os_pretty?(
             <table><tbody>
-              {[["OS",osInfo.os_pretty],["OS Name",osInfo.os_name],["Version",osInfo.os_version],
+              {[["OS",osInfo.os_pretty],["Version",osInfo.os_version],
                 ["Kernel",osInfo.kernel],["Architecture",osInfo.arch],["Hostname",osInfo.hostname]].map(([l,v])=>(
                 v?<tr key={l}>
                   <td style={{color:T.muted,width:160,fontWeight:500}}>{l}</td>
@@ -601,13 +680,41 @@ function DetailPanel({sel,hostData,onDbReload}) {
         </div>
       )}
 
-      {portModal&&<PortScanModal target={target.name} hostId={sel.hostId} vmId={isVM?sel.vmId:null} ip={ip} onClose={()=>setPortModal(false)}/>}
-      {vulnModal&&<VulnScanModal target={target.name} hostId={sel.hostId} vmId={isVM?sel.vmId:null} ip={ip} onClose={()=>setVulnModal(false)}/>}
+      {/* Logs Tab */}
+      {tab==="logs"&&(
+        <div className="card shadow" style={{padding:18}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div className="section-hd" style={{margin:0}}>Event Logs — {target.name}</div>
+            <button className="btn btn-ghost btn-sm" onClick={loadLogs}>↻ Refresh</button>
+          </div>
+          <div style={{maxHeight:"55vh",overflowY:"auto"}}>
+            {!logs&&<div style={{textAlign:"center",color:T.muted,padding:30}}>Loading...</div>}
+            {logs&&logs.length===0&&<div style={{textAlign:"center",color:T.muted,padding:30}}>No logs yet. Add or refresh this host to generate events.</div>}
+            {logs&&logs.map((l,i)=>{
+              const lc=l.level==="ERROR"?T.red:l.level==="WARN"?T.amber:T.green;
+              return (
+                <div key={i} style={{display:"flex",gap:10,padding:"7px 0",borderBottom:"1px solid #f1f5f9",fontSize:11}}>
+                  <span style={{color:T.muted,minWidth:60,fontFamily:"IBM Plex Mono"}}>{l.ts?.slice(11,19)}</span>
+                  <span style={{minWidth:14,color:lc,fontWeight:700}}>
+                    {l.level==="ERROR"?"✕":l.level==="WARN"?"⚠":"✓"}
+                  </span>
+                  <span className={`badge`} style={{background:lc+"22",color:lc,minWidth:42,textAlign:"center",height:16,lineHeight:"16px"}}>{l.level}</span>
+                  <span style={{minWidth:60,color:T.muted}}>{l.source}</span>
+                  <span style={{flex:1,color:T.sub}}>{l.msg}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Modals */}
+      {portModal&&<PortScanModal sel={sel} onClose={()=>setPortModal(false)}/>}
+      {vulnModal&&<VulnScanModal sel={sel} onClose={()=>setVulnModal(false)}/>}
     </div>
   );
 }
 
-// ── Infrastructure Tree ───────────────────────────────────────────────────────
 function InfraView({rawHosts,onGlobalReload}) {
   const [expanded,setExpanded]=useState({});
   const [sel,setSel]=useState(null);
@@ -713,7 +820,7 @@ function InfraView({rawHosts,onGlobalReload}) {
                           const isSelVM=sel?.type==="vm"&&sel.vmId===vm.id;
                           return (
                             <div key={vm.id} className={`tree-row ${isSelVM?"sel":""}`}
-                              onClick={()=>setSel({type:"vm",hostId:h.id,vmId:vm.id,vm:{...vm,metrics:{...vm.metrics,storage:vm.storage||[],active_ports:[]}}})}
+                              onClick={()=>setSel({type:"vm",hostId:h.id,vmId:vm.id,vm:{...vm,metrics:{...vm.metrics,storage:vm.storage||[],active_ports:[],nics:vm.nics||[]}}})}
                               style={{padding:"5px 8px"}}>
                               <span style={{fontSize:13,flexShrink:0}}>🖥</span>
                               <div style={{flex:1,minWidth:0}}>
@@ -915,27 +1022,62 @@ function Patches() {
 // ── Alerts ────────────────────────────────────────────────────────────────────
 function Alerts() {
   const [alerts,setAlerts]=useState([]);
-  const load=()=>api.get("/alerts").then(r=>setAlerts(r.data)).catch(()=>{});
+  const [busy,setBusy]=useState(false);
+  const load=async()=>{
+    setBusy(true);
+    try{const r=await api.get("/alerts");setAlerts(r.data);}catch(e){}
+    setBusy(false);
+  };
   useEffect(()=>{load();},[]);
-  return (
-    <div style={{display:"flex",flexDirection:"column",gap:10}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-        <div style={{fontWeight:700,fontSize:15}}>Alerts <span style={{color:T.muted,fontWeight:400}}>({alerts.length})</span></div>
-        <button className="btn btn-ghost" onClick={load}>↻ Refresh</button>
-      </div>
-      {alerts.length===0&&<div className="card shadow" style={{padding:40,textAlign:"center",color:T.green}}>✅ No active alerts</div>}
-      {alerts.map(a=>(
-        <div key={a.id} className="card shadow" style={{padding:"12px 18px",borderLeft:`4px solid ${a.severity==="critical"?T.red:T.amber}`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <span>{a.severity==="critical"?"🚨":"⚠️"}</span>
+
+  const crit = alerts.filter(a=>a.severity==="critical");
+  const warn  = alerts.filter(a=>a.severity!=="critical");
+
+  const typeIcon={Connection:"🔌","CPU":"🔥","RAM":"🧠","Disk":"💾","Storage":"💽",
+                  NIC:"🌐","NIC Error":"🌐","Security Patch":"🔐","Patch":"🔧"};
+
+  const AlertCard=({a})=>(
+    <div className="card shadow" style={{padding:"12px 18px",borderLeft:`4px solid ${a.severity==="critical"?T.red:T.amber}`,
+      background:a.severity==="critical"?"#fff8f8":"#fffdf0"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
+          <span style={{fontSize:18}}>{typeIcon[a.type]||"⚠️"}</span>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
               <span className={`badge ${a.severity==="critical"?"b-crit":"b-warn"}`}>{a.type}</span>
-              <span style={{fontWeight:500}}>{a.msg}</span>
+              <span style={{fontWeight:600,fontSize:12}}>{a.host}</span>
             </div>
-            <span style={{color:T.muted,fontSize:11}}>{a.host}</span>
+            <div style={{fontSize:12,color:T.sub}}>{a.msg}</div>
           </div>
         </div>
-      ))}
+        {a.ts&&<span style={{color:T.muted,fontSize:10,whiteSpace:"nowrap"}}>{a.ts.slice(11,19)} UTC</span>}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontWeight:700,fontSize:15}}>
+          Alerts
+          {crit.length>0&&<span style={{marginLeft:8,background:T.red,color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:11}}>{crit.length} critical</span>}
+          {warn.length>0&&<span style={{marginLeft:6,background:T.amber,color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:11}}>{warn.length} warning</span>}
+        </div>
+        <button className="btn btn-ghost" onClick={load} disabled={busy}>{busy?<span className="spinner"/>:"↻"} Refresh</button>
+      </div>
+      {alerts.length===0&&<div className="card shadow" style={{padding:40,textAlign:"center",color:T.green,fontSize:15}}>✅ No active alerts — all systems healthy</div>}
+      {crit.length>0&&(
+        <div>
+          <div style={{fontWeight:700,color:T.red,fontSize:12,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>🚨 Critical ({crit.length})</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>{crit.map(a=><AlertCard key={a.id} a={a}/>)}</div>
+        </div>
+      )}
+      {warn.length>0&&(
+        <div>
+          <div style={{fontWeight:700,color:T.amber,fontSize:12,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>⚠️ Warnings ({warn.length})</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>{warn.map(a=><AlertCard key={a.id} a={a}/>)}</div>
+        </div>
+      )}
     </div>
   );
 }
