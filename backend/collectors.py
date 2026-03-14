@@ -404,29 +404,82 @@ def collect_kvm_vms(host: dict) -> list:
                     if "Max memory" in l:
                         try: ram_mb = int(l.split(":")[1].strip().split()[0]) // 1024
                         except Exception: pass
-                # IP - try multiple methods
-                ip_raw = run(c, f"virsh domifaddr {vname} 2>/dev/null | awk 'NR>2{{print $4}}' | cut -d/ -f1 | head -1")
-                if not ip_raw or ip_raw == "-":
-                    # Try arp table lookup by VM MAC
-                    mac = run(c, f"virsh domiflist {vname} 2>/dev/null | awk 'NR>2{{print $5}}' | head -1")
-                    if mac:
-                        ip_raw = run(c, f"arp -n 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}' | head -1")
-                if not ip_raw or ip_raw == "-":
-                    # Try agent
-                    ip_raw = run(c, f"virsh qemu-agent-command {vname} '{{\"execute\":\"guest-network-get-interfaces\"}}' 2>/dev/null | python3 -c \"import sys,json; d=json.load(sys.stdin); [print(a['ip-address']) for i in d.get('return',[]) for a in i.get('ip-addresses',[]) if a.get('ip-address-type')=='ipv4' and not a['ip-address'].startswith('127')]\" 2>/dev/null | head -1")
-                vm_ip = ip_raw.strip() if ip_raw and ip_raw != "-" else "N/A"
+                # IP - collect from ALL sources, prefer routable non-NAT address
+                candidate_ips = []
 
-                # Per-VM NICs
+                # Source 1: virsh domifaddr --source lease (libvirt DHCP leases)
+                lease_out = run(c, f"virsh domifaddr {vname} --source lease 2>/dev/null | awk 'NR>2{{print $4}}' | cut -d/ -f1")
+                for ip in lease_out.splitlines():
+                    ip = ip.strip()
+                    if ip and ip != "-": candidate_ips.append(("lease", ip))
+
+                # Source 2: virsh domifaddr --source agent (qemu-guest-agent)
+                agent_out = run(c, f"virsh domifaddr {vname} --source agent 2>/dev/null | awk 'NR>2{{print $4}}' | cut -d/ -f1")
+                for ip in agent_out.splitlines():
+                    ip = ip.strip()
+                    if ip and ip != "-" and not ip.startswith("127."): candidate_ips.append(("agent", ip))
+
+                # Source 3: ARP table lookup per MAC (catches bridge-mode VMs)
+                iflist_raw = run(c, f"virsh domiflist {vname} 2>/dev/null")
+                vm_macs = []
+                for il in iflist_raw.splitlines()[2:]:
+                    ilp = il.split()
+                    if len(ilp) >= 5 and ilp[4] != "-":
+                        vm_macs.append(ilp[4])
+                for mac in vm_macs:
+                    arp_ip = run(c, f"arp -n 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}' | head -1")
+                    arp_ip = (arp_ip or "").strip()
+                    if arp_ip and arp_ip != "-": candidate_ips.append(("arp", arp_ip))
+
+                # Source 4: ip neigh (neighbour table - catches VMs without ARP entry)
+                for mac in vm_macs:
+                    neigh_ip = run(c, f"ip neigh 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}' | head -1")
+                    neigh_ip = (neigh_ip or "").strip()
+                    if neigh_ip and neigh_ip != "-": candidate_ips.append(("neigh", neigh_ip))
+
+                # Pick best IP: prefer routable non-NAT address
+                # 192.168.122.x = libvirt default NAT (virbr0) — avoid unless only option
+                # 169.254.x.x = link-local — skip
+                # 127.x.x.x = loopback — skip
+                def ip_score(src_ip):
+                    src, ip = src_ip
+                    if ip.startswith("127.") or ip.startswith("169.254."): return -1
+                    if ip.startswith("192.168.122."): return 1   # libvirt NAT — last resort
+                    if src == "agent": return 4                   # guest agent most reliable
+                    if src == "arp":   return 3
+                    if src == "neigh": return 3
+                    if src == "lease": return 2
+                    return 2
+
+                best = sorted([(score, ip) for (src, ip) in candidate_ips
+                               if (score := ip_score((src, ip))) >= 0],
+                              key=lambda x: -x[0])
+                vm_ip = best[0][1] if best else "N/A"
+
+                # Per-VM NICs — reuse iflist_raw already fetched above
                 vm_nics = []
-                iflist = run(c, f"virsh domiflist {vname} 2>/dev/null")
-                for il in iflist.splitlines()[2:]:
+                for il in iflist_raw.splitlines()[2:]:
                     ilp = il.split()
                     if len(ilp) >= 5:
-                        vm_nics.append({"name": ilp[0], "type": ilp[1], "source": ilp[2],
-                                        "model": ilp[3], "mac": ilp[4],
-                                        "ipv4": vm_ip if len(vm_nics)==0 else "",
-                                        "state": "up" if state=="running" else "down",
-                                        "rx_mb": 0, "tx_mb": 0})
+                        nic_mac = ilp[4]
+                        # Find IP for this specific MAC from candidate_ips
+                        nic_ip = ""
+                        for src, ip in sorted(candidate_ips, key=lambda x: -ip_score(x)):
+                            # We already have candidates — match if only one NIC or use vm_ip for first
+                            if len(vm_nics) == 0:
+                                nic_ip = vm_ip  # best IP goes to first NIC
+                            break
+                        # For additional NICs, look for their own ARP entry
+                        if len(vm_nics) > 0:
+                            arp_ip = run(c, f"arp -n 2>/dev/null | grep -i '{nic_mac}' | awk '{{print $1}}' | head -1")
+                            nic_ip = (arp_ip or "").strip()
+                        vm_nics.append({
+                            "name": ilp[0], "type": ilp[1], "source": ilp[2],
+                            "model": ilp[3], "mac": nic_mac,
+                            "ipv4": nic_ip,
+                            "state": "up" if state == "running" else "down",
+                            "rx_mb": 0, "tx_mb": 0,
+                        })
                 # disk
                 disk_path = run(c, f"virsh domblklist {vname} 2>/dev/null | awk 'NR>2 && $2!=\"-\"{{print $2}}' | head -1")
                 disk_gb = 0
