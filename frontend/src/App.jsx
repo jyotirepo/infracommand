@@ -662,17 +662,26 @@ function DetailPanel({sel,hostData,onDbReload}) {
           <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
             {isVM&&<span className={`badge ${target.hypervisor==="KVM"?"b-kvm":"b-hv"}`}>{target.hypervisor}</span>}
             {isVM&&<StatusDot s={target.status}/>}
-            {isVM&&(ip==="N/A"||!ip)&&(
-              <button className="btn btn-ghost btn-sm" title="Set IP manually (macvtap direct mode)"
+            {isVM&&(
+              <button className="btn btn-ghost btn-sm" title="Edit VM IP address"
                 onClick={async()=>{
-                  const newIp=window.prompt(`Enter IP for ${target.name} (macvtap VMs can't be auto-discovered):`, ip==="N/A"?"":ip);
-                  if(newIp&&newIp.trim()){
+                  const current = ip==="N/A" ? "" : ip;
+                  const newIp = window.prompt(
+                    `Edit IP for ${target.name}:\n(macvtap/direct-mode VMs need manual IP entry)`,
+                    current
+                  );
+                  if(newIp !== null && newIp.trim()){
                     try{
-                      await api.patch(`/hosts/${hostId}/vms/${sel.vmId}/ip`,{ip:newIp.trim()});
+                      await api.patch(`/hosts/${hostId}/vms/${sel.vmId}/ip`, {ip: newIp.trim()});
                       await onDbReload(hostId);
-                    }catch(e){alert("Failed to set IP");}
+                    } catch(e){ alert("Failed to update IP: " + (e.response?.data?.detail||e.message)); }
                   }
-                }} style={{fontSize:10,color:T.amber}}>✎ Set IP</button>
+                }}
+                style={{fontSize:10, color: ip==="N/A"||!ip ? T.amber : T.muted,
+                  border: `1px solid ${ip==="N/A"||!ip ? T.amber+"66" : T.border}`,
+                  borderRadius:4, padding:"1px 6px"}}>
+                ✎ {ip==="N/A"||!ip ? "Set IP" : ip}
+              </button>
             )}
             <SrcBadge src={m.source}/>
             <button className="btn btn-refresh btn-sm" onClick={doRefresh} disabled={refreshing}>
@@ -921,6 +930,29 @@ function InfraView({rawHosts,onGlobalReload}) {
     if(sel?.hostId===hid) setSel(null);
   };
 
+  const editVmIp = async (vm, hostId) => {
+    const current = vm.ip && vm.ip !== "N/A" ? vm.ip : "";
+    const newIp = window.prompt(
+      `Edit IP for ${vm.name}:`,
+      current
+    );
+    if (newIp !== null && newIp.trim()) {
+      try {
+        await api.patch(`/hosts/${hostId}/vms/${vm.id}/ip`, {ip: newIp.trim()});
+        // Update local cache immediately
+        setHostCache(c => {
+          const host = c[hostId];
+          if (!host) return c;
+          return {...c, [hostId]: {...host,
+            vms: (host.vms||[]).map(v => v.id===vm.id ? {...v, ip: newIp.trim()} : v)
+          }};
+        });
+        onGlobalReload();
+      } catch(e) { alert("Failed: " + (e.response?.data?.detail||e.message)); }
+    }
+  };
+
+
   // ── Derived data ─────────────────────────────────────────────────────────
   const currentHostData = sel ? (hostCache[sel.hostId]||null) : null;
   const enrichedSel = sel?.type==="vm"&&sel.vm
@@ -1094,9 +1126,12 @@ function InfraView({rawHosts,onGlobalReload}) {
                                       </div>
                                     </div>
                                     <div style={{display:"flex",gap:3,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+                                      <button title="Edit VM IP" onClick={()=>editVmIp(vm,h.id)}
+                                        style={{fontSize:9,padding:"1px 5px",border:`1px solid ${T.muted}44`,
+                                          borderRadius:3,background:"transparent",color:T.muted,cursor:"pointer"}}>✎</button>
                                       {alreadyAdded
                                         ?<span title="Already in Physical Hosts" style={{fontSize:9,color:T.green,
-                                            padding:"1px 4px",border:`1px solid ${T.green}44`,borderRadius:3}}>✓ added</span>
+                                            padding:"1px 4px",border:`1px solid ${T.green}44`,borderRadius:3}}>✓</span>
                                         :vm.ip&&vm.ip!=="N/A"
                                           ?<button title="Add as standalone host" onClick={()=>setPromoteVM({vm,hostId:h.id})}
                                               style={{fontSize:9,padding:"1px 5px",border:`1px solid ${T.blue}55`,
@@ -1166,6 +1201,9 @@ function InfraView({rawHosts,onGlobalReload}) {
                                   </div>
                                 </div>
                                 <div style={{display:"flex",gap:3,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+                                  <button title="Edit VM IP" onClick={()=>editVmIp(vm,h.id)}
+                                    style={{fontSize:9,padding:"1px 5px",border:`1px solid ${T.muted}44`,
+                                      borderRadius:3,background:"transparent",color:T.muted,cursor:"pointer"}}>✎</button>
                                   {alreadyAdded
                                     ?<span title="Already in Physical Hosts" style={{fontSize:9,color:T.green,
                                         padding:"1px 4px",border:`1px solid ${T.green}44`,borderRadius:3}}>✓</span>
