@@ -871,13 +871,15 @@ function DetailPanel({sel,hostData,onDbReload}) {
 }
 
 function InfraView({rawHosts,onGlobalReload}) {
-  const [expanded,setExpanded]=useState({});
-  const [sel,setSel]=useState(null);
-  const [hostCache,setHostCache]=useState({});
-  const [loading,setLoading]=useState(null);
-  const [showAdd,setShowAdd]=useState(false);
-  const [promoteVM,setPromoteVM]=useState(null); // {vm, hostId}
+  const [sel,setSel]       = useState(null);
+  const [hostCache,setHostCache] = useState({});
+  const [loading,setLoading]     = useState(null);
+  const [showAdd,setShowAdd]     = useState(false);
+  const [promoteVM,setPromoteVM] = useState(null);
+  const [treeTab,setTreeTab]     = useState("physical"); // "physical" | "vms"
+  const [expanded,setExpanded]   = useState({});
 
+  // ── Data helpers ────────────────────────────────────────────────────────────
   const loadHost=async(hid,force=false)=>{
     if(hostCache[hid]&&!force) return hostCache[hid];
     setLoading(hid);
@@ -888,30 +890,18 @@ function InfraView({rawHosts,onGlobalReload}) {
       return r.data;
     } catch(e){setLoading(null);return null;}
   };
-
-  const onDbReload=async(hid)=>{
-    onGlobalReload();
-    await loadHost(hid,true);
-  };
-
+  const onDbReload=async(hid)=>{onGlobalReload();await loadHost(hid,true);};
   const clickHost=async(hid)=>{
-    // Always fetch fresh data first, then show the panel
-    // This prevents stale/wrong metrics from briefly showing
-    const hdata = await loadHost(hid, true);  // force=true: always fresh
+    await loadHost(hid,true);
     setSel({type:"host",hostId:hid});
     setExpanded(e=>({...e,[hid]:true}));
   };
-
   const refreshVMs=async(hid,e)=>{
     e.stopPropagation();
     setLoading(hid+"_vms");
-    try {
-      const r=await api.post(`/hosts/${hid}/vms/refresh`);
-      setHostCache(c=>({...c,[hid]:{...c[hid],vms:r.data.vms||[]}}));
-    } catch(e){}
+    try{const r=await api.post(`/hosts/${hid}/vms/refresh`);setHostCache(c=>({...c,[hid]:{...c[hid],vms:r.data.vms||[]}}));}catch(e){}
     setLoading(null);
   };
-
   const deleteHost=async(hid,e)=>{
     e.stopPropagation();
     await api.delete(`/hosts/${hid}`).catch(()=>{});
@@ -919,125 +909,297 @@ function InfraView({rawHosts,onGlobalReload}) {
     if(sel?.hostId===hid) setSel(null);
   };
 
-  const currentHostData = sel ? (hostCache[sel.hostId] || null) : null;
+  // ── Derived data ─────────────────────────────────────────────────────────
+  const currentHostData = sel ? (hostCache[sel.hostId]||null) : null;
+  const enrichedSel = sel?.type==="vm"&&sel.vm
+    ? {...sel, vm:{...sel.vm, metrics:{...(sel.vm.metrics||{})}, storage:sel.vm.storage||[]}}
+    : sel;
 
-  // When VM is selected, merge storage+metrics from VM object
-  const enrichedSel = sel?.type==="vm" && sel.vm ? {
-    ...sel,
-    vm: {
-      ...sel.vm,
-      metrics: {...(sel.vm.metrics||{})},
-      storage: sel.vm.storage||[],
-    }
-  } : sel;
+  // Physical hosts = everything in rawHosts
+  // All discovered VMs across all hosts
+  const allVMs = rawHosts.flatMap(h=>{
+    const det = hostCache[h.id];
+    return (det?.vms||h.vms||[]).map(vm=>({...vm, _parentHost:h}));
+  });
+  // VMs that have been "promoted" (IP matches a rawHost)
+  const promotedIPs = new Set(rawHosts.map(h=>h.ip).filter(Boolean));
+
+  // ── Resource summary (total across all hosts with live metrics) ──────────
+  const liveHosts = rawHosts.filter(h=>{
+    const m=(hostCache[h.id]||h).metrics||{};
+    return m.source==="live";
+  });
+  const summary = liveHosts.reduce((acc,h)=>{
+    const m=(hostCache[h.id]||h).metrics||{};
+    const det=hostCache[h.id]||h;
+    // CPU cores — try to derive from vCPU count or default to 1
+    const cpuCores = det.cpu_cores||1;
+    acc.hosts++;
+    acc.cpuPct  += Number(m.cpu)||0;
+    acc.ramPct  += Number(m.ram)||0;
+    acc.diskPct += Number(m.disk)||0;
+    // Total RAM in GB from host data
+    const ramGB = det.metrics?.ram_total_gb||0;
+    acc.ramTotalGB += ramGB;
+    acc.ramUsedGB  += ramGB * (Number(m.ram)||0) / 100;
+    // Storage from storage array
+    const storage = m.storage||[];
+    storage.filter(s=>s.mountpoint==="/").forEach(s=>{
+      acc.diskTotalGB += s.size_gb||0;
+      acc.diskUsedGB  += s.used_gb||0;
+    });
+    return acc;
+  },{hosts:0,cpuPct:0,ramPct:0,diskPct:0,ramTotalGB:0,ramUsedGB:0,diskTotalGB:0,diskUsedGB:0});
+  if(summary.hosts>0){summary.cpuPct=Math.round(summary.cpuPct/summary.hosts);summary.ramPct=Math.round(summary.ramPct/summary.hosts);summary.diskPct=Math.round(summary.diskPct/summary.hosts);}
+
+  // ── Resource summary from overview endpoint ──────────────────────────────
+  const [resSummary,setResSummary]=useState(null);
+  useEffect(()=>{
+    api.get("/overview").then(r=>setResSummary(r.data)).catch(()=>{});
+  },[rawHosts.length]);
+
+  // ── UI helpers ─────────────────────────────────────────────────────────────
+  const SummaryBar=({pct,color})=>(
+    <div style={{height:6,background:"#f1f5f9",borderRadius:3,marginTop:4}}>
+      <div style={{height:6,width:`${Math.min(100,pct||0)}%`,background:color,borderRadius:3,transition:"width .4s"}}/>
+    </div>
+  );
 
   return (
-    <div style={{display:"grid",gridTemplateColumns:"270px 1fr",gap:12,height:"calc(100vh - 100px)"}}>
-      {/* Tree Panel */}
-      <div className="card shadow" style={{padding:0,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-        <div style={{padding:"12px 14px 10px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div style={{fontWeight:700,fontSize:13}}>Infrastructure Tree</div>
-          <button className="btn btn-primary btn-sm" onClick={()=>setShowAdd(true)}>+ Add Host</button>
-        </div>
-        <div style={{overflowY:"auto",flex:1,padding:6}}>
-          {rawHosts.map(h=>{
-            const det=hostCache[h.id];
-            const vms=det?.vms||h.vms||[];
-            const isExp=expanded[h.id];
-            const isSel=sel?.type==="host"&&sel.hostId===h.id;
-            return (
-              <div key={h.id}>
-                {/* Host row */}
-                <div className={`tree-row ${isSel?"sel":""}`} onClick={()=>clickHost(h.id)}>
-                  <span style={{fontSize:15,flexShrink:0}}>{h.os_type==="linux"?"🐧":"🪟"}</span>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.name}</div>
-                    <div style={{fontSize:10,color:T.muted,display:"flex",gap:6}}>
-                      <span>{h.ip}</span>
-                      <span className={`badge ${h.os_type==="linux"?"b-kvm":"b-hv"}`} style={{fontSize:9,padding:"0 5px"}}>{h.os_type==="linux"?"KVM":"Hyper-V"}</span>
-                    </div>
-                  </div>
-                  <div style={{display:"flex",gap:3,flexShrink:0,alignItems:"center"}}>
-                    {(loading===h.id||loading===h.id+"_vms")&&<span className="spinner" style={{width:10,height:10}}/>}
-                    {isExp&&<button className="btn btn-ghost btn-sm" style={{padding:"2px 5px",fontSize:9}}
-                      onClick={e=>refreshVMs(h.id,e)} title="Discover VMs">⟳ VMs</button>}
-                    <span style={{fontSize:10,color:T.muted,cursor:"pointer"}} onClick={e=>{e.stopPropagation();setExpanded(ex=>({...ex,[h.id]:!ex[h.id]}))}}>{isExp?"▾":"▸"}</span>
-                    <button className="btn btn-ghost btn-sm" style={{padding:"2px 5px",fontSize:9,color:T.red}}
-                      onClick={e=>deleteHost(h.id,e)}>✕</button>
-                  </div>
-                </div>
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
 
-                {/* VM rows */}
-                {isExp&&(
-                  <div style={{marginLeft:14,borderLeft:`2px solid ${T.border}`,paddingLeft:8,marginBottom:2}}>
-                    {vms.length===0
-                      ?<div style={{padding:"5px 8px",color:T.muted,fontSize:11}}>
-                          {loading===h.id+"_vms"?"Discovering VMs...":"No VMs — click ⟳ VMs to discover"}
+      {/* ── Resource Summary Bar ─────────────────────────────────────────── */}
+      {resSummary&&(
+        <div className="card shadow" style={{padding:"12px 18px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontWeight:700,fontSize:13}}>Cluster Resource Summary</div>
+            <div style={{fontSize:11,color:T.muted}}>{resSummary.total_hosts} hosts · {allVMs.length} VMs</div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14}}>
+            {[
+              ["CPU Usage",resSummary.avg_cpu,"%",T.blue,null,null],
+              ["RAM Usage",resSummary.avg_ram,"%",T.amber,
+               resSummary.ram_used_gb!=null?`${resSummary.ram_used_gb?.toFixed(1)} / ${resSummary.ram_total_gb?.toFixed(1)} GB`:null,null],
+              ["Disk (root)",resSummary.avg_disk,"%",T.red,
+               resSummary.disk_used_gb!=null?`${resSummary.disk_used_gb?.toFixed(1)} / ${resSummary.disk_total_gb?.toFixed(1)} GB`:null,null],
+              ["Hosts Online",resSummary.hosts_online,`/ ${resSummary.total_hosts}`,T.green,null,null],
+            ].map(([label,val,unit,color,sub])=>(
+              <div key={label}>
+                <div style={{fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.4}}>{label}</div>
+                <div style={{fontSize:20,fontWeight:700,color,marginTop:2}}>
+                  {val??"-"}<span style={{fontSize:12,fontWeight:400,color:T.muted}}>{unit}</span>
+                </div>
+                {typeof val==="number"&&unit==="%"&&<SummaryBar pct={val} color={color}/>}
+                {sub&&<div style={{fontSize:10,color:T.muted,marginTop:3}}>{sub}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Main layout: tree + detail ───────────────────────────────────── */}
+      <div style={{display:"grid",gridTemplateColumns:"290px 1fr",gap:12,height:"calc(100vh - 180px)"}}>
+
+        {/* Tree Panel */}
+        <div className="card shadow" style={{padding:0,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+
+          {/* Header + Add */}
+          <div style={{padding:"10px 12px 8px",borderBottom:`1px solid ${T.border}`,
+            display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontWeight:700,fontSize:13}}>Infrastructure</div>
+            <button className="btn btn-primary btn-sm" onClick={()=>setShowAdd(true)}>+ Add Host</button>
+          </div>
+
+          {/* Group tabs */}
+          <div style={{display:"flex",borderBottom:`1px solid ${T.border}`,background:"#f8fafc"}}>
+            {[["physical","🖧 Physical Hosts",rawHosts.length],
+              ["vms","🖥 VM Groups",allVMs.length]].map(([id,label,count])=>(
+              <button key={id} onClick={()=>setTreeTab(id)}
+                style={{flex:1,padding:"7px 4px",fontSize:11,fontWeight:treeTab===id?700:400,
+                  border:"none",borderBottom:treeTab===id?`2px solid ${T.blue}`:"2px solid transparent",
+                  background:"transparent",cursor:"pointer",color:treeTab===id?T.blue:T.muted}}>
+                {label} <span style={{fontSize:10,background:T.border,borderRadius:8,
+                  padding:"1px 5px",marginLeft:2}}>{count}</span>
+              </button>
+            ))}
+          </div>
+
+          <div style={{overflowY:"auto",flex:1,padding:6}}>
+
+            {/* ── PHYSICAL HOSTS TAB ─────────────────────────────────── */}
+            {treeTab==="physical"&&(
+              <>
+                {rawHosts.map(h=>{
+                  const det=hostCache[h.id];
+                  const vms=det?.vms||h.vms||[];
+                  const m=(det||h).metrics||{};
+                  const isExp=expanded[h.id];
+                  const isSel=sel?.type==="host"&&sel.hostId===h.id;
+                  const isOnline=m.source==="live";
+                  return (
+                    <div key={h.id} style={{marginBottom:2}}>
+                      <div className={`tree-row ${isSel?"sel":""}`} onClick={()=>clickHost(h.id)}>
+                        <span style={{fontSize:15,flexShrink:0}}>{h.os_type==="linux"?"🐧":"🪟"}</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.name}</div>
+                          <div style={{fontSize:10,color:T.muted,display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
+                            <span style={{fontFamily:"IBM Plex Mono",fontSize:9}}>{h.ip}</span>
+                            {isOnline&&<><span style={{color:T.blue}}>CPU:{m.cpu}%</span><span style={{color:T.amber}}>RAM:{m.ram}%</span></>}
+                            <span className={`badge ${h.os_type==="linux"?"b-kvm":"b-hv"}`} style={{fontSize:8,padding:"0 4px"}}>{h.os_type==="linux"?"KVM":"Hyper-V"}</span>
+                          </div>
                         </div>
-                      :vms.map(vm=>{
-                          const isSelVM=sel?.type==="vm"&&sel.vmId===vm.id;
-                          // Check if this VM is already added as a standalone host
-                          const alreadyAdded = rawHosts.some(rh =>
-                            rh.ip === vm.ip && rh.ip !== "N/A" && rh.ip !== ""
-                          );
-                          return (
-                            <div key={vm.id} className={`tree-row ${isSelVM?"sel":""}`}
-                              onClick={()=>setSel({type:"vm",hostId:h.id,vmId:vm.id,vm:{...vm,metrics:{...vm.metrics,storage:vm.storage||[],active_ports:[],nics:vm.nics||[]}}})}
-                              style={{padding:"5px 8px"}}>
-                              <span style={{fontSize:13,flexShrink:0}}>🖥</span>
-                              <div style={{flex:1,minWidth:0}}>
-                                <div style={{fontWeight:500,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{vm.name}</div>
-                                <div style={{fontSize:10,color:T.muted,display:"flex",alignItems:"center",gap:6}}>
-                                  <StatusDot s={vm.status}/>{vm.status}
-                                  {vm.os&&<span>· {vm.os}</span>}
-                                  {vm.ip&&vm.ip!=="N/A"&&<span>· {vm.ip}</span>}
-                                </div>
+                        <div style={{display:"flex",gap:3,flexShrink:0,alignItems:"center"}}>
+                          {(loading===h.id||loading===h.id+"_vms")&&<span className="spinner" style={{width:10,height:10}}/>}
+                          {isExp&&<button className="btn btn-ghost btn-sm" style={{padding:"2px 5px",fontSize:9}}
+                            onClick={e=>refreshVMs(h.id,e)} title="Discover VMs">⟳</button>}
+                          <span style={{fontSize:10,color:T.muted,cursor:"pointer",padding:"0 2px"}}
+                            onClick={e=>{e.stopPropagation();setExpanded(ex=>({...ex,[h.id]:!ex[h.id]}));}}>{isExp?"▾":"▸"}</span>
+                          <button className="btn btn-ghost btn-sm" style={{padding:"2px 4px",fontSize:9,color:T.red}}
+                            onClick={e=>deleteHost(h.id,e)}>✕</button>
+                        </div>
+                      </div>
+
+                      {/* Hosted VMs under physical host */}
+                      {isExp&&(
+                        <div style={{marginLeft:14,borderLeft:`2px solid ${T.border}`,paddingLeft:8,marginBottom:2}}>
+                          {vms.length===0
+                            ?<div style={{padding:"5px 8px",color:T.muted,fontSize:10}}>
+                                {loading===h.id+"_vms"?"Discovering...":"No VMs — click ⟳ to discover"}
                               </div>
-                              <div style={{display:"flex",alignItems:"center",gap:4}} onClick={e=>e.stopPropagation()}>
-                                {alreadyAdded
-                                  ? <span title="Already monitored" style={{fontSize:10,color:T.green,padding:"1px 4px",
-                                      border:`1px solid ${T.green}44`,borderRadius:4}}>✓</span>
-                                  : vm.ip && vm.ip!=="N/A"
-                                    ? <button title="Add as standalone host" onClick={e=>{e.stopPropagation();setPromoteVM({vm,hostId:h.id});}}
-                                        style={{fontSize:10,padding:"1px 5px",border:`1px solid ${T.blue}66`,
-                                          borderRadius:4,background:"#eff6ff",color:T.blue,cursor:"pointer",
-                                          lineHeight:"16px",fontWeight:700}}>+</button>
-                                    : null}
-                                <span className={`badge ${vm.hypervisor==="KVM"?"b-kvm":"b-hv"}`} style={{fontSize:9,padding:"1px 5px"}}>{vm.hypervisor}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
+                            :vms.map(vm=>{
+                                const isSelVM=sel?.type==="vm"&&sel.vmId===vm.id;
+                                const alreadyAdded=promotedIPs.has(vm.ip)&&vm.ip&&vm.ip!=="N/A";
+                                return (
+                                  <div key={vm.id} className={`tree-row ${isSelVM?"sel":""}`}
+                                    onClick={()=>setSel({type:"vm",hostId:h.id,vmId:vm.id,vm:{...vm,metrics:{...vm.metrics,storage:vm.storage||[],active_ports:[],nics:vm.nics||[]}}})}
+                                    style={{padding:"4px 6px"}}>
+                                    <span style={{fontSize:12}}>🖥</span>
+                                    <div style={{flex:1,minWidth:0}}>
+                                      <div style={{fontWeight:500,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{vm.name}</div>
+                                      <div style={{fontSize:9,color:T.muted,display:"flex",gap:4,alignItems:"center"}}>
+                                        <StatusDot s={vm.status}/>
+                                        {vm.ip&&vm.ip!=="N/A"&&<span style={{fontFamily:"IBM Plex Mono"}}>{vm.ip}</span>}
+                                      </div>
+                                    </div>
+                                    <div style={{display:"flex",gap:3,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+                                      {alreadyAdded
+                                        ?<span title="Already in Physical Hosts" style={{fontSize:9,color:T.green,
+                                            padding:"1px 4px",border:`1px solid ${T.green}44`,borderRadius:3}}>✓ added</span>
+                                        :vm.ip&&vm.ip!=="N/A"
+                                          ?<button title="Add as standalone host" onClick={()=>setPromoteVM({vm,hostId:h.id})}
+                                              style={{fontSize:9,padding:"1px 5px",border:`1px solid ${T.blue}55`,
+                                                borderRadius:3,background:"#eff6ff",color:T.blue,cursor:"pointer",fontWeight:700}}>+</button>
+                                          :null}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {rawHosts.length===0&&(
+                  <div style={{padding:"30px 10px",textAlign:"center",color:T.muted}}>
+                    <div style={{fontSize:28,marginBottom:8}}>🖧</div>
+                    <div style={{fontSize:12}}>No hosts yet</div>
+                    <button className="btn btn-primary btn-sm" style={{marginTop:10}} onClick={()=>setShowAdd(true)}>+ Add Host</button>
                   </div>
                 )}
-              </div>
-            );
-          })}
-          {rawHosts.length===0&&(
-            <div style={{padding:"30px 10px",textAlign:"center",color:T.muted}}>
-              <div style={{fontSize:28,marginBottom:8}}>🖧</div>
-              <div style={{fontSize:12}}>No hosts yet<br/>Click + Add Host</div>
-            </div>
-          )}
-        </div>
-      </div>
+              </>
+            )}
 
-      {/* Detail Panel */}
-      <div style={{overflowY:"auto"}}>
-        <DetailPanel sel={enrichedSel} hostData={currentHostData} onDbReload={onDbReload}/>
+            {/* ── VM GROUPS TAB ──────────────────────────────────────── */}
+            {treeTab==="vms"&&(
+              <>
+                {rawHosts.filter(h=>{
+                  const det=hostCache[h.id];
+                  return (det?.vms||h.vms||[]).length>0;
+                }).map(h=>{
+                  const det=hostCache[h.id];
+                  const vms=det?.vms||h.vms||[];
+                  const isExp=expanded["vg_"+h.id]!==false; // default expanded
+                  return (
+                    <div key={h.id} style={{marginBottom:6}}>
+                      {/* Parent host header */}
+                      <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 8px",
+                        background:"#f1f5f9",borderRadius:6,cursor:"pointer",
+                        fontSize:11,fontWeight:700,color:T.sub}}
+                        onClick={()=>setExpanded(e=>({...e,["vg_"+h.id]:!isExp}))}>
+                        <span>{isExp?"▾":"▸"}</span>
+                        <span>{h.os_type==="linux"?"🐧":"🪟"}</span>
+                        <span style={{flex:1}}>{h.name}</span>
+                        <span style={{fontSize:10,background:T.border,borderRadius:8,
+                          padding:"1px 6px",fontWeight:400}}>{vms.length} VMs</span>
+                      </div>
+                      {isExp&&(
+                        <div style={{marginLeft:10,borderLeft:`2px solid ${T.border}`,paddingLeft:8,marginTop:2}}>
+                          {vms.map(vm=>{
+                            const isSelVM=sel?.type==="vm"&&sel.vmId===vm.id;
+                            const alreadyAdded=promotedIPs.has(vm.ip)&&vm.ip&&vm.ip!=="N/A";
+                            const vmMetrics=vm.metrics||{};
+                            return (
+                              <div key={vm.id} className={`tree-row ${isSelVM?"sel":""}`}
+                                onClick={()=>setSel({type:"vm",hostId:h.id,vmId:vm.id,vm:{...vm,metrics:{...vm.metrics,storage:vm.storage||[],active_ports:[],nics:vm.nics||[]}}})}
+                                style={{padding:"5px 6px",marginBottom:1}}>
+                                <span style={{fontSize:13}}>🖥</span>
+                                <div style={{flex:1,minWidth:0}}>
+                                  <div style={{fontWeight:600,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{vm.name}</div>
+                                  <div style={{fontSize:9,color:T.muted,display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
+                                    <StatusDot s={vm.status}/>
+                                    <span>{vm.status}</span>
+                                    {vm.ip&&vm.ip!=="N/A"&&<span style={{fontFamily:"IBM Plex Mono",color:T.blue}}>{vm.ip}</span>}
+                                    {vmMetrics.cpu!=null&&<span style={{color:T.blue}}>CPU:{vmMetrics.cpu}%</span>}
+                                    {vmMetrics.ram!=null&&<span style={{color:T.amber}}>RAM:{vmMetrics.ram}%</span>}
+                                  </div>
+                                </div>
+                                <div style={{display:"flex",gap:3,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+                                  {alreadyAdded
+                                    ?<span title="Already in Physical Hosts" style={{fontSize:9,color:T.green,
+                                        padding:"1px 4px",border:`1px solid ${T.green}44`,borderRadius:3}}>✓</span>
+                                    :vm.ip&&vm.ip!=="N/A"
+                                      ?<button title="Add as standalone monitored host"
+                                          onClick={()=>setPromoteVM({vm,hostId:h.id})}
+                                          style={{fontSize:9,padding:"1px 5px",border:`1px solid ${T.blue}55`,
+                                            borderRadius:3,background:"#eff6ff",color:T.blue,cursor:"pointer",fontWeight:700}}>+</button>
+                                      :null}
+                                  <span className={`badge ${vm.hypervisor==="KVM"?"b-kvm":"b-hv"}`} style={{fontSize:8,padding:"1px 4px"}}>{vm.hypervisor}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {allVMs.length===0&&(
+                  <div style={{padding:"30px 10px",textAlign:"center",color:T.muted}}>
+                    <div style={{fontSize:28,marginBottom:8}}>🖥</div>
+                    <div style={{fontSize:12}}>No VMs discovered yet</div>
+                    <div style={{fontSize:11,marginTop:4}}>Click ⟳ on a physical host to discover</div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Detail panel */}
+        <div style={{overflowY:"auto"}}>
+          <DetailPanel sel={enrichedSel} hostData={currentHostData} onDbReload={onDbReload}/>
+        </div>
       </div>
 
       {showAdd&&<AddHostModal onClose={()=>setShowAdd(false)} onAdded={()=>{onGlobalReload();setShowAdd(false);}}/>}
       {promoteVM&&<PromoteVMModal
-        vm={promoteVM.vm}
-        hostId={promoteVM.hostId}
+        vm={promoteVM.vm} hostId={promoteVM.hostId}
         onClose={()=>setPromoteVM(null)}
         onAdded={()=>{onGlobalReload();setPromoteVM(null);}}/>}
     </div>
   );
 }
 
-// ── Overview (per-host selector) ──────────────────────────────────────────────
 function Overview({hosts,summary,history}) {
   const [selHost,setSelHost]=useState(null);
   const host=selHost?hosts.find(h=>h.id===selHost):null;

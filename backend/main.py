@@ -178,6 +178,51 @@ def summary(db: Session = Depends(get_db)):
         "warnings": sum(1 for m in metrics if m.get("cpu",0)>85 or m.get("ram",0)>85),
     }
 
+@app.get("/api/overview")
+def get_overview(db: Session = Depends(get_db)):
+    """Aggregate resource summary across all live hosts."""
+    hosts = db_get_hosts(db)
+    total  = len(hosts)
+    online = 0
+    cpu_sum = ram_sum = disk_sum = 0.0
+    ram_total_gb = ram_used_gb = 0.0
+    disk_total_gb = disk_used_gb = 0.0
+    live_count = 0
+
+    for h in hosts:
+        m = db_get_metrics(db, h["id"]) or {}
+        if m.get("source") == "live":
+            online += 1
+            live_count += 1
+            cpu_sum  += float(m.get("cpu",  0) or 0)
+            ram_sum  += float(m.get("ram",  0) or 0)
+            disk_sum += float(m.get("disk", 0) or 0)
+            # RAM totals from storage — use free output stored in metrics
+            ram_total = float(m.get("ram_total_gb") or 0)
+            ram_total_gb += ram_total
+            ram_used_gb  += ram_total * float(m.get("ram", 0) or 0) / 100
+            # Disk totals from root volume
+            for s in m.get("storage", []):
+                if s.get("mountpoint") == "/":
+                    disk_total_gb += float(s.get("size_gb") or 0)
+                    disk_used_gb  += float(s.get("used_gb") or 0)
+        else:
+            # Still count connection errors in online check
+            pass
+
+    n = live_count or 1
+    return {
+        "total_hosts":   total,
+        "hosts_online":  online,
+        "avg_cpu":       round(cpu_sum  / n, 1),
+        "avg_ram":       round(ram_sum  / n, 1),
+        "avg_disk":      round(disk_sum / n, 1),
+        "ram_total_gb":  round(ram_total_gb,  1) if ram_total_gb  else None,
+        "ram_used_gb":   round(ram_used_gb,   1) if ram_used_gb   else None,
+        "disk_total_gb": round(disk_total_gb, 1) if disk_total_gb else None,
+        "disk_used_gb":  round(disk_used_gb,  1) if disk_used_gb  else None,
+    }
+
 @app.get("/api/hosts")
 def get_hosts(db: Session = Depends(get_db)):
     hosts = db_get_hosts(db)

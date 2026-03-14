@@ -280,6 +280,7 @@ def collect_linux_metrics(host: dict) -> dict:
             # On RHEL/CentOS 'used' includes buffers and can cause >100% readings
             # available = actually free for applications; formula: (total-available)/total
             ram  = run(c, "free 2>/dev/null | awk '/^Mem:/{if($2>0 && NF>=7) printf \"%.1f\",($2-$7)/$2*100; else if($2>0) printf \"%.1f\",$3/$2*100; else print 0}'")
+            ram_total_mb = run(c, "free 2>/dev/null | awk '/^Mem:/{print $2}'")
             disk = run(c, "df / 2>/dev/null | awk 'NR==2{gsub(\"%\",\"\");print $5}'")
             net  = run(c, "awk 'NR>2{rx+=$2;tx+=$10}END{printf \"%.2f %.2f\",rx/1024/1024,tx/1024/1024}' /proc/net/dev 2>/dev/null")
             load = run(c, "awk '{print $1}' /proc/loadavg 2>/dev/null")
@@ -308,10 +309,15 @@ def collect_linux_metrics(host: dict) -> dict:
         # Derive disk% from storage array root volume (most accurate)
         root_vol = next((s for s in storage if s.get("mountpoint") == "/"), None)
         disk_pct = root_vol["use_pct"] if root_vol else safe_pct(disk)
+        try:
+            ram_total_gb = round(int((ram_total_mb or "0").strip()) / 1024 / 1024, 1)
+        except Exception:
+            ram_total_gb = 0
         return {
-            "cpu":      safe_pct(cpu),
-            "ram":      safe_pct(ram),
-            "disk":     disk_pct,
+            "cpu":          safe_pct(cpu),
+            "ram":          safe_pct(ram),
+            "disk":         disk_pct,
+            "ram_total_gb": ram_total_gb,
             "net_in":   safe_float(np[0] if np else 0),
             "net_out":  safe_float(np[1] if len(np) > 1 else 0),
             "load":     safe_float(load),
@@ -404,75 +410,48 @@ def collect_kvm_vms(host: dict) -> list:
                     if "Max memory" in l:
                         try: ram_mb = int(l.split(":")[1].strip().split()[0]) // 1024
                         except Exception: pass
-                # IP - collect from ALL sources, prefer routable non-NAT address
-                candidate_ips = []
+                # IP detection — simple reliable approach that was working
+                # Step 1: virsh domifaddr (no --source flag = tries both lease+agent)
+                ip_raw = run(c, f"virsh domifaddr {vname} 2>/dev/null | awk 'NR>2{{print $4}}' | grep -v '^-$' | cut -d/ -f1 | head -1")
+                vm_ip = ip_raw.strip() if ip_raw and ip_raw.strip() not in ("-", "") else ""
 
-                # Source 1: virsh domifaddr --source lease (libvirt DHCP leases)
-                lease_out = run(c, f"virsh domifaddr {vname} --source lease 2>/dev/null | awk 'NR>2{{print $4}}' | cut -d/ -f1")
-                for ip in lease_out.splitlines():
-                    ip = ip.strip()
-                    if ip and ip != "-": candidate_ips.append(("lease", ip))
-
-                # Source 2: virsh domifaddr --source agent (qemu-guest-agent)
-                agent_out = run(c, f"virsh domifaddr {vname} --source agent 2>/dev/null | awk 'NR>2{{print $4}}' | cut -d/ -f1")
-                for ip in agent_out.splitlines():
-                    ip = ip.strip()
-                    if ip and ip != "-" and not ip.startswith("127."): candidate_ips.append(("agent", ip))
-
-                # Source 3: ARP table lookup per MAC (catches bridge-mode VMs)
+                # Step 2: ARP / neighbour table per MAC — picks up bridge-mode VMs
                 iflist_raw = run(c, f"virsh domiflist {vname} 2>/dev/null")
                 vm_macs = []
                 for il in iflist_raw.splitlines()[2:]:
                     ilp = il.split()
-                    if len(ilp) >= 5 and ilp[4] != "-":
-                        vm_macs.append(ilp[4])
-                for mac in vm_macs:
-                    arp_ip = run(c, f"arp -n 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}' | head -1")
-                    arp_ip = (arp_ip or "").strip()
-                    if arp_ip and arp_ip != "-": candidate_ips.append(("arp", arp_ip))
+                    if len(ilp) >= 5 and ilp[4] not in ("-", ""):
+                        vm_macs.append((ilp[0], ilp[4]))  # (iface, mac)
 
-                # Source 4: ip neigh (neighbour table - catches VMs without ARP entry)
-                for mac in vm_macs:
-                    neigh_ip = run(c, f"ip neigh 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}' | head -1")
-                    neigh_ip = (neigh_ip or "").strip()
-                    if neigh_ip and neigh_ip != "-": candidate_ips.append(("neigh", neigh_ip))
+                if not vm_ip:
+                    for _iface, mac in vm_macs:
+                        arp_ip = run(c, f"arp -n 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}' | head -1")
+                        arp_ip = (arp_ip or "").strip()
+                        if arp_ip and arp_ip not in ("-", ""):
+                            vm_ip = arp_ip
+                            break
 
-                # Pick best IP: prefer routable non-NAT address
-                # 192.168.122.x = libvirt default NAT (virbr0) — avoid unless only option
-                # 169.254.x.x = link-local — skip
-                # 127.x.x.x = loopback — skip
-                def ip_score(src_ip):
-                    src, ip = src_ip
-                    if ip.startswith("127.") or ip.startswith("169.254."): return -1
-                    if ip.startswith("192.168.122."): return 1   # libvirt NAT — last resort
-                    if src == "agent": return 4                   # guest agent most reliable
-                    if src == "arp":   return 3
-                    if src == "neigh": return 3
-                    if src == "lease": return 2
-                    return 2
+                if not vm_ip:
+                    for _iface, mac in vm_macs:
+                        neigh_ip = run(c, f"ip neigh 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}' | head -1")
+                        neigh_ip = (neigh_ip or "").strip()
+                        if neigh_ip and neigh_ip not in ("-", ""):
+                            vm_ip = neigh_ip
+                            break
 
-                best = sorted([(score, ip) for (src, ip) in candidate_ips
-                               if (score := ip_score((src, ip))) >= 0],
-                              key=lambda x: -x[0])
-                vm_ip = best[0][1] if best else "N/A"
+                vm_ip = vm_ip or "N/A"
 
-                # Per-VM NICs — reuse iflist_raw already fetched above
+                # Per-VM NICs — reuse iflist_raw
                 vm_nics = []
                 for il in iflist_raw.splitlines()[2:]:
                     ilp = il.split()
                     if len(ilp) >= 5:
                         nic_mac = ilp[4]
-                        # Find IP for this specific MAC from candidate_ips
-                        nic_ip = ""
-                        for src, ip in sorted(candidate_ips, key=lambda x: -ip_score(x)):
-                            # We already have candidates — match if only one NIC or use vm_ip for first
-                            if len(vm_nics) == 0:
-                                nic_ip = vm_ip  # best IP goes to first NIC
-                            break
-                        # For additional NICs, look for their own ARP entry
+                        # Best-effort: look up per-NIC IP from ARP
+                        nic_ip = vm_ip if len(vm_nics) == 0 else ""
                         if len(vm_nics) > 0:
-                            arp_ip = run(c, f"arp -n 2>/dev/null | grep -i '{nic_mac}' | awk '{{print $1}}' | head -1")
-                            nic_ip = (arp_ip or "").strip()
+                            a = run(c, f"arp -n 2>/dev/null | grep -i '{nic_mac}' | awk '{{print $1}}' | head -1")
+                            nic_ip = (a or "").strip()
                         vm_nics.append({
                             "name": ilp[0], "type": ilp[1], "source": ilp[2],
                             "model": ilp[3], "mac": nic_mac,
