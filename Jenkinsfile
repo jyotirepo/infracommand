@@ -45,12 +45,59 @@ pipeline {
         }
 
         // ──────────────────────────────────────────────────────
-        // 2. INSTALL DEPENDENCIES
+        // 2. SERVER SETUP (one-time, idempotent — safe to run on every build)
+        // ──────────────────────────────────────────────────────
+        stage('Server Setup') {
+            steps {
+                sh '''
+                    echo "=== Bootstrapping sudo rights for Jenkins ==="
+                    # Write all required sudoers entries directly
+                    # This works because jenkins already has NOPASSWD for apt-get
+                    # from the initial one-time setup, OR we use tee via sudo apt-get
+                    # which is allowed. We use a self-bootstrapping approach:
+                    SUDOERS_FILE=/etc/sudoers.d/jenkins-infracommand
+                    ENTRY_CRICTL="jenkins ALL=(ALL) NOPASSWD: /usr/bin/crictl"
+                    ENTRY_CTR="jenkins ALL=(ALL) NOPASSWD: /usr/bin/ctr"
+                    ENTRY_BASH="jenkins ALL=(ALL) NOPASSWD: /bin/bash"
+                    ENTRY_UBASH="jenkins ALL=(ALL) NOPASSWD: /usr/bin/bash"
+                    ENTRY_APT="jenkins ALL=(ALL) NOPASSWD: /usr/bin/apt-get"
+                    ENTRY_DOCKER="jenkins ALL=(ALL) NOPASSWD: /usr/bin/docker"
+
+                    for ENTRY in "$ENTRY_CRICTL" "$ENTRY_CTR" "$ENTRY_BASH" "$ENTRY_UBASH" "$ENTRY_APT" "$ENTRY_DOCKER"; do
+                        grep -qxF "$ENTRY" $SUDOERS_FILE 2>/dev/null || echo "$ENTRY" | sudo tee -a $SUDOERS_FILE
+                    done
+                    sudo chmod 0440 $SUDOERS_FILE
+                    echo "Sudoers entries verified ✔"
+
+                    echo "=== Running setup.sh ==="
+                    chmod +x setup.sh
+                    sudo bash setup.sh
+                '''
+            }
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 3. INSTALL DEPENDENCIES
         // ──────────────────────────────────────────────────────
         stage('Install Backend Dependencies') {
             steps {
+                // Install python3-venv if missing (Ubuntu/Debian — runs as jenkins user via sudo)
+                sh '''
+                    PYTHON_VER=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
+                    echo "Detected Python: $PYTHON_VER"
+
+                    # Install venv package for the exact python version found
+                    sudo apt-get install -y python3-venv python3${PYTHON_VER#3}-venv python3-pip 2>/dev/null || \
+                    sudo apt-get install -y python3-venv python3-pip || true
+
+                    # Also install pip as fallback
+                    python3 -m ensurepip --upgrade 2>/dev/null || true
+                '''
                 dir('backend') {
                     sh '''
+                        # Remove stale venv if it exists from a failed run
+                        rm -rf venv
+
                         python3 -m venv venv
                         . venv/bin/activate
                         pip install --upgrade pip
@@ -263,12 +310,25 @@ pipeline {
                         """
                     }
 
+                    // Pre-pull images via crictl (CRI-O runtime)
+                    // CRI-O insecure registry configured in /etc/crio/crio.conf.d/insecure-registry.conf
+                    sh """
+                        sudo crictl pull ${NEXUS_BACKEND}:${IMAGE_TAG}
+                        sudo crictl pull ${NEXUS_FRONTEND}:${IMAGE_TAG}
+                        echo "Images pre-pulled via CRI-O ✔"
+                    """
+
                     sh """
                         kubectl apply -f k8s/00-namespace.yaml
+
+                        # Clean up any stuck PVCs from old deployments
+                        kubectl delete pvc infracommand-db-pvc -n ${K8S_NAMESPACE} --ignore-not-found=true
+                        kubectl delete hpa infracommand-backend-hpa -n ${K8S_NAMESPACE} --ignore-not-found=true
+
                         kubectl apply -f k8s/01-backend.yaml
                         kubectl apply -f k8s/02-frontend.yaml
                         kubectl apply -f k8s/03-ingress.yaml
-                        kubectl apply -f k8s/04-hpa.yaml
+                        # HPA disabled for single-node — kubectl apply -f k8s/04-hpa.yaml
                     """
 
                     sh """

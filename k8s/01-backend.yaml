@@ -4,7 +4,7 @@ metadata:
   name: infracommand-backend
   namespace: infracommand
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: infracommand-backend
@@ -13,35 +13,27 @@ spec:
       labels:
         app: infracommand-backend
     spec:
-      imagePullSecrets:
-        - name: nexus-pull-secret
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: backend
           image: 192.168.101.80:8082/infracommand-backend:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5000
           env:
-            - name: PORT
-              value: "5000"
-          resources:
-            requests:
-              cpu: "250m"
-              memory: "256Mi"
-            limits:
-              cpu: "500m"
-              memory: "512Mi"
-          readinessProbe:
-            httpGet:
-              path: /api/health
-              port: 5000
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /api/health
-              port: 5000
-            initialDelaySeconds: 20
-            periodSeconds: 20
+            - name: DB_PATH
+              value: /data/infracommand.db
+          volumeMounts:
+            - name: db-storage
+              mountPath: /data
+      volumes:
+        - name: db-storage
+          hostPath:
+            path: /opt/infracommand/db
+            type: DirectoryOrCreate
+      imagePullSecrets:
+        - name: nexus-pull-secret
 ---
 apiVersion: v1
 kind: Service
@@ -54,4 +46,3 @@ spec:
   ports:
     - port: 5000
       targetPort: 5000
-  type: ClusterIP

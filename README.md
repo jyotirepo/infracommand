@@ -164,6 +164,6 @@ Interactive Swagger docs: http://infracommand.local/api/docs
 | Jenkins               | http://192.168.101.80:8080         |
 | SonarQube             | http://192.168.101.80:9000         |
 | Nexus UI              | http://192.168.101.80:8081         |
-| Nexus Docker Registry | http://192.168.101.80:8082         |
+| Nexus Docker Registry | http://192.168.101.80:8081         |
 | Grafana               | http://192.168.101.80:3000         |
 | Prometheus            | http://192.168.101.80:9090         |

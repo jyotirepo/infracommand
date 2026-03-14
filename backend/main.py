@@ -1,259 +1,666 @@
 """
-InfraCommand — FastAPI Backend
-Centralized Server Monitoring & Vulnerability Management
+InfraCommand — FastAPI v3.0
+DB-backed, user-controlled refresh, proper OS detection
 """
-from fastapi import FastAPI, HTTPException
+import uuid
+from datetime import datetime, timezone
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
-import asyncio, uuid, random
-from datetime import datetime, timedelta
+from sqlalchemy.orm import Session
 
-app = FastAPI(title="InfraCommand API", version="1.0.0")
+from database import (get_db, db_save_host, db_get_hosts, db_get_host, db_delete_host,
+                      db_save_metrics, db_get_metrics, db_save_vms, db_get_vms,
+                      db_save_scan, db_get_scan, db_save_patch, db_get_patch,
+                      db_save_logs, db_get_logs)
+from collectors import (collect_linux_metrics, collect_windows_metrics,
+                        collect_linux_patch, collect_windows_patch,
+                        collect_kvm_vms, collect_hyperv_vms,
+                        vuln_scan, port_scan)
+
+app = FastAPI(title="InfraCommand API", version="3.0.0", docs_url="/api/docs")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ─── Models ───────────────────────────────────────────────────────────────────
+
 class HostCreate(BaseModel):
     name: str
     ip: str
-    user: str = "ubuntu"
+    os_type: str = "linux"
+    auth_type: str = "password"
+    username: str = "root"
+    password: Optional[str] = None
+    ssh_key: Optional[str] = None
     ssh_port: int = 22
+    winrm_port: int = 5985
 
-# ─── Static seed data ─────────────────────────────────────────────────────────
-CVE_DB = [
-    {"cve":"CVE-2024-6387",  "sev":"CRITICAL","pkg":"openssh 8.7p1",   "cvss":"8.1", "desc":"Remote code execution in OpenSSH (regreSSHion)","fix":"Upgrade openssh >= 8.7p1-34","link":"https://nvd.nist.gov/vuln/detail/CVE-2024-6387"},
-    {"cve":"CVE-2024-3094",  "sev":"CRITICAL","pkg":"xz-utils 5.6.0",  "cvss":"10.0","desc":"Supply-chain backdoor in XZ/liblzma",           "fix":"Downgrade to xz-utils 5.4.x","link":"https://nvd.nist.gov/vuln/detail/CVE-2024-3094"},
-    {"cve":"CVE-2024-1086",  "sev":"CRITICAL","pkg":"linux-kernel 5.14","cvss":"7.8","desc":"Use-after-free in netfilter nf_tables",           "fix":"Upgrade kernel >= 5.14.0-362","link":"https://nvd.nist.gov/vuln/detail/CVE-2024-1086"},
-    {"cve":"CVE-2024-21626", "sev":"HIGH",    "pkg":"runc 1.1.5",      "cvss":"8.6","desc":"Container escape via leaked file descriptors",     "fix":"Upgrade runc >= 1.1.11",     "link":"https://nvd.nist.gov/vuln/detail/CVE-2024-21626"},
-    {"cve":"CVE-2023-44487", "sev":"HIGH",    "pkg":"nghttp2 1.57.0",  "cvss":"7.5","desc":"HTTP/2 Rapid Reset DDoS attack",                  "fix":"Upgrade nghttp2 >= 1.57.0-2","link":"https://nvd.nist.gov/vuln/detail/CVE-2023-44487"},
-    {"cve":"CVE-2023-4911",  "sev":"HIGH",    "pkg":"glibc 2.34",      "cvss":"7.8","desc":"Buffer overflow in glibc dynamic linker",          "fix":"Update glibc >= 2.34-60",    "link":"https://nvd.nist.gov/vuln/detail/CVE-2023-4911"},
-    {"cve":"CVE-2024-0646",  "sev":"CRITICAL","pkg":"linux-kernel 5.14","cvss":"7.8","desc":"Out-of-bounds write in kernel TLS subsystem",     "fix":"kernel >= 5.14.0-362.8.1",   "link":"https://nvd.nist.gov/vuln/detail/CVE-2024-0646"},
-    {"cve":"CVE-2024-0727",  "sev":"MEDIUM",  "pkg":"openssl 3.0.7",   "cvss":"5.5","desc":"Denial of service in PKCS12 parsing",              "fix":"Update openssl >= 3.0.8",    "link":"https://nvd.nist.gov/vuln/detail/CVE-2024-0727"},
-    {"cve":"CVE-2023-5678",  "sev":"MEDIUM",  "pkg":"openssl 3.0.7",   "cvss":"5.3","desc":"DoS via excessive DH key generation",              "fix":"Update openssl >= 3.0.8",    "link":"https://nvd.nist.gov/vuln/detail/CVE-2023-5678"},
-    {"cve":"CVE-2023-40217", "sev":"LOW",     "pkg":"python3 3.11.2",  "cvss":"5.3","desc":"TLS handshake bypass before EOF",                  "fix":"Update python3 >= 3.11.4",   "link":"https://nvd.nist.gov/vuln/detail/CVE-2023-40217"},
-]
+class HostUpdate(BaseModel):
+    name: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    ssh_key: Optional[str] = None
+    ssh_port: Optional[int] = None
 
-LOG_POOL = [
-    ("INFO",  "sshd[1234]: Accepted publickey for deploy from 10.0.0.5 port 44392"),
-    ("INFO",  "systemd[1]: nginx.service: Reload successful"),
-    ("WARN",  "kernel: nf_conntrack: table full, dropping packet"),
-    ("INFO",  "CRON[4422]: (root) CMD (/usr/lib/apt/apt.systemd.daily)"),
-    ("ERROR", "kernel: Out of memory: Kill process 28471 (python3) score 892"),
-    ("WARN",  "sshd[9821]: Invalid user ubuntu from 196.49.1.22 port 51000"),
-    ("INFO",  "dockerd: container started successfully"),
-    ("OK",    "systemd[1]: Reached target Multi-User System"),
-    ("INFO",  "postgres: database system is ready to accept connections"),
-    ("ERROR", "kernel: EDAC MC0: 1 CE memory read error on CPU_SrcID#0"),
-    ("WARN",  "sshd: Failed password for root from 45.33.32.156 (3 attempts)"),
-    ("OK",    "systemd[1]: apt-daily.service: Succeeded"),
-    ("INFO",  "docker: container ml-train-01 started"),
-    ("ERROR", "nginx: upstream timed out (110) while reading response header"),
-]
 
-def gen_logs(host_name: str, n: int = 50) -> list:
-    return [
-        {"id": str(uuid.uuid4()),
-         "ts": (datetime.utcnow() - timedelta(seconds=i*90)).isoformat(),
-         "level": lvl, "host": host_name, "msg": msg}
-        for i, (lvl, msg) in enumerate(random.choices(LOG_POOL, k=n))
-    ]
+def _collect_metrics(host: dict) -> dict:
+    return collect_linux_metrics(host) if host["os_type"]=="linux" else collect_windows_metrics(host)
 
-def gen_metrics(hid: str) -> dict:
-    base = {"h1":(68,72), "h2":(91,89), "h3":(35,42), "h4":(44,53)}.get(hid, (50,50))
-    return {
-        "cpu":      round(min(100, max(1, base[0] + random.uniform(-3,3))), 1),
-        "ram":      round(min(100, max(1, base[1] + random.uniform(-2,2))), 1),
-        "disk":     round(random.uniform(30, 75), 1),
-        "net_in":   round(random.uniform(10, 900), 1),
-        "net_out":  round(random.uniform(5, 400), 1),
-        "load":     round(random.uniform(0.2, 6.0), 2),
-        "uptime":   {"h1":"47d 14h","h2":"12d 3h","h3":"93d 7h","h4":"31d 19h"}.get(hid, "0d"),
-        "updated_at": datetime.utcnow().isoformat(),
+def _collect_patch(host: dict) -> dict:
+    return collect_linux_patch(host) if host["os_type"]=="linux" else collect_windows_patch(host)
+
+def _collect_vms(host: dict) -> list:
+    return collect_kvm_vms(host) if host["os_type"]=="linux" else collect_hyperv_vms(host)
+
+# ── Event log helper ──────────────────────────────────────────────────────────
+def _append_log(db, host_id: str, host_name: str, level: str, msg: str, source: str = "system"):
+    """Append a single structured log entry for a host."""
+    existing = db_get_logs(db, host_id) or []
+    entry = {
+        "ts":     datetime.now(timezone.utc).isoformat(),
+        "level":  level,
+        "host":   host_name,
+        "host_id":host_id,
+        "msg":    msg[:300],
+        "source": source,
     }
+    existing.insert(0, entry)          # newest first
+    db_save_logs(db, host_id, existing[:500])  # keep last 500 per host
 
-# ─── In-memory store ──────────────────────────────────────────────────────────
-HOSTS = [
-    {"id":"h1","name":"prod-host-01","ip":"192.168.1.10","user":"ubuntu","ssh_port":22,"status":"online","vms":[
-        {"id":"vm1","name":"web-prod-01", "type":"Web",     "status":"running","ip":"192.168.1.101","vcpu":4, "ram":"16GB","disk":"200GB","os":"Ubuntu 22.04"},
-        {"id":"vm2","name":"api-prod-01", "type":"API",     "status":"running","ip":"192.168.1.102","vcpu":8, "ram":"32GB","disk":"200GB","os":"Ubuntu 22.04"},
-        {"id":"vm3","name":"db-prod-01",  "type":"Database","status":"running","ip":"192.168.1.103","vcpu":16,"ram":"64GB","disk":"1TB",  "os":"RHEL 9"},
-    ]},
-    {"id":"h2","name":"prod-host-02","ip":"192.168.1.11","user":"ubuntu","ssh_port":22,"status":"warning","vms":[
-        {"id":"vm4","name":"ml-train-01", "type":"ML",     "status":"running","ip":"192.168.1.111","vcpu":32,"ram":"128GB","disk":"500GB","os":"Ubuntu 22.04"},
-        {"id":"vm5","name":"monitor-01",  "type":"Monitor","status":"stopped","ip":"192.168.1.112","vcpu":4, "ram":"8GB", "disk":"100GB","os":"Debian 12"},
-    ]},
-    {"id":"h3","name":"dev-host-01","ip":"192.168.1.20","user":"ubuntu","ssh_port":22,"status":"online","vms":[
-        {"id":"vm6","name":"web-dev-01",  "type":"Web",     "status":"running","ip":"192.168.1.201","vcpu":2, "ram":"8GB", "disk":"100GB","os":"Ubuntu 20.04"},
-        {"id":"vm7","name":"db-dev-01",   "type":"Database","status":"running","ip":"192.168.1.202","vcpu":4, "ram":"16GB","disk":"200GB","os":"Ubuntu 20.04"},
-    ]},
-    {"id":"h4","name":"staging-host-01","ip":"192.168.1.30","user":"ubuntu","ssh_port":22,"status":"online","vms":[
-        {"id":"vm8","name":"web-stg-01",  "type":"Web","status":"running","ip":"192.168.1.301","vcpu":4,"ram":"16GB","disk":"200GB","os":"Debian 12"},
-        {"id":"vm9","name":"api-stg-01",  "type":"API","status":"running","ip":"192.168.1.302","vcpu":4,"ram":"16GB","disk":"200GB","os":"Debian 12"},
-    ]},
-]
-METRICS  = {h["id"]: gen_metrics(h["id"]) for h in HOSTS}
-LOGS     = {h["id"]: gen_logs(h["name"])  for h in HOSTS}
-PATCHES  = {
-    "h1":{"os":"Ubuntu 22.04.3 LTS","kernel":"5.15.0-89-generic",        "last_patch":"2024-11-15","current_ver":"22.04.3","latest_ver":"22.04.4","status":"outdated"},
-    "h2":{"os":"RHEL 9.2",           "kernel":"5.14.0-284.el9_2.x86_64", "last_patch":"2024-10-02","current_ver":"9.2",    "latest_ver":"9.3",    "status":"critical"},
-    "h3":{"os":"Ubuntu 20.04.6 LTS", "kernel":"5.4.0-167-generic",       "last_patch":"2024-11-28","current_ver":"20.04.6","latest_ver":"20.04.6","status":"uptodate"},
-    "h4":{"os":"Debian 12.2",        "kernel":"6.1.0-13-amd64",          "last_patch":"2024-12-01","current_ver":"12.2",   "latest_ver":"12.3",   "status":"outdated"},
-}
-SCANS = {}
 
-def refresh_metrics():
-    for h in HOSTS:
-        hid = h["id"]
-        m = METRICS[hid]
-        m["cpu"]      = round(min(100, max(1, m["cpu"] + random.uniform(-5, 5))), 1)
-        m["ram"]      = round(min(100, max(1, m["ram"] + random.uniform(-3, 3))), 1)
-        m["net_in"]   = round(random.uniform(10, 900), 1)
-        m["net_out"]  = round(random.uniform(5, 400), 1)
-        m["updated_at"] = datetime.utcnow().isoformat()
-        h["status"]   = "warning" if m["cpu"] > 85 or m["ram"] > 85 else "online"
+def _auto_log_metrics(db, host_id: str, host_name: str, m: dict):
+    """Log metrics result and generate error logs for connection failures."""
+    if m.get("source") == "live":
+        os_n = m.get("os_info", {}).get("os_pretty", "")
+        _append_log(db, host_id, host_name, "INFO",
+                    f"Metrics collected — CPU:{m.get('cpu',0)}% RAM:{m.get('ram',0)}% Disk:{m.get('disk',0)}% OS:{os_n}", "metrics")
+    else:
+        _append_log(db, host_id, host_name, "ERROR",
+                    f"Metrics collection failed: {m.get('reason','unknown error')}", "metrics")
 
-# ─── Routes ───────────────────────────────────────────────────────────────────
 
-@app.get("/api/health")
-def health():
-    return {"status": "ok", "ts": datetime.utcnow().isoformat()}
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+@app.post("/api/test-connection")
+def test_connection(data: HostCreate):
+    """Test SSH/WinRM connectivity before saving. Returns detailed error info."""
+    host = data.model_dump()
+    host["id"] = "test"
+    import socket, time
+    result = {"ip": host["ip"], "steps": []}
+
+    # Step 1: basic TCP reachability
+    port = host.get("winrm_port", 5985) if host["os_type"] == "windows" else host.get("ssh_port", 22)
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(5)
+        t = time.time()
+        rc = s.connect_ex((host["ip"], port))
+        s.close()
+        elapsed = round(time.time()-t, 2)
+        if rc == 0:
+            result["steps"].append({"step": f"TCP :{port}", "status": "ok", "msg": f"Port open ({elapsed}s)"})
+        else:
+            result["steps"].append({"step": f"TCP :{port}", "status": "fail", "msg": f"Port {port} refused/unreachable (err {rc})"})
+            result["status"] = "fail"
+            result["error"]  = f"Cannot reach {host['ip']}:{port} — check firewall or IP"
+            return result
+    except Exception as e:
+        result["steps"].append({"step": f"TCP :{port}", "status": "fail", "msg": str(e)})
+        result["status"] = "fail"
+        result["error"]  = f"Network error: {e}"
+        return result
+
+    # Step 2: auth
+    if host["os_type"] == "linux":
+        try:
+            from collectors import ssh_connect, run, detect_os
+            c = ssh_connect(host)
+            result["steps"].append({"step": "SSH Auth", "status": "ok", "msg": f"Logged in as {host['username']}"})
+            os_info = detect_os(c)
+            result["steps"].append({"step": "OS Detect", "status": "ok", "msg": os_info.get("os_pretty","detected")})
+            whoami = run(c, "whoami")
+            id_out = run(c, "id")
+            result["steps"].append({"step": "Permissions", "status": "ok", "msg": f"whoami={whoami} | {id_out[:80]}"})
+            c.close()
+            result["status"] = "ok"
+            result["os"] = os_info
+        except Exception as e:
+            result["steps"].append({"step": "SSH Auth", "status": "fail", "msg": str(e)})
+            result["status"] = "fail"
+            result["error"]  = f"SSH failed: {e}"
+    else:
+        try:
+            import winrm
+            for transport in ["ntlm", "basic"]:
+                try:
+                    s = winrm.Session(
+                        f"http://{host['ip']}:{host.get('winrm_port',5985)}/wsman",
+                        auth=(host["username"], host.get("password","")),
+                        transport=transport,
+                    )
+                    r = s.run_cmd("whoami")
+                    if r.status_code == 0:
+                        result["steps"].append({"step": f"WinRM ({transport})", "status": "ok",
+                                                "msg": r.std_out.decode().strip()[:80]})
+                        r2 = s.run_ps("(Get-WmiObject Win32_OperatingSystem).Caption")
+                        os_name = r2.std_out.decode().strip() if r2.status_code==0 else "Windows"
+                        result["steps"].append({"step": "OS Detect", "status": "ok", "msg": os_name})
+                        result["status"] = "ok"
+                        result["os"] = {"os_pretty": os_name}
+                        break
+                    else:
+                        result["steps"].append({"step": f"WinRM ({transport})", "status": "fail",
+                                                "msg": r.std_err.decode().strip()[:120]})
+                except Exception as e2:
+                    result["steps"].append({"step": f"WinRM ({transport})", "status": "fail", "msg": str(e2)[:120]})
+            if "status" not in result:
+                result["status"] = "fail"
+                result["error"] = "All WinRM transports failed — check WinRM enabled and credentials"
+        except Exception as e:
+            result["status"] = "fail"
+            result["error"] = f"WinRM error: {e}"
+    return result
+
+
+    return {"status":"ok","ts":datetime.now(timezone.utc).isoformat()}
 
 @app.get("/api/summary")
-def summary():
-    refresh_metrics()
-    total_vms   = sum(len(h["vms"]) for h in HOSTS)
-    running_vms = sum(1 for h in HOSTS for v in h["vms"] if v["status"] == "running")
-    warnings    = sum(1 for h in HOSTS if h["status"] == "warning")
-    cpus        = [METRICS[h["id"]]["cpu"] for h in HOSTS]
-    avg_cpu     = round(sum(cpus)/len(cpus), 1) if cpus else 0
-    unpatched   = sum(1 for p in PATCHES.values() if p["status"] != "uptodate")
-    return {"hosts": len(HOSTS), "total_vms": total_vms, "running_vms": running_vms,
-            "warnings": warnings, "avg_cpu": avg_cpu, "unpatched": unpatched}
+def summary(db: Session = Depends(get_db)):
+    hosts = db_get_hosts(db)
+    metrics = [db_get_metrics(db, h["id"]) or {} for h in hosts]
+    cpus = [m.get("cpu",0) for m in metrics if m]
+    vms_count = sum(len(db_get_vms(db, h["id"])) for h in hosts)
+    return {
+        "hosts": len(hosts),
+        "total_vms": vms_count,
+        "avg_cpu": round(sum(cpus)/len(cpus),1) if cpus else 0,
+        "warnings": sum(1 for m in metrics if m.get("cpu",0)>85 or m.get("ram",0)>85),
+    }
 
 @app.get("/api/hosts")
-def get_hosts():
-    refresh_metrics()
-    return [{**h, "metrics": METRICS.get(h["id"], {})} for h in HOSTS]
+def get_hosts(db: Session = Depends(get_db)):
+    hosts = db_get_hosts(db)
+    result = []
+    for h in hosts:
+        m    = db_get_metrics(db, h["id"]) or {}
+        vms  = db_get_vms(db, h["id"])
+        patch = db_get_patch(db, h["id"]) or {}
+        result.append({**h, "metrics": m, "vms": vms, "patch": patch,
+                       "password":"***", "ssh_key":"***" if h.get("ssh_key") else None})
+    return result
 
-@app.get("/api/hosts/{host_id}")
-def get_host(host_id: str):
-    h = next((x for x in HOSTS if x["id"] == host_id), None)
-    if not h: raise HTTPException(404, "Host not found")
-    return {**h, "metrics": METRICS.get(host_id, {}), "patch": PATCHES.get(host_id, {})}
+@app.get("/api/hosts/{hid}")
+def get_host(hid: str, db: Session = Depends(get_db)):
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404,"Host not found")
+    m     = db_get_metrics(db, hid) or {}
+    patch = db_get_patch(db, hid) or {}
+    vms   = db_get_vms(db, hid)
+    return {**h, "metrics":m, "patch":patch, "vms":vms,
+            "password":"***", "ssh_key":"***" if h.get("ssh_key") else None}
 
 @app.post("/api/hosts", status_code=201)
-def add_host(body: HostCreate):
-    hid  = f"h{str(uuid.uuid4())[:8]}"
-    host = {"id": hid, "name": body.name, "ip": body.ip,
-            "user": body.user, "ssh_port": body.ssh_port, "status": "unknown", "vms": []}
-    HOSTS.append(host)
-    METRICS[hid] = gen_metrics(hid)
-    LOGS[hid]    = []
-    return host
+def add_host(data: HostCreate, db: Session = Depends(get_db)):
+    hid  = f"h{uuid.uuid4().hex[:8]}"
+    host = {**data.model_dump(), "id": hid, "status": "online",
+            "created_at": datetime.now(timezone.utc).isoformat()}
+    try:
+        db_save_host(db, host)
+    except Exception as e:
+        raise HTTPException(400, f"Database error saving host: {str(e)[:300]}")
 
-@app.delete("/api/hosts/{host_id}")
-def delete_host(host_id: str):
-    global HOSTS
-    HOSTS = [h for h in HOSTS if h["id"] != host_id]
-    METRICS.pop(host_id, None); LOGS.pop(host_id, None); SCANS.pop(host_id, None)
-    return {"deleted": host_id}
+    # Each collection step is independent — failure of one never blocks save
+    m = {}
+    try:
+        m = _collect_metrics(host)
+        db_save_metrics(db, hid, m)
+    except Exception as e:
+        m = {"source": "error", "reason": str(e)[:200]}
+        db_save_metrics(db, hid, m)
+    _append_log(db, hid, host["name"], "INFO", f"Host added — IP:{host['ip']} OS:{host['os_type']}", "system")
+    _auto_log_metrics(db, hid, host["name"], m)
+
+    p = {}
+    try:
+        p = _collect_patch(host)
+        db_save_patch(db, hid, p)
+        _append_log(db, hid, host["name"], "INFO", f"Patch info collected — status:{p.get('status','?')} pending:{p.get('updates_available',0)}", "patch")
+    except Exception as e:
+        db_save_patch(db, hid, {"status": "error", "reason": str(e)[:200]})
+        _append_log(db, hid, host["name"], "WARN", f"Patch collection failed: {str(e)[:200]}", "patch")
+
+    vms = []
+    try:
+        vms = _collect_vms(host)
+        db_save_vms(db, hid, vms)
+        _append_log(db, hid, host["name"], "INFO", f"VM discovery complete — {len(vms)} VMs found", "vms")
+        for vm in vms:
+            try:
+                _append_log(db, vm["id"], vm["name"], "INFO",
+                            f"VM discovered on {host['name']} — status:{vm.get('status','?')} IP:{vm.get('ip','N/A')}", "vm-discovery")
+            except Exception:
+                pass
+    except Exception as e:
+        _append_log(db, hid, host["name"], "WARN", f"VM discovery failed: {str(e)[:150]}", "vms")
+
+    connected = m.get("source") == "live"
+    msg = f"Connected ✔ — OS: {m.get('os_info',{}).get('os_pretty','detected')}, {len(vms)} VMs found" \
+          if connected else \
+          f"Host saved. Connection issue: {m.get('reason', 'check credentials/network')}"
+    return {"id": hid, "name": host["name"], "connected": connected,
+            "vms_found": len(vms), "message": msg}
+
+@app.put("/api/hosts/{hid}")
+def update_host(hid: str, data: HostUpdate, db: Session = Depends(get_db)):
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404,"Host not found")
+    for k,v in data.model_dump(exclude_none=True).items(): h[k]=v
+    db_save_host(db, h)
+    return {"id":hid,"message":"Updated"}
+
+@app.delete("/api/hosts/{hid}")
+def delete_host(hid: str, db: Session = Depends(get_db)):
+    if not db_get_host(db, hid): raise HTTPException(404,"Host not found")
+    db_delete_host(db, hid)
+    return {"message":"Deleted"}
+
+# ── User-triggered refresh (explicit only) ────────────────────────────────────
+@app.post("/api/hosts/{hid}/refresh")
+def refresh_host(hid: str, db: Session = Depends(get_db)):
+    """Collect fresh metrics + patch + VMs. Each step independent — never fails whole request."""
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404, "Host not found")
+
+    m = {}
+    try:
+        m = _collect_metrics(h); db_save_metrics(db, hid, m)
+    except Exception as e:
+        m = {"source": "error", "reason": str(e)[:200]}
+        try: db_save_metrics(db, hid, m)
+        except Exception: pass
+    try: _append_log(db, hid, h["name"], "INFO", "Manual refresh triggered", "system")
+    except Exception: pass
+    try: _auto_log_metrics(db, hid, h["name"], m)
+    except Exception: pass
+
+    try:
+        p = _collect_patch(h); db_save_patch(db, hid, p)
+        try: _append_log(db, hid, h["name"], "INFO", f"Patch refreshed — {p.get('status','?')}", "patch")
+        except Exception: pass
+    except Exception as e:
+        try: db_save_patch(db, hid, {"status": "error", "reason": str(e)[:200]})
+        except Exception: pass
+        try: _append_log(db, hid, h["name"], "WARN", f"Patch refresh failed: {str(e)[:150]}", "patch")
+        except Exception: pass
+
+    vms = []
+    try:
+        vms = _collect_vms(h); db_save_vms(db, hid, vms)
+        try: _append_log(db, hid, h["name"], "INFO", f"VMs refreshed — {len(vms)} found", "vms")
+        except Exception: pass
+        # Log per-VM status into VM-specific log store
+        for vm in vms:
+            try:
+                vm_state = vm.get("status","unknown")
+                vm_cpu   = vm.get("metrics",{}).get("cpu",0)
+                vm_ram   = vm.get("metrics",{}).get("ram",0)
+                vm_ip    = vm.get("ip","N/A")
+                _append_log(db, vm["id"], vm["name"],
+                            "INFO" if vm_state=="running" else "WARN",
+                            f"VM {vm_state} — CPU:{vm_cpu}% RAM:{vm_ram}% IP:{vm_ip}", "vm-metrics")
+            except Exception:
+                pass
+    except Exception as e:
+        try: _append_log(db, hid, h["name"], "WARN", f"VM refresh failed: {str(e)[:150]}", "vms")
+        except Exception: pass
+
+    src = m.get("source", "error")
+    os_name = m.get("os_info", {}).get("os_pretty", "")
+    return {"status": "ok", "source": src, "vms": len(vms), "os": os_name,
+            "message": f"Refreshed — {os_name or src}, {len(vms)} VMs" if src=="live"
+                       else f"Connection error: {m.get('reason','check host')}"}
+
+@app.get("/api/hosts/{hid}/metrics")
+def get_metrics(hid: str, db: Session = Depends(get_db)):
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404,"Host not found")
+    return db_get_metrics(db, hid) or {"source":"no_data"}
+
+@app.get("/api/hosts/{hid}/vms")
+def get_vms(hid: str, db: Session = Depends(get_db)):
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404,"Host not found")
+    return db_get_vms(db, hid)
+
+@app.post("/api/hosts/{hid}/vms/refresh")
+def refresh_vms(hid: str, db: Session = Depends(get_db)):
+    """Discover VMs — only on user request."""
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404,"Host not found")
+    vms = _collect_vms(h)
+    db_save_vms(db, hid, vms)
+    return {"count": len(vms), "vms": vms}
+
+@app.get("/api/hosts/{hid}/patch")
+def get_patch(hid: str, db: Session = Depends(get_db)):
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404,"Host not found")
+    return db_get_patch(db, hid) or {"status":"No data — click Refresh"}
+
+@app.post("/api/hosts/{hid}/patch/refresh")
+def refresh_patch(hid: str, db: Session = Depends(get_db)):
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404,"Host not found")
+    p = _collect_patch(h)
+    db_save_patch(db, hid, p)
+    return p
 
 @app.get("/api/metrics/history")
 def metrics_history():
-    now = datetime.utcnow()
-    return [
-        {"ts": (now - timedelta(hours=24-i)).strftime("%H:00"),
-         "prod01_cpu": round(random.uniform(55,85),1),
-         "prod02_cpu": round(random.uniform(75,95),1),
-         "dev01_cpu":  round(random.uniform(20,55),1),
-         "prod01_ram": round(random.uniform(60,80),1),
-         "prod02_ram": round(random.uniform(75,92),1)}
-        for i in range(24)
-    ]
+    import random
+    return [{"hour":f"{i:02d}:00","cpu":round(random.uniform(20,90),1),
+             "ram":round(random.uniform(30,85),1)} for i in range(24)]
 
 @app.get("/api/logs")
-def all_logs(level: str = "all", limit: int = 100):
-    for h in HOSTS:
-        lvl, msg = random.choice(LOG_POOL)
-        LOGS[h["id"]].insert(0, {"id": str(uuid.uuid4()),
-            "ts": datetime.utcnow().isoformat(), "level": lvl, "host": h["name"], "msg": msg})
-        if len(LOGS[h["id"]]) > 300: LOGS[h["id"]].pop()
-    merged = sorted(
-        [l for logs in LOGS.values() for l in logs],
-        key=lambda x: x["ts"], reverse=True
-    )
-    if level != "all":
-        merged = [l for l in merged if l["level"] == level.upper()]
-    return merged[:limit]
+def get_all_logs(level: Optional[str]=None, limit: int=200, db: Session = Depends(get_db)):
+    hosts = db_get_hosts(db)
+    all_logs = []
+    for h in hosts:
+        all_logs.extend(db_get_logs(db, h["id"]))
+    if level: all_logs=[l for l in all_logs if l.get("level")==level.upper()]
+    return all_logs[:limit]
 
-@app.get("/api/hosts/{host_id}/logs")
-def host_logs(host_id: str, level: str = "all", limit: int = 80):
-    logs = LOGS.get(host_id, [])
-    if level != "all":
-        logs = [l for l in logs if l["level"] == level.upper()]
-    return logs[:limit]
+@app.get("/api/hosts/{hid}/logs")
+def get_host_logs(hid: str, db: Session = Depends(get_db)):
+    return db_get_logs(db, hid)
+
+@app.get("/api/hosts/{hid}/vms/{vid}/logs")
+def get_vm_logs(hid: str, vid: str, db: Session = Depends(get_db)):
+    """Return logs from the VM's own log store (vid-based),
+    falling back to host logs filtered by VM name."""
+    # Try VM-specific log store first
+    vm_logs = db_get_logs(db, vid)
+    if vm_logs:
+        return vm_logs
+    # Fallback: filter host logs for entries mentioning this VM
+    vms = db_get_vms(db, hid)
+    vm = next((v for v in vms if v["id"] == vid), None)
+    vm_name = (vm.get("name") or "").lower() if vm else ""
+    host_logs = db_get_logs(db, hid) or []
+    if vm_name:
+        filtered = [l for l in host_logs if vm_name in (l.get("msg","") or "").lower()
+                    or l.get("source") in ("vms",)]
+        return filtered if filtered else []
+    return []
+
+@app.post("/api/hosts/{hid}/vms/{vid}/promote")
+def promote_vm_to_host(hid: str, vid: str, data: dict, db: Session = Depends(get_db)):
+    """Add a discovered VM as a standalone monitored host."""
+    vms = db_get_vms(db, hid)
+    vm = next((v for v in vms if v["id"] == vid), None)
+    if not vm: raise HTTPException(404, "VM not found")
+    if not data.get("username") or not data.get("password"):
+        raise HTTPException(400, "username and password required")
+    # Build host entry from VM data
+    new_hid = f"h{uuid.uuid4().hex[:8]}"
+    host = {
+        "id": new_hid, "name": vm["name"],
+        "ip": vm.get("ip",""), "os_type": "linux" if vm.get("hypervisor")=="KVM" else "windows",
+        "username": data["username"], "password": data.get("password",""),
+        "ssh_key": data.get("ssh_key",""), "port": int(data.get("port", 22)),
+        "created_at": datetime.now(timezone.utc),
+        "tags": f"promoted-from:{vm.get('name','')}",
+    }
+    db_save_host(db, host)
+    _append_log(db, new_hid, host["name"], "INFO",
+                f"Host promoted from VM on {db_get_host(db,hid)['name']}", "system")
+    # Kick off initial metrics collection async-style (best effort)
+    m = {}
+    try:
+        m = _collect_metrics(host); db_save_metrics(db, new_hid, m)
+    except Exception as e:
+        db_save_metrics(db, new_hid, {"source":"error","reason":str(e)[:200]})
+    _auto_log_metrics(db, new_hid, host["name"], m)
+    return {"status": "ok", "host_id": new_hid, "message": f"{vm['name']} added as standalone host"}
+
+@app.post("/api/hosts/{hid}/logs/refresh")
+def refresh_logs(hid: str, db: Session = Depends(get_db)):
+    from collectors import ssh_connect, run
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404,"Host not found")
+    try:
+        c = ssh_connect(h)
+        raw = run(c, "journalctl -n 100 --no-pager -o short 2>/dev/null || tail -n 100 /var/log/syslog 2>/dev/null || tail -n 100 /var/log/messages 2>/dev/null")
+        c.close()
+        logs=[]
+        for line in raw.splitlines():
+            lvl="ERROR" if any(w in line.lower() for w in ["error","fail","crit"]) else "WARN" if "warn" in line.lower() else "INFO"
+            logs.append({"ts":datetime.now(timezone.utc).isoformat(),"level":lvl,
+                         "msg":line[:200],"host":h["name"],"source":"live"})
+        db_save_logs(db, hid, logs)
+        return logs
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 @app.get("/api/patches")
-def patches():
-    return [{"host_id": h["id"], "host_name": h["name"], "ip": h["ip"],
-             **PATCHES.get(h["id"], {})} for h in HOSTS]
+def get_all_patches(db: Session = Depends(get_db)):
+    hosts = db_get_hosts(db)
+    return [db_get_patch(db, h["id"]) or {"host":h["name"],"status":"No data"} for h in hosts]
 
 @app.get("/api/alerts")
-def alerts():
-    out = []
-    for h in HOSTS:
-        m = METRICS.get(h["id"], {})
-        p = PATCHES.get(h["id"], {})
-        ts = datetime.utcnow().isoformat()
-        if m.get("cpu", 0) > 85:
-            out.append({"id": str(uuid.uuid4()), "sev":"CRITICAL","host":h["name"],
-                "title":f"High CPU — {h['name']}","msg":f"CPU at {m['cpu']}% for >15 min","ts":ts})
-        if m.get("ram", 0) > 85:
-            out.append({"id": str(uuid.uuid4()), "sev":"WARNING","host":h["name"],
-                "title":f"High RAM — {h['name']}","msg":f"RAM at {m['ram']}%","ts":ts})
-        if m.get("disk", 0) > 80:
-            out.append({"id": str(uuid.uuid4()), "sev":"WARNING","host":h["name"],
-                "title":f"Disk pressure — {h['name']}","msg":f"Disk at {m['disk']}%","ts":ts})
-        if p.get("status") == "critical":
-            out.append({"id": str(uuid.uuid4()), "sev":"CRITICAL","host":h["name"],
-                "title":f"Critical patch — {h['name']}","msg":f"{p['os']} → {p['latest_ver']}","ts":ts})
-        elif p.get("status") == "outdated":
-            out.append({"id": str(uuid.uuid4()), "sev":"WARNING","host":h["name"],
-                "title":f"Patch available — {h['name']}","msg":f"v{p.get('current_ver')} → v{p.get('latest_ver')}","ts":ts})
-    return out
+def get_alerts(db: Session = Depends(get_db)):
+    hosts  = db_get_hosts(db)
+    alerts = []
+    for h in hosts:
+        m = db_get_metrics(db, h["id"]) or {}
+        p = db_get_patch(db, h["id"])   or {}
+        hname = h["name"]
+        hid   = h["id"]
+        ts    = m.get("updated_at", "")
 
-@app.post("/api/hosts/{host_id}/scan")
-async def trigger_scan(host_id: str):
-    h = next((x for x in HOSTS if x["id"] == host_id), None)
-    if not h: raise HTTPException(404, "Host not found")
-    await asyncio.sleep(1.5)   # simulate SSH + trivy runtime
-    seed  = sum(ord(c) for c in host_id)
-    vulns = [
-        {**v, "id": str(uuid.uuid4()), "scanned_host": h["name"]}
-        for i, v in enumerate(CVE_DB)
-        if (i + seed) % 4 != 0
-    ]
-    result = {
-        "host_id": h["id"], "host_name": h["name"], "host_ip": h["ip"],
-        "scan_id": str(uuid.uuid4()), "ts": datetime.utcnow().isoformat(),
-        "vulns": vulns,
-        "summary": {
-            "critical": sum(1 for v in vulns if v["sev"]=="CRITICAL"),
-            "high":     sum(1 for v in vulns if v["sev"]=="HIGH"),
-            "medium":   sum(1 for v in vulns if v["sev"]=="MEDIUM"),
-            "low":      sum(1 for v in vulns if v["sev"]=="LOW"),
-            "total":    len(vulns),
-        }
-    }
-    SCANS[host_id] = result
+        # ── Connection error ──────────────────────────────────────
+        if m.get("source") == "error":
+            alerts.append({"id": f"a-{hid}-conn", "host": hname, "type": "Connection",
+                "severity": "critical", "ts": ts,
+                "msg": f"Cannot connect: {m.get('reason','check credentials/network')[:150]}"})
+        else:
+            # ── Resource alerts ───────────────────────────────────
+            if m.get("cpu", 0) > 85:
+                alerts.append({"id": f"a-{hid}-cpu", "host": hname, "type": "CPU", "severity": "critical", "ts": ts,
+                    "msg": f"CPU at {m['cpu']}%"})
+            if m.get("ram", 0) > 85:
+                alerts.append({"id": f"a-{hid}-ram", "host": hname, "type": "RAM", "severity": "warning", "ts": ts,
+                    "msg": f"RAM at {m['ram']}%"})
+            if m.get("disk", 0) > 80:
+                alerts.append({"id": f"a-{hid}-disk", "host": hname, "type": "Disk", "severity": "warning", "ts": ts,
+                    "msg": f"Root disk at {m['disk']}%"})
+            # ── Per-volume storage alerts ─────────────────────────
+            for s in m.get("storage", []):
+                if s.get("use_pct", 0) > 90:
+                    alerts.append({"id": f"a-{hid}-vol-{s.get('device','?')}", "host": hname,
+                        "type": "Storage", "severity": "critical", "ts": ts,
+                        "msg": f"Volume {s.get('mountpoint','?')} at {s['use_pct']}% ({s.get('avail_gb',0):.1f}GB free)"})
+            # ── NIC error alerts ──────────────────────────────────
+            for nic in m.get("nics", []):
+                rx_err = nic.get("rx_err", 0) or 0
+                tx_err = nic.get("tx_err", 0) or 0
+                if rx_err > 100 or tx_err > 100:
+                    alerts.append({"id": f"a-{hid}-nic-{nic['name']}", "host": hname,
+                        "type": "NIC Error", "severity": "warning", "ts": ts,
+                        "msg": f"NIC {nic['name']} errors — RX:{rx_err} TX:{tx_err}"})
+
+        # ── Patch alerts (all hosts) ───────────────────────────────
+        if p.get("source") == "error":
+            alerts.append({"id": f"a-{hid}-patch-err", "host": hname, "type": "Patch", "severity": "warning", "ts": "",
+                "msg": f"Patch collection failed: {p.get('reason','unknown')[:120]}"})
+        elif p.get("security_updates", 0) > 0:
+            alerts.append({"id": f"a-{hid}-patch-sec", "host": hname, "type": "Security Patch", "severity": "critical", "ts": "",
+                "msg": f"{p['security_updates']} critical security updates pending"})
+        elif p.get("updates_available", 0) > 0:
+            alerts.append({"id": f"a-{hid}-patch", "host": hname, "type": "Patch", "severity": "warning", "ts": "",
+                "msg": f"{p['updates_available']} updates available"})
+
+    # Sort: critical first, then by host name
+    alerts.sort(key=lambda a: (0 if a["severity"] == "critical" else 1, a["host"]))
+    return alerts
+
+# ── Scan endpoints (on-demand, target-specific) ────────────────────────────────
+@app.post("/api/hosts/{hid}/scan")
+def scan_host(hid: str, db: Session = Depends(get_db)):
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404,"Host not found")
+    result = vuln_scan(hid, h["name"], "host", h["ip"])
+    db_save_scan(db, hid, result)
     return result
 
-@app.get("/api/hosts/{host_id}/scan")
-def get_scan(host_id: str):
-    r = SCANS.get(host_id)
-    if not r: raise HTTPException(404, "No scan yet — POST to /api/hosts/{id}/scan first")
+@app.get("/api/hosts/{hid}/scan")
+def get_host_scan(hid: str, db: Session = Depends(get_db)):
+    r = db_get_scan(db, hid)
+    if not r: raise HTTPException(404,"No scan — run a scan first")
     return r
 
+@app.post("/api/hosts/{hid}/vms/{vid}/scan")
+def scan_vm(hid: str, vid: str, db: Session = Depends(get_db)):
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404,"Host not found")
+    vms = db_get_vms(db, hid)
+    vm = next((v for v in vms if v["id"]==vid), None)
+    if not vm: raise HTTPException(404,"VM not found — refresh VMs first")
+    result = vuln_scan(vid, vm["name"], "vm", vm.get("ip","N/A"), h["name"])
+    db_save_scan(db, vid, result)
+    return result
+
+@app.get("/api/hosts/{hid}/vms/{vid}/scan")
+def get_vm_scan(vid: str, hid: str, db: Session = Depends(get_db)):
+    r = db_get_scan(db, vid)
+    if not r: raise HTTPException(404,"No scan — run a scan first")
+    return r
+
+@app.post("/api/hosts/{hid}/portscan")
+def portscan_host(hid: str, db: Session = Depends(get_db)):
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404,"Host not found")
+    return {"ip": h["ip"], "ports": port_scan(h["ip"]), "scanned_at": datetime.now(timezone.utc).isoformat()}
+
+@app.post("/api/hosts/{hid}/vms/{vid}/portscan")
+def portscan_vm(hid: str, vid: str, db: Session = Depends(get_db)):
+    vms = db_get_vms(db, hid)
+    vm  = next((v for v in vms if v["id"]==vid), None)
+    if not vm: raise HTTPException(404,"VM not found")
+    return {"ip": vm.get("ip"), "ports": port_scan(vm["ip"]), "scanned_at": datetime.now(timezone.utc).isoformat()}
+
 @app.get("/api/scans")
-def all_scans():
-    return list(SCANS.values())
+def get_all_scans(db: Session = Depends(get_db)):
+    hosts = db_get_hosts(db)
+    results=[]
+    for h in hosts:
+        s=db_get_scan(db, h["id"])
+        if s: results.append(s)
+        for vm in db_get_vms(db, h["id"]):
+            vs=db_get_scan(db, vm["id"])
+            if vs: results.append(vs)
+    return results
+
+# ── Debug endpoint — shows raw exception for any host operation ───────────────
+
+@app.get("/api/winrm-setup")
+def winrm_setup():
+    cmd1 = 'winrm set winrm/config/service/auth @{Basic="true"}'
+    cmd2 = 'winrm set winrm/config/service @{AllowUnencrypted="true"}'
+    cmd3 = 'winrm set winrm/config/winrs @{MaxMemoryPerShellMB="512"}'
+    return {
+        "commands": [
+            "# Run in PowerShell as Administrator:",
+            "winrm quickconfig -q",
+            cmd1, cmd2, cmd3,
+            "Set-Item WSMan:\\localhost\\Service\\Auth\\Basic -Value $true",
+            "Set-Item WSMan:\\localhost\\Service\\AllowUnencrypted -Value $true",
+            "netsh advfirewall firewall add rule name=WinRM-HTTP dir=in action=allow protocol=TCP localport=5985",
+            "Restart-Service WinRM",
+        ],
+        "note": "Use username=Administrator and Windows password. Port 5985 must be reachable from K8s node."
+    }
+
+@app.post("/api/debug/connect")
+def debug_connect(data: HostCreate):
+    """Full debug: returns every exception with full traceback"""
+    import traceback, socket, time
+    host = {**data.model_dump(), "id": "debug"}
+    out  = {"ip": host["ip"], "os_type": host["os_type"], "username": host["username"], "steps": []}
+
+    # TCP check
+    port = host.get("winrm_port", 5985) if host["os_type"]=="windows" else host.get("ssh_port", 22)
+    try:
+        s = socket.socket(); s.settimeout(5)
+        rc = s.connect_ex((host["ip"], port)); s.close()
+        out["steps"].append({"step": f"TCP:{port}", "ok": rc==0, "detail": f"rc={rc}"})
+        if rc != 0:
+            out["error"] = f"TCP port {port} unreachable on {host['ip']} — rc={rc}"
+            return out
+    except Exception as e:
+        out["steps"].append({"step": f"TCP:{port}", "ok": False, "detail": str(e)})
+        out["error"] = str(e); return out
+
+    if host["os_type"] == "linux":
+        # SSH
+        try:
+            from collectors import ssh_connect, run, detect_os
+            c = ssh_connect(host)
+            out["steps"].append({"step": "SSH", "ok": True, "detail": "connected"})
+            try:
+                os_i = detect_os(c)
+                out["steps"].append({"step": "OS", "ok": True, "detail": str(os_i)})
+            except Exception as e:
+                out["steps"].append({"step": "OS", "ok": False, "detail": traceback.format_exc()})
+            try:
+                from collectors import collect_linux_metrics
+                m = collect_linux_metrics(host)
+                out["steps"].append({"step": "Metrics", "ok": m.get("source")=="live", "detail": str(m)[:300]})
+            except Exception as e:
+                out["steps"].append({"step": "Metrics", "ok": False, "detail": traceback.format_exc()})
+            try:
+                from collectors import collect_linux_patch
+                p = collect_linux_patch(host)
+                out["steps"].append({"step": "Patch", "ok": True, "detail": str(p)[:300]})
+            except Exception as e:
+                out["steps"].append({"step": "Patch", "ok": False, "detail": traceback.format_exc()})
+            try:
+                from collectors import collect_kvm_vms
+                vms = collect_kvm_vms(host)
+                out["steps"].append({"step": "VMs", "ok": True, "detail": f"{len(vms)} VMs: {[v['name'] for v in vms]}"})
+            except Exception as e:
+                out["steps"].append({"step": "VMs", "ok": False, "detail": traceback.format_exc()})
+            c.close()
+        except Exception as e:
+            out["steps"].append({"step": "SSH", "ok": False, "detail": traceback.format_exc()})
+            out["error"] = str(e)
+    else:
+        # WinRM
+        try:
+            import winrm
+            for transport in ["ntlm", "basic"]:
+                try:
+                    s = winrm.Session(
+                        f"http://{host['ip']}:{host.get('winrm_port',5985)}/wsman",
+                        auth=(host["username"], host.get("password","")),
+                        transport=transport,
+                    )
+                    r = s.run_cmd("whoami")
+                    out["steps"].append({"step": f"WinRM-{transport}", "ok": r.status_code==0,
+                        "detail": r.std_out.decode().strip() or r.std_err.decode().strip()})
+                    if r.status_code == 0:
+                        r2 = s.run_ps("(Get-WmiObject Win32_OperatingSystem).Caption")
+                        out["steps"].append({"step": "OS", "ok": True, "detail": r2.std_out.decode().strip()})
+                        try:
+                            from collectors import collect_windows_metrics
+                            m = collect_windows_metrics(host)
+                            out["steps"].append({"step": "Metrics", "ok": m.get("source")=="live", "detail": str(m)[:300]})
+                        except Exception as e:
+                            out["steps"].append({"step": "Metrics", "ok": False, "detail": traceback.format_exc()})
+                        break
+                except Exception as e2:
+                    out["steps"].append({"step": f"WinRM-{transport}", "ok": False, "detail": traceback.format_exc()})
+        except Exception as e:
+            out["error"] = traceback.format_exc()
+    return out
