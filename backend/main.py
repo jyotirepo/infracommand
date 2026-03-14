@@ -627,6 +627,63 @@ def winrm_setup():
         "note": "Use username=Administrator and Windows password. Port 5985 must be reachable from K8s node."
     }
 
+@app.patch("/api/hosts/{hid}/vms/{vid}/ip")
+def set_vm_ip(hid: str, vid: str, data: dict, db: Session = Depends(get_db)):
+    """Manually set IP for a VM (needed for macvtap direct-mode VMs)."""
+    new_ip = data.get("ip","").strip()
+    if not new_ip: raise HTTPException(400,"ip required")
+    vms = db_get_vms(db, hid)
+    vm  = next((v for v in vms if v["id"]==vid), None)
+    if not vm: raise HTTPException(404,"VM not found")
+    vm["ip"] = new_ip
+    # Update in the VMs list and re-save
+    updated = [vm if v["id"]==vid else v for v in vms]
+    db_save_vms(db, hid, updated)
+    _append_log(db, hid, vm.get("name","?"), "INFO", f"VM IP manually set to {new_ip}", "manual")
+    return {"status":"ok","ip":new_ip}
+
+@app.get("/api/hosts/{hid}/debug/vm-ips")
+def debug_vm_ips(hid: str, db: Session = Depends(get_db)):
+    """Debug endpoint: run VM IP detection commands and return raw output."""
+    from collectors import ssh_connect, run
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404, "Host not found")
+    results = {}
+    try:
+        c = ssh_connect(h)
+        # List all VMs
+        vm_list = run(c, "virsh list --all 2>/dev/null")
+        results["virsh_list"] = vm_list
+
+        # For each running VM, run all IP detection commands
+        vm_details = {}
+        for line in vm_list.splitlines()[2:]:
+            parts = line.split()
+            if len(parts) < 2: continue
+            vname = parts[1]
+            state = parts[2] if len(parts) > 2 else "unknown"
+            d = {"state": state}
+            d["domifaddr"]  = run(c, f"virsh domifaddr {vname} 2>/dev/null")
+            d["domiflist"]  = run(c, f"virsh domiflist {vname} 2>/dev/null")
+            # Extract MACs and do ARP lookup
+            macs = []
+            for il in d["domiflist"].splitlines()[2:]:
+                ilp = il.split()
+                if len(ilp) >= 5 and ilp[4] not in ("-",""):
+                    macs.append(ilp[4])
+            d["macs"] = macs
+            d["arp_table"] = run(c, "arp -n 2>/dev/null")
+            d["ip_neigh"]  = run(c, "ip neigh 2>/dev/null")
+            for mac in macs:
+                d[f"arp_{mac}"]   = run(c, f"arp -n 2>/dev/null | grep -i '{mac}'")
+                d[f"neigh_{mac}"] = run(c, f"ip neigh 2>/dev/null | grep -i '{mac}'")
+            vm_details[vname] = d
+        results["vms"] = vm_details
+        c.close()
+    except Exception as e:
+        results["error"] = str(e)
+    return results
+
 @app.post("/api/debug/connect")
 def debug_connect(data: HostCreate):
     """Full debug: returns every exception with full traceback"""

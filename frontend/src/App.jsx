@@ -662,6 +662,18 @@ function DetailPanel({sel,hostData,onDbReload}) {
           <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
             {isVM&&<span className={`badge ${target.hypervisor==="KVM"?"b-kvm":"b-hv"}`}>{target.hypervisor}</span>}
             {isVM&&<StatusDot s={target.status}/>}
+            {isVM&&(ip==="N/A"||!ip)&&(
+              <button className="btn btn-ghost btn-sm" title="Set IP manually (macvtap direct mode)"
+                onClick={async()=>{
+                  const newIp=window.prompt(`Enter IP for ${target.name} (macvtap VMs can't be auto-discovered):`, ip==="N/A"?"":ip);
+                  if(newIp&&newIp.trim()){
+                    try{
+                      await api.patch(`/hosts/${hostId}/vms/${sel.vmId}/ip`,{ip:newIp.trim()});
+                      await onDbReload(hostId);
+                    }catch(e){alert("Failed to set IP");}
+                  }
+                }} style={{fontSize:10,color:T.amber}}>✎ Set IP</button>
+            )}
             <SrcBadge src={m.source}/>
             <button className="btn btn-refresh btn-sm" onClick={doRefresh} disabled={refreshing}>
               {refreshing?<><span className="spinner"/>...</>:"↻ Refresh"}</button>
@@ -1469,6 +1481,73 @@ function Logs({hosts}) {
 
 
 // ── Debug Console ─────────────────────────────────────────────────────────────
+// ── VM IP Debugger ────────────────────────────────────────────────────────────
+function VMIPDebug({hosts}) {
+  const [hid,setHid]=useState("");
+  const [result,setResult]=useState(null);
+  const [busy,setBusy]=useState(false);
+
+  const run=async()=>{
+    if(!hid) return;
+    setBusy(true); setResult(null);
+    try { const r=await api.get(`/hosts/${hid}/debug/vm-ips`); setResult(r.data); }
+    catch(e){ setResult({error:String(e)}); }
+    setBusy(false);
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{fontWeight:700,fontSize:15}}>VM IP Debugger</div>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <select value={hid} onChange={e=>setHid(e.target.value)} style={{width:200}}>
+          <option value="">— Select host —</option>
+          {hosts.map(h=><option key={h.id} value={h.id}>{h.name} ({h.ip})</option>)}
+        </select>
+        <button className="btn btn-primary btn-sm" onClick={run} disabled={busy||!hid}>
+          {busy?<><span className="spinner"/>Running...</>:"🔍 Run IP Debug"}
+        </button>
+      </div>
+      {result&&(
+        <div className="card shadow" style={{padding:16}}>
+          {result.error&&<div style={{color:T.red}}>{result.error}</div>}
+          {result.virsh_list&&(
+            <div style={{marginBottom:12}}>
+              <div style={{fontWeight:700,marginBottom:4}}>virsh list --all</div>
+              <pre style={{background:"#f8fafc",padding:8,borderRadius:6,fontSize:11,overflowX:"auto"}}>{result.virsh_list}</pre>
+            </div>
+          )}
+          {result.vms&&Object.entries(result.vms).map(([vname,d])=>(
+            <div key={vname} style={{marginBottom:16,borderTop:"1px solid #f1f5f9",paddingTop:12}}>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>🖥 {vname} <span style={{fontSize:11,color:T.muted}}>({d.state})</span></div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                {[["virsh domifaddr",d.domifaddr],["virsh domiflist",d.domiflist],
+                  ...d.macs?.flatMap(mac=>[
+                    [`arp grep ${mac.slice(-5)}`,d[`arp_${mac}`]],
+                    [`ip neigh grep ${mac.slice(-5)}`,d[`neigh_${mac}`]],
+                  ])||[]
+                ].map(([label,val])=>(
+                  <div key={label}>
+                    <div style={{fontSize:10,fontWeight:700,color:T.muted,marginBottom:2}}>{label}</div>
+                    <pre style={{background:"#f8fafc",padding:6,borderRadius:4,fontSize:10,
+                      margin:0,overflowX:"auto",minHeight:24,color:val?"#1e293b":T.muted}}>
+                      {val||"(empty)"}</pre>
+                  </div>
+                ))}
+              </div>
+              {d.macs?.length>0&&(
+                <div style={{marginTop:8}}>
+                  <div style={{fontSize:10,fontWeight:700,color:T.muted,marginBottom:2}}>MACs found</div>
+                  {d.macs.map(m=><code key={m} style={{fontSize:11,background:"#f1f5f9",padding:"2px 6px",borderRadius:4,marginRight:6}}>{m}</code>)}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DebugConsole() {
   const [form,setForm]=useState({ip:"",os_type:"linux",username:"root",password:"",
     ssh_port:22,winrm_port:5985,auth_type:"password",name:"debug",ssh_key:""});
@@ -1608,7 +1687,7 @@ function DebugConsole() {
 // ── App Shell ─────────────────────────────────────────────────────────────────
 const VIEWS=[{id:"overview",icon:"📊",label:"Overview"},{id:"infra",icon:"🖧",label:"Infrastructure"},
              {id:"logs",icon:"📋",label:"Logs"},{id:"alerts",icon:"🔔",label:"Alerts"},
-             {id:"patches",icon:"🔧",label:"Patches"},{id:"debug",icon:"🛠",label:"Debug"}];
+             {id:"patches",icon:"🔧",label:"Patches"},{id:"vmip",icon:"🔬",label:"VM IP Debug"},{id:"debug",icon:"🛠",label:"Debug"}];
 
 export default function App() {
   const [view,setView]=useState("overview");
@@ -1670,6 +1749,7 @@ export default function App() {
             {view==="logs"     && <Logs hosts={hosts}/>}
             {view==="alerts"   && <Alerts/>}
             {view==="patches"  && <Patches/>}
+            {view==="vmip"     && <VMIPDebug hosts={hosts}/>}
             {view==="debug"    && <DebugConsole/>}
           </div>
         </div>

@@ -410,36 +410,88 @@ def collect_kvm_vms(host: dict) -> list:
                     if "Max memory" in l:
                         try: ram_mb = int(l.split(":")[1].strip().split()[0]) // 1024
                         except Exception: pass
-                # IP detection — simple reliable approach that was working
-                # Step 1: virsh domifaddr (no --source flag = tries both lease+agent)
-                ip_raw = run(c, f"virsh domifaddr {vname} 2>/dev/null | awk 'NR>2{{print $4}}' | grep -v '^-$' | cut -d/ -f1 | head -1")
-                vm_ip = ip_raw.strip() if ip_raw and ip_raw.strip() not in ("-", "") else ""
+                # IP detection for macvtap/direct-mode VMs
+                # These VMs bypass the hypervisor network stack so ARP/neighbour
+                # on the host is empty. Strategy:
+                # 1. Try virsh domifaddr (works if guest agent or libvirt DHCP)
+                # 2. Try host ARP/neigh (works for bridge/nat mode)
+                # 3. Ping-sweep the host's subnets to populate ARP on the host,
+                #    then re-check — macvtap VMs ARE visible from the same L2 segment
+                # 4. Try nmap if available (most reliable for macvtap)
 
-                # Step 2: ARP / neighbour table per MAC — picks up bridge-mode VMs
                 iflist_raw = run(c, f"virsh domiflist {vname} 2>/dev/null")
                 vm_macs = []
                 for il in iflist_raw.splitlines()[2:]:
                     ilp = il.split()
                     if len(ilp) >= 5 and ilp[4] not in ("-", ""):
-                        vm_macs.append((ilp[0], ilp[4]))  # (iface, mac)
+                        vm_macs.append(ilp[4])
 
-                if not vm_ip:
-                    for _iface, mac in vm_macs:
-                        arp_ip = run(c, f"arp -n 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}' | head -1")
-                        arp_ip = (arp_ip or "").strip()
-                        if arp_ip and arp_ip not in ("-", ""):
-                            vm_ip = arp_ip
-                            break
+                def find_ip_by_mac(mac):
+                    """Check ARP + neigh tables for this MAC."""
+                    for cmd in [f"arp -n 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}'",
+                                f"ip neigh 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}'"]:
+                        out = (run(c, cmd) or "").strip()
+                        for candidate in out.splitlines():
+                            candidate = candidate.strip()
+                            if candidate and candidate not in ("-","") \
+                               and not candidate.startswith("192.168.122."):  # skip libvirt NAT
+                                return candidate
+                    return ""
 
+                vm_ip = ""
+
+                # Step 1: virsh domifaddr
+                ip_raw = run(c, f"virsh domifaddr {vname} 2>/dev/null | awk 'NR>2{{print $4}}' | grep -v '^-$' | cut -d/ -f1")
+                for line in (ip_raw or "").splitlines():
+                    line = line.strip()
+                    if line and line not in ("-","") and not line.startswith("192.168.122."):
+                        vm_ip = line
+                        break
                 if not vm_ip:
-                    for _iface, mac in vm_macs:
-                        neigh_ip = run(c, f"ip neigh 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}' | head -1")
-                        neigh_ip = (neigh_ip or "").strip()
-                        if neigh_ip and neigh_ip not in ("-", ""):
-                            vm_ip = neigh_ip
-                            break
+                    # Also accept 192.168.122.x as last resort
+                    for line in (ip_raw or "").splitlines():
+                        line = line.strip()
+                        if line and line not in ("-",""):
+                            vm_ip = line; break
+
+                # Step 2: ARP / neigh table (works for bridge VMs)
+                if not vm_ip:
+                    for mac in vm_macs:
+                        ip = find_ip_by_mac(mac)
+                        if ip: vm_ip = ip; break
+
+                # Step 3: For macvtap direct mode — ping-sweep the host's subnets
+                # to populate the host's ARP cache, then re-check
+                if not vm_ip and vm_macs:
+                    # Get host's network interfaces and subnets
+                    host_nets = run(c, "ip -o -4 addr show 2>/dev/null | awk '{print $4}' | grep -v '127\\.' | grep -v '192\\.168\\.122\\.'")
+                    for net in (host_nets or "").splitlines():
+                        net = net.strip()
+                        if not net: continue
+                        # Ping sweep the subnet (fast, parallel, no output needed)
+                        run(c, f"nmap -sn {net} -T4 2>/dev/null || "
+                               f"fping -a -q -g {net} 2>/dev/null || "
+                               f"ping -c 1 -W 1 -b {net.rsplit('.',1)[0]+'.255'} 2>/dev/null || true")
+                    # Now re-check ARP/neigh
+                    for mac in vm_macs:
+                        ip = find_ip_by_mac(mac)
+                        if ip: vm_ip = ip; break
+
+                # Step 4: nmap MAC-based scan on all host subnets
+                if not vm_ip and vm_macs:
+                    host_nets = run(c, "ip -o -4 addr show 2>/dev/null | awk '{print $4}' | grep -v '127\\.' | grep -v '192\\.168\\.122\\.'")
+                    for net in (host_nets or "").splitlines():
+                        net = net.strip()
+                        if not net: continue
+                        for mac in vm_macs:
+                            nmap_out = run(c, f"nmap -sn {net} 2>/dev/null | grep -B1 -i '{mac}' | grep 'Nmap scan' | awk '{{print $NF}}'", timeout=60)
+                            nmap_ip = (nmap_out or "").strip().strip("()")
+                            if nmap_ip and nmap_ip not in ("-",""):
+                                vm_ip = nmap_ip; break
+                        if vm_ip: break
 
                 vm_ip = vm_ip or "N/A"
+
 
                 # Per-VM NICs — reuse iflist_raw
                 vm_nics = []
@@ -447,7 +499,6 @@ def collect_kvm_vms(host: dict) -> list:
                     ilp = il.split()
                     if len(ilp) >= 5:
                         nic_mac = ilp[4]
-                        # Best-effort: look up per-NIC IP from ARP
                         nic_ip = vm_ip if len(vm_nics) == 0 else ""
                         if len(vm_nics) > 0:
                             a = run(c, f"arp -n 2>/dev/null | grep -i '{nic_mac}' | awk '{{print $1}}' | head -1")
