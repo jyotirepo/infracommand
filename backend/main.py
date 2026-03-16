@@ -178,6 +178,104 @@ def summary(db: Session = Depends(get_db)):
         "warnings": sum(1 for m in metrics if m.get("cpu",0)>85 or m.get("ram",0)>85),
     }
 
+@app.get("/api/capacity")
+def get_capacity(db: Session = Depends(get_db)):
+    """Capacity planning: host hardware totals vs VM allocations vs free."""
+    hosts  = db_get_hosts(db)
+    report = []
+    for h in hosts:
+        m    = db_get_metrics(db, h["id"]) or {}
+        vms  = db_get_vms(db, h["id"])
+        hw   = m.get("hardware", {})
+        if not hw and m.get("source") != "live":
+            continue  # skip hosts with no live data
+
+        # Host capacity from hardware inventory
+        host_ram_gb    = hw.get("ram_total_gb",   m.get("ram_total_gb", 0)) or 0
+        host_vcpus     = hw.get("cpu_vcpu_capacity", hw.get("cpu_logical", 0)) or 0
+        host_pcores    = hw.get("cpu_physical_cores", 0) or 0
+        host_disk_gb   = hw.get("local_storage_total_gb", 0) or 0
+        host_disk_used = hw.get("local_storage_used_gb", 0) or 0
+        cpu_model      = hw.get("cpu_model", "")
+        cpu_sockets    = hw.get("cpu_sockets", 0)
+        threads_per    = hw.get("cpu_threads_per_core", 1)
+
+        # VM allocations (only running VMs consume resources)
+        running_vms  = [v for v in vms if v.get("status") == "running"]
+        all_vms_info = []
+        vm_ram_alloc  = 0
+        vm_vcpu_alloc = 0
+        vm_disk_alloc = 0
+
+        for vm in vms:
+            ram_mb  = vm.get("ram_mb", 0) or 0
+            vcpus   = vm.get("vcpu",   0) or 0
+            disk_gb = vm.get("disk_gb",0) or 0
+            # Also sum storage array
+            for s in vm.get("storage", []):
+                disk_gb = max(disk_gb, s.get("size_gb", 0) or 0)
+
+            is_running = vm.get("status") == "running"
+            if is_running:
+                vm_ram_alloc  += ram_mb / 1024
+                vm_vcpu_alloc += vcpus
+                vm_disk_alloc += disk_gb
+
+            all_vms_info.append({
+                "name":      vm.get("name", ""),
+                "status":    vm.get("status", ""),
+                "ip":        vm.get("ip", "N/A"),
+                "ram_gb":    round(ram_mb / 1024, 1),
+                "vcpus":     vcpus,
+                "disk_gb":   round(disk_gb, 1),
+            })
+
+        vm_ram_alloc  = round(vm_ram_alloc,  1)
+        vm_vcpu_alloc = int(vm_vcpu_alloc)
+        vm_disk_alloc = round(vm_disk_alloc, 1)
+
+        # Free resources (host total minus running VM allocations)
+        free_ram_gb  = round(max(0, host_ram_gb  - vm_ram_alloc),  1)
+        free_vcpus   = max(0, host_vcpus - vm_vcpu_alloc)
+        free_disk_gb = round(max(0, host_disk_gb - host_disk_used - vm_disk_alloc), 1)
+
+        # Overcommit ratios
+        ram_commit_pct  = round(vm_ram_alloc  / host_ram_gb  * 100, 1) if host_ram_gb  else 0
+        vcpu_commit_pct = round(vm_vcpu_alloc / host_vcpus   * 100, 1) if host_vcpus   else 0
+        disk_commit_pct = round(vm_disk_alloc / host_disk_gb * 100, 1) if host_disk_gb else 0
+
+        report.append({
+            "host_id":   h["id"],
+            "host_name": h["name"],
+            "host_ip":   h["ip"],
+            "os_type":   h["os_type"],
+            "cpu_model": cpu_model,
+            "cpu_sockets":    cpu_sockets,
+            "cpu_pcores":     host_pcores,
+            "cpu_vcpus":      host_vcpus,
+            "threads_per_core": threads_per,
+            "ram_total_gb":   host_ram_gb,
+            "disk_total_gb":  host_disk_gb,
+            "disk_used_gb":   round(host_disk_used, 1),
+            # VM allocations
+            "vm_count":       len(vms),
+            "vm_running":     len(running_vms),
+            "vm_ram_alloc_gb":  vm_ram_alloc,
+            "vm_vcpu_alloc":    vm_vcpu_alloc,
+            "vm_disk_alloc_gb": vm_disk_alloc,
+            # Free / remaining
+            "free_ram_gb":    free_ram_gb,
+            "free_vcpus":     free_vcpus,
+            "free_disk_gb":   free_disk_gb,
+            # Commit ratios
+            "ram_commit_pct":  ram_commit_pct,
+            "vcpu_commit_pct": vcpu_commit_pct,
+            "disk_commit_pct": disk_commit_pct,
+            "vms": all_vms_info,
+        })
+
+    return sorted(report, key=lambda x: x["host_name"])
+
 @app.get("/api/overview")
 def get_overview(db: Session = Depends(get_db)):
     """Aggregate resource summary across all live hosts."""

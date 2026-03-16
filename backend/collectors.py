@@ -305,19 +305,73 @@ def collect_linux_metrics(host: dict) -> dict:
             except Exception:
                 return 0.0
 
+        def safe_int(v, default=0):
+            try: return int(str(v).strip())
+            except Exception: return default
+
+        # ── Hardware inventory via lscpu + /proc/meminfo ─────────────────
+        lscpu = run(c, "lscpu 2>/dev/null")
+        hw = {}
+        for line in (lscpu or "").splitlines():
+            if ":" in line:
+                k, _, v = line.partition(":")
+                hw[k.strip()] = v.strip()
+
+        cpu_sockets     = safe_int(hw.get("Socket(s)", hw.get("Sockets", 1)), 1)
+        cpu_cores_per   = safe_int(hw.get("Core(s) per socket", hw.get("Cores per socket", 0)), 0)
+        cpu_threads_per = safe_int(hw.get("Thread(s) per core", 1), 1)
+        cpu_logical     = safe_int(hw.get("CPU(s)", 0), 0)
+        cpu_arch        = hw.get("Architecture", "")
+        cpu_model       = hw.get("Model name", hw.get("Model Name", ""))
+        cpu_mhz         = hw.get("CPU MHz", hw.get("CPU max MHz", ""))
+
+        # Physical cores = sockets × cores_per_socket
+        # vCPUs available = physical_cores × threads_per_core  (hyper-threading)
+        cpu_physical_cores = cpu_sockets * cpu_cores_per if cpu_cores_per else (cpu_logical // cpu_threads_per)
+        cpu_vcpu_capacity  = cpu_physical_cores * cpu_threads_per  # total vCPUs host can assign
+
+        # RAM
         np = (net or "").split()
-        # Derive disk% from storage array root volume (most accurate)
-        root_vol = next((s for s in storage if s.get("mountpoint") == "/"), None)
-        disk_pct = root_vol["use_pct"] if root_vol else safe_pct(disk)
         try:
             ram_total_gb = round(int((ram_total_mb or "0").strip()) / 1024 / 1024, 1)
         except Exception:
             ram_total_gb = 0
+
+        # Local storage total (sum all non-NFS/non-network volumes)
+        local_storage_total_gb = sum(
+            s.get("size_gb", 0) for s in storage
+            if s.get("type") not in ("NFS/CIFS", "iSCSI/SAN", "SAN (FC/SAS)")
+        )
+        local_storage_used_gb = sum(
+            s.get("used_gb", 0) for s in storage
+            if s.get("type") not in ("NFS/CIFS", "iSCSI/SAN", "SAN (FC/SAS)")
+        )
+
+        # Derive disk% from storage array root volume (most accurate)
+        root_vol = next((s for s in storage if s.get("mountpoint") == "/"), None)
+        disk_pct = root_vol["use_pct"] if root_vol else safe_pct(disk)
+
+        hardware = {
+            "cpu_sockets":          cpu_sockets,
+            "cpu_cores_per_socket": cpu_cores_per,
+            "cpu_threads_per_core": cpu_threads_per,
+            "cpu_physical_cores":   cpu_physical_cores,
+            "cpu_vcpu_capacity":    cpu_vcpu_capacity,
+            "cpu_logical":          cpu_logical,
+            "cpu_model":            cpu_model[:80] if cpu_model else "",
+            "cpu_arch":             cpu_arch,
+            "cpu_mhz":              cpu_mhz,
+            "ram_total_gb":         ram_total_gb,
+            "local_storage_total_gb": round(local_storage_total_gb, 1),
+            "local_storage_used_gb":  round(local_storage_used_gb, 1),
+        }
+
         return {
             "cpu":          safe_pct(cpu),
             "ram":          safe_pct(ram),
             "disk":         disk_pct,
             "ram_total_gb": ram_total_gb,
+            "hardware":     hardware,
             "net_in":   safe_float(np[0] if np else 0),
             "net_out":  safe_float(np[1] if len(np) > 1 else 0),
             "load":     safe_float(load),

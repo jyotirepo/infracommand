@@ -584,9 +584,9 @@ function DetailPanel({sel,hostData,onDbReload}) {
   const patchColor=s=>s==="UP TO DATE"?T.green:s==="CRITICAL UPDATE"?T.red:T.amber;
   const tabs = isVM
     ? ["metrics","nics","storage","ports","logs"]
-    : ["metrics","nics","storage","ports","patch","os","logs"];
+    : ["metrics","hardware","nics","storage","ports","patch","os","logs"];
 
-  const tabLabel={metrics:"📊 Metrics",nics:"🌐 NICs",storage:"💾 Storage",
+  const tabLabel={metrics:"📊 Metrics",hardware:"🖥 Hardware",nics:"🌐 NICs",storage:"💾 Storage",
                   ports:"🔌 Ports",patch:"🔧 Patches",os:"💻 OS Info",logs:"📋 Logs"};
 
   // ── NIC sparkline mini-bar ───────────────────────────────────────────────
@@ -750,6 +750,122 @@ function DetailPanel({sel,hostData,onDbReload}) {
           </div>
         </div>
       )}
+
+      {/* Hardware Tab */}
+      {tab==="hardware"&&!isVM&&(()=>{
+        const hw = m.hardware || {};
+        const HwRow=({label,value,sub,color})=>(
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",
+            padding:"10px 0",borderBottom:"1px solid #f1f5f9"}}>
+            <div style={{color:T.muted,fontSize:12,fontWeight:500,minWidth:180}}>{label}</div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:13,fontWeight:700,color:color||T.text}}>{value||"—"}</div>
+              {sub&&<div style={{fontSize:10,color:T.muted,marginTop:2}}>{sub}</div>}
+            </div>
+          </div>
+        );
+        const HwCard=({title,icon,children})=>(
+          <div className="card" style={{padding:16}}>
+            <div style={{fontWeight:700,fontSize:12,color:T.sub,marginBottom:10,
+              display:"flex",alignItems:"center",gap:6}}>
+              <span>{icon}</span>{title}
+            </div>
+            {children}
+          </div>
+        );
+
+        const noData = !hw.cpu_model && !hw.ram_total_gb;
+
+        return (
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            {noData&&(
+              <div style={{background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:8,
+                padding:"12px 16px",fontSize:12,color:"#9a3412"}}>
+                ⚠ Hardware data not yet collected. Click <strong>↻ Refresh</strong> to collect hardware inventory.
+              </div>
+            )}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+
+              {/* CPU Card */}
+              <HwCard title="CPU / Processor" icon="⚡">
+                <HwRow label="Model" value={hw.cpu_model} />
+                <HwRow label="Architecture" value={hw.cpu_arch} />
+                <HwRow label="Sockets" value={hw.cpu_sockets} />
+                <HwRow label="Physical Cores" value={hw.cpu_physical_cores}
+                  sub={hw.cpu_sockets&&hw.cpu_cores_per_socket ? `${hw.cpu_sockets} socket × ${hw.cpu_cores_per_socket} cores` : null} color={T.blue}/>
+                <HwRow label="Threads per Core" value={hw.cpu_threads_per_core}
+                  sub="Hyper-Threading multiplier"/>
+                <HwRow label="Total vCPU Capacity" value={hw.cpu_vcpu_capacity}
+                  sub={`Physical cores × threads = ${hw.cpu_physical_cores||0} × ${hw.cpu_threads_per_core||1}`}
+                  color={T.green}/>
+                <HwRow label="Logical CPUs" value={hw.cpu_logical}
+                  sub="As seen by OS (/proc/cpuinfo)"/>
+                {hw.cpu_mhz&&<HwRow label="CPU Speed" value={`${parseFloat(hw.cpu_mhz||0).toFixed(0)} MHz`}/>}
+              </HwCard>
+
+              {/* Memory Card */}
+              <HwCard title="Memory / RAM" icon="🧠">
+                <HwRow label="Total Physical RAM"
+                  value={hw.ram_total_gb ? `${hw.ram_total_gb} GB` : "—"}
+                  color={T.blue}/>
+                <HwRow label="RAM In Use"
+                  value={hw.ram_total_gb ? `${(hw.ram_total_gb * (m.ram||0) / 100).toFixed(1)} GB` : "—"}
+                  sub={`${m.ram||0}% utilization`} color={m.ram>85?T.red:m.ram>65?T.amber:T.text}/>
+                <HwRow label="RAM Free"
+                  value={hw.ram_total_gb ? `${(hw.ram_total_gb * (1-(m.ram||0)/100)).toFixed(1)} GB` : "—"}
+                  color={T.green}/>
+                <div style={{marginTop:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:T.muted,marginBottom:4}}>
+                    <span>RAM Utilization</span><span>{m.ram||0}%</span>
+                  </div>
+                  <div style={{height:8,background:"#f1f5f9",borderRadius:4}}>
+                    <div style={{height:8,borderRadius:4,transition:"width .4s",
+                      width:`${Math.min(100,m.ram||0)}%`,
+                      background:m.ram>85?T.red:m.ram>65?T.amber:T.green}}/>
+                  </div>
+                </div>
+              </HwCard>
+
+              {/* Storage Card */}
+              <HwCard title="Local Storage" icon="💾">
+                <HwRow label="Total Local Storage"
+                  value={hw.local_storage_total_gb ? `${hw.local_storage_total_gb} GB` : "—"}
+                  color={T.blue}/>
+                <HwRow label="Used"
+                  value={hw.local_storage_used_gb != null ? `${hw.local_storage_used_gb} GB` : "—"}
+                  sub={hw.local_storage_total_gb ? `${Math.round(hw.local_storage_used_gb/hw.local_storage_total_gb*100)}% of total` : null}
+                  color={T.amber}/>
+                <HwRow label="Free"
+                  value={hw.local_storage_total_gb ? `${(hw.local_storage_total_gb - (hw.local_storage_used_gb||0)).toFixed(1)} GB` : "—"}
+                  color={T.green}/>
+                <div style={{marginTop:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:T.muted,marginBottom:4}}>
+                    <span>Storage Utilization</span>
+                    <span>{hw.local_storage_total_gb ? Math.round((hw.local_storage_used_gb||0)/hw.local_storage_total_gb*100) : 0}%</span>
+                  </div>
+                  <div style={{height:8,background:"#f1f5f9",borderRadius:4}}>
+                    <div style={{height:8,borderRadius:4,transition:"width .4s",
+                      width:`${hw.local_storage_total_gb ? Math.min(100,Math.round((hw.local_storage_used_gb||0)/hw.local_storage_total_gb*100)) : 0}%`,
+                      background:T.red}}/>
+                  </div>
+                </div>
+              </HwCard>
+
+              {/* System Summary Card */}
+              <HwCard title="System Summary" icon="🖧">
+                <HwRow label="Hostname"   value={osInfo.hostname}/>
+                <HwRow label="OS"         value={osInfo.os_pretty||osInfo.os_name}/>
+                <HwRow label="Kernel"     value={osInfo.kernel}/>
+                <HwRow label="Uptime"     value={m.uptime}/>
+                <HwRow label="Load Avg"   value={m.load} sub="1-minute load average"/>
+                <HwRow label="CPU Usage"  value={`${m.cpu||0}%`}
+                  color={m.cpu>85?T.red:m.cpu>65?T.amber:T.green}/>
+              </HwCard>
+
+            </div>
+          </div>
+        );
+      })()}
 
       {/* NICs Tab */}
       {tab==="nics"&&(
@@ -1380,6 +1496,210 @@ function Overview({hosts,summary,history}) {
 }
 
 // ── Patches ───────────────────────────────────────────────────────────────────
+// ── Capacity Planning ─────────────────────────────────────────────────────────
+function CapacityPlanning() {
+  const [data,setData]=useState([]);
+  const [busy,setBusy]=useState(false);
+  const [sel,setSel]=useState(null); // selected host for drill-down
+
+  const load=async()=>{
+    setBusy(true);
+    try{ const r=await api.get("/capacity"); setData(r.data); }
+    catch(e){}
+    setBusy(false);
+  };
+  useEffect(()=>{load();},[]);
+
+  const CommitBar=({pct,warn=80,crit=100})=>{
+    const color=pct>=crit?T.red:pct>=warn?T.amber:T.green;
+    return (
+      <div style={{height:6,background:"#f1f5f9",borderRadius:3,minWidth:60}}>
+        <div style={{height:6,borderRadius:3,transition:"width .3s",
+          width:`${Math.min(100,pct||0)}%`,background:color}}/>
+      </div>
+    );
+  };
+
+  const fmt=v=>v!=null?v:"—";
+
+  // Totals row
+  const totals=data.reduce((a,h)=>({
+    vcpus:        a.vcpus       +(h.cpu_vcpus||0),
+    vcpu_alloc:   a.vcpu_alloc +(h.vm_vcpu_alloc||0),
+    ram:          a.ram        +(h.ram_total_gb||0),
+    ram_alloc:    a.ram_alloc  +(h.vm_ram_alloc_gb||0),
+    disk:         a.disk       +(h.disk_total_gb||0),
+    disk_alloc:   a.disk_alloc +(h.vm_disk_alloc_gb||0),
+    vms:          a.vms        +(h.vm_count||0),
+  }),{vcpus:0,vcpu_alloc:0,ram:0,ram_alloc:0,disk:0,disk_alloc:0,vms:0});
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontWeight:700,fontSize:16}}>Capacity Planning</div>
+          <div style={{fontSize:12,color:T.muted,marginTop:2}}>
+            Physical host resources vs VM allocations — click a row for VM details
+          </div>
+        </div>
+        <button className="btn btn-ghost" onClick={load} disabled={busy}>
+          {busy?<><span className="spinner"/>Loading...</>:"↻ Refresh"}
+        </button>
+      </div>
+
+      {/* Totals summary */}
+      {data.length>0&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10}}>
+          {[
+            ["Total vCPUs",`${totals.vcpus}`,`${totals.vcpu_alloc} allocated`,T.blue],
+            ["Free vCPUs",`${totals.vcpus-totals.vcpu_alloc}`,`${totals.vcpus?Math.round((totals.vcpus-totals.vcpu_alloc)/totals.vcpus*100):0}% available`,T.green],
+            ["Total RAM",`${totals.ram.toFixed(0)} GB`,`${totals.ram_alloc.toFixed(1)} GB allocated`,T.blue],
+            ["Free RAM",`${(totals.ram-totals.ram_alloc).toFixed(1)} GB`,`${totals.ram?Math.round((totals.ram-totals.ram_alloc)/totals.ram*100):0}% available`,T.green],
+            ["Local Storage",`${totals.disk.toFixed(0)} GB`,`${totals.disk_alloc.toFixed(1)} GB allocated`,T.blue],
+            ["Total VMs",`${totals.vms}`,`across ${data.length} hosts`,T.purple],
+          ].map(([l,v,s,c])=>(
+            <div key={l} className="card" style={{padding:12}}>
+              <div style={{fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>{l}</div>
+              <div style={{fontSize:20,fontWeight:700,color:c}}>{v}</div>
+              <div style={{fontSize:10,color:T.muted,marginTop:2}}>{s}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Per-host table */}
+      <div className="card shadow" style={{padding:0,overflow:"hidden"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead>
+            <tr style={{background:"#f8fafc",borderBottom:`2px solid ${T.border}`}}>
+              {["Host","CPU Model","Physical Cores","vCPU Capacity","vCPU Allocated","vCPU Free",
+                "RAM Total","RAM Allocated","RAM Free","Disk Total","Disk Free","VMs"].map(h=>(
+                <th key={h} style={{padding:"10px 12px",fontSize:10,fontWeight:700,
+                  color:T.muted,textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((h,i)=>{
+              const vcpuPct  = h.cpu_vcpus  ? Math.round(h.vm_vcpu_alloc/h.cpu_vcpus*100)  : 0;
+              const ramPct   = h.ram_total_gb ? Math.round(h.vm_ram_alloc_gb/h.ram_total_gb*100) : 0;
+              const diskPct  = h.disk_total_gb ? Math.round(h.vm_disk_alloc_gb/h.disk_total_gb*100): 0;
+              const isSel    = sel===h.host_id;
+              return (
+                <React.Fragment key={h.host_id}>
+                  <tr style={{borderBottom:`1px solid ${T.border}`,cursor:"pointer",
+                    background:isSel?"#eff6ff":i%2===0?"#fff":"#fafbfc"}}
+                    onClick={()=>setSel(isSel?null:h.host_id)}>
+                    <td style={{padding:"10px 12px"}}>
+                      <div style={{fontWeight:700,fontSize:12}}>{h.host_name}</div>
+                      <div style={{fontSize:10,color:T.muted,fontFamily:"IBM Plex Mono"}}>{h.host_ip}</div>
+                    </td>
+                    <td style={{padding:"10px 12px",fontSize:11,color:T.sub,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+                      title={h.cpu_model}>{h.cpu_model||"—"}</td>
+                    <td style={{padding:"10px 12px"}}>
+                      <div style={{fontWeight:700,fontSize:13,color:T.blue}}>{h.cpu_pcores||"—"}</div>
+                      <div style={{fontSize:10,color:T.muted}}>{h.cpu_sockets} socket{h.cpu_sockets!==1?"s":""} × {h.cpu_pcores&&h.cpu_sockets?Math.round(h.cpu_pcores/h.cpu_sockets):0} cores</div>
+                    </td>
+                    <td style={{padding:"10px 12px"}}>
+                      <div style={{fontWeight:700,color:T.blue}}>{h.cpu_vcpus||"—"}</div>
+                      <div style={{fontSize:10,color:T.muted}}>{h.cpu_pcores} × {h.threads_per_core} threads</div>
+                    </td>
+                    <td style={{padding:"10px 12px"}}>
+                      <div style={{fontWeight:700,color:vcpuPct>100?T.red:T.text}}>{h.vm_vcpu_alloc}</div>
+                      <CommitBar pct={vcpuPct} warn={80} crit={100}/>
+                      <div style={{fontSize:9,color:T.muted,marginTop:2}}>{vcpuPct}%</div>
+                    </td>
+                    <td style={{padding:"10px 12px"}}>
+                      <div style={{fontWeight:700,color:h.free_vcpus>0?T.green:T.red}}>{h.free_vcpus}</div>
+                    </td>
+                    <td style={{padding:"10px 12px",fontWeight:700,color:T.blue}}>{h.ram_total_gb?`${h.ram_total_gb} GB`:"—"}</td>
+                    <td style={{padding:"10px 12px"}}>
+                      <div style={{fontWeight:700,color:ramPct>100?T.red:T.text}}>{h.vm_ram_alloc_gb} GB</div>
+                      <CommitBar pct={ramPct} warn={80} crit={100}/>
+                      <div style={{fontSize:9,color:T.muted,marginTop:2}}>{ramPct}%</div>
+                    </td>
+                    <td style={{padding:"10px 12px"}}>
+                      <div style={{fontWeight:700,color:h.free_ram_gb>0?T.green:T.red}}>{h.free_ram_gb} GB</div>
+                    </td>
+                    <td style={{padding:"10px 12px",fontWeight:700}}>{h.disk_total_gb?`${h.disk_total_gb} GB`:"—"}</td>
+                    <td style={{padding:"10px 12px"}}>
+                      <div style={{fontWeight:700,color:h.free_disk_gb>0?T.green:T.red}}>{h.free_disk_gb} GB</div>
+                    </td>
+                    <td style={{padding:"10px 12px",textAlign:"center"}}>
+                      <span style={{fontWeight:700,color:T.blue}}>{h.vm_running}</span>
+                      <span style={{color:T.muted,fontSize:11}}>/{h.vm_count}</span>
+                      <div style={{fontSize:9,color:T.muted}}>running/total</div>
+                    </td>
+                  </tr>
+
+                  {/* VM drill-down row */}
+                  {isSel&&(
+                    <tr style={{background:"#f0f7ff"}}>
+                      <td colSpan={12} style={{padding:"0 12px 12px 32px"}}>
+                        <div style={{paddingTop:10}}>
+                          <div style={{fontWeight:700,fontSize:12,marginBottom:8,color:T.blue}}>
+                            VMs on {h.host_name} — {h.vm_running} running / {h.vm_count} total
+                          </div>
+                          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                            <thead>
+                              <tr style={{borderBottom:`1px solid ${T.border}`}}>
+                                {["VM Name","Status","IP","RAM Allocated","vCPUs","Disk"].map(col=>(
+                                  <th key={col} style={{padding:"6px 10px",fontSize:10,fontWeight:700,
+                                    color:T.muted,textAlign:"left",textTransform:"uppercase"}}>{col}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {h.vms.map(vm=>(
+                                <tr key={vm.name} style={{borderBottom:`1px solid #e2e8f0`}}>
+                                  <td style={{padding:"7px 10px",fontWeight:600}}>{vm.name}</td>
+                                  <td style={{padding:"7px 10px"}}>
+                                    <span className={`badge ${vm.status==="running"?"b-ok":"b-stop"}`}>{vm.status}</span>
+                                  </td>
+                                  <td style={{padding:"7px 10px",fontFamily:"IBM Plex Mono",fontSize:11,color:T.blue}}>{vm.ip||"N/A"}</td>
+                                  <td style={{padding:"7px 10px",fontWeight:600,color:T.amber}}>{vm.ram_gb} GB</td>
+                                  <td style={{padding:"7px 10px",fontWeight:600,color:T.blue}}>{vm.vcpus}</td>
+                                  <td style={{padding:"7px 10px",color:T.sub}}>{vm.disk_gb>0?`${vm.disk_gb} GB`:"—"}</td>
+                                </tr>
+                              ))}
+                              {/* Totals sub-row */}
+                              <tr style={{background:"#e0f2fe",fontWeight:700}}>
+                                <td style={{padding:"7px 10px",color:T.blue}}>ALLOCATED (running VMs)</td>
+                                <td/><td/>
+                                <td style={{padding:"7px 10px",color:T.amber}}>{h.vm_ram_alloc_gb} GB</td>
+                                <td style={{padding:"7px 10px",color:T.blue}}>{h.vm_vcpu_alloc}</td>
+                                <td style={{padding:"7px 10px"}}>{h.vm_disk_alloc_gb} GB</td>
+                              </tr>
+                              <tr style={{background:"#dcfce7",fontWeight:700}}>
+                                <td style={{padding:"7px 10px",color:T.green}}>REMAINING (host free)</td>
+                                <td/><td/>
+                                <td style={{padding:"7px 10px",color:T.green}}>{h.free_ram_gb} GB</td>
+                                <td style={{padding:"7px 10px",color:T.green}}>{h.free_vcpus} vCPUs</td>
+                                <td style={{padding:"7px 10px",color:T.green}}>{h.free_disk_gb} GB</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+        {data.length===0&&!busy&&(
+          <div style={{padding:40,textAlign:"center",color:T.muted}}>
+            <div style={{fontSize:28,marginBottom:8}}>📊</div>
+            <div>No capacity data — hosts need a Refresh to collect hardware inventory</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Patches() {
   const [patches,setPatches]=useState([]);
   useEffect(()=>{api.get("/patches").then(r=>setPatches(r.data)).catch(()=>{});},[]);
@@ -1725,7 +2045,7 @@ function DebugConsole() {
 // ── App Shell ─────────────────────────────────────────────────────────────────
 const VIEWS=[{id:"overview",icon:"📊",label:"Overview"},{id:"infra",icon:"🖧",label:"Infrastructure"},
              {id:"logs",icon:"📋",label:"Logs"},{id:"alerts",icon:"🔔",label:"Alerts"},
-             {id:"patches",icon:"🔧",label:"Patches"},{id:"vmip",icon:"🔬",label:"VM IP Debug"},{id:"debug",icon:"🛠",label:"Debug"}];
+             {id:"patches",icon:"🔧",label:"Patches"},{id:"capacity",icon:"📊",label:"Capacity"},{id:"vmip",icon:"🔬",label:"VM IP Debug"},{id:"debug",icon:"🛠",label:"Debug"}];
 
 export default function App() {
   const [view,setView]=useState("overview");
@@ -1787,6 +2107,7 @@ export default function App() {
             {view==="logs"     && <Logs hosts={hosts}/>}
             {view==="alerts"   && <Alerts/>}
             {view==="patches"  && <Patches/>}
+            {view==="capacity"  && <CapacityPlanning/>}
             {view==="vmip"     && <VMIPDebug hosts={hosts}/>}
             {view==="debug"    && <DebugConsole/>}
           </div>
