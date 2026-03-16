@@ -1619,17 +1619,27 @@ function CapacityPlanning() {
               const ramPct   = h.ram_total_gb ? Math.round(h.vm_ram_alloc_gb/h.ram_total_gb*100) : 0;
               const diskPct  = h.disk_total_gb ? Math.round(h.vm_disk_alloc_gb/h.disk_total_gb*100): 0;
               const isSel    = sel===h.host_id;
+              const missing  = h.hw_missing;
               return (
                 <React.Fragment key={h.host_id}>
+                  {/* Warning row for hosts needing a Refresh */}
+                  {missing&&(
+                    <tr style={{background:"#fffbeb"}}>
+                      <td colSpan={12} style={{padding:"6px 12px",fontSize:11,color:"#92400e"}}>
+                        ⚠️ <strong>{h.host_name}</strong> — hardware inventory not yet collected.
+                        Click <strong>↻ Refresh</strong> on this host in the Infrastructure tab to populate CPU/RAM/Disk totals.
+                      </td>
+                    </tr>
+                  )}
                   <tr style={{borderBottom:`1px solid ${T.border}`,cursor:"pointer",
-                    background:isSel?"#eff6ff":i%2===0?"#fff":"#fafbfc"}}
+                    background:isSel?"#eff6ff":missing?"#fffbeb":i%2===0?"#fff":"#fafbfc"}}
                     onClick={()=>setSel(isSel?null:h.host_id)}>
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,fontSize:12}}>{h.host_name}</div>
                       <div style={{fontSize:10,color:T.muted,fontFamily:"IBM Plex Mono"}}>{h.host_ip}</div>
                     </td>
                     <td style={{padding:"10px 12px",fontSize:11,color:T.sub,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
-                      title={h.cpu_model}>{h.cpu_model||"—"}</td>
+                      title={h.cpu_model}>{h.cpu_model||<span style={{color:T.amber,fontSize:10}}>↻ Refresh needed</span>}</td>
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,fontSize:13,color:T.blue}}>{h.cpu_pcores||"—"}</div>
                       <div style={{fontSize:10,color:T.muted}}>{h.cpu_sockets} socket{h.cpu_sockets!==1?"s":""} × {h.cpu_pcores&&h.cpu_sockets?Math.round(h.cpu_pcores/h.cpu_sockets):0} cores</div>
@@ -1725,7 +1735,11 @@ function CapacityPlanning() {
         {data.length===0&&!busy&&(
           <div style={{padding:40,textAlign:"center",color:T.muted}}>
             <div style={{fontSize:28,marginBottom:8}}>📊</div>
-            <div>No capacity data — hosts need a Refresh to collect hardware inventory</div>
+            <div style={{fontWeight:600,marginBottom:6}}>No capacity data yet</div>
+            <div style={{fontSize:12}}>
+              Go to <strong>Infrastructure</strong> tab → select each host → click <strong>↻ Refresh</strong>
+              to collect hardware inventory (CPU sockets, cores, threads, RAM, storage).
+            </div>
           </div>
         )}
       </div>
