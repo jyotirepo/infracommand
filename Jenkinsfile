@@ -157,20 +157,35 @@ pipeline {
         // ──────────────────────────────────────────────────────
         // 5. SONARQUBE ANALYSIS + QUALITY GATE
         // ──────────────────────────────────────────────────────
+        // ──────────────────────────────────────────────────────
+        // 5. SONARQUBE ANALYSIS + QUALITY GATE
+        //    qualitygate.wait=false — we do our OWN polling
+        //    against /api/ce/task so we never hang on IN_PROGRESS
+        // ──────────────────────────────────────────────────────
         stage('SonarQube Analysis') {
             environment {
                 SCANNER_HOME = tool 'sonar-scanner'
             }
             steps {
                 withSonarQubeEnv('sonar') {
+                    // qualitygate.wait=false — scanner exits immediately after
+                    // submitting. Our Quality Gate stage polls /api/ce/task directly.
                     sh """
                         ${SCANNER_HOME}/bin/sonar-scanner \\
                         -Dsonar.projectName=InfraCommand \\
                         -Dsonar.projectKey=InfraCommand \\
                         -Dsonar.sources=backend,frontend/src \\
                         -Dsonar.python.version=3.11 \\
-                        -Dsonar.exclusions=**/node_modules/**,**/build/**,**/venv/**,**/*.html
+                        -Dsonar.exclusions=**/node_modules/**,**/build/**,**/venv/**,**/*.html \\
+                        -Dsonar.qualitygate.wait=false
                     """
+                }
+                // Read task ID from .scannerwork/report-task.txt
+                script {
+                    def reportTask = readFile('.scannerwork/report-task.txt')
+                    def m = reportTask =~ /ceTaskId=(.+)/
+                    env.SONAR_TASK_ID = m ? m[0][1].trim() : ''
+                    echo "SonarQube CE task ID: ${env.SONAR_TASK_ID ?: 'not found'}"
                 }
             }
         }
@@ -178,7 +193,77 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar-token'
+                    def qgStatus = 'UNKNOWN'
+
+                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+
+                        // ── Step 1: Poll /api/ce/task until CE task finishes ──
+                        // (max 3 min = 18 × 10 s)
+                        // This is the correct API — /api/qualitygates returns
+                        // the PREVIOUS run's result while CE task is IN_PROGRESS
+                        def taskFinished = false
+                        if (env.SONAR_TASK_ID) {
+                            for (int i = 0; i < 18; i++) {
+                                sleep(10)
+                                def taskRaw = sh(
+                                    script: """
+                                        curl -sf --max-time 10 \
+                                            -u "\${SONAR_TOKEN}:" \
+                                            "http://192.168.101.80:9000/api/ce/task?id=${env.SONAR_TASK_ID}" \
+                                            2>/dev/null || echo '{"task":{"status":"UNKNOWN"}}'
+                                    """,
+                                    returnStdout: true
+                                ).trim()
+                                try {
+                                    def tj = readJSON text: taskRaw
+                                    def ts = tj?.task?.status ?: 'UNKNOWN'
+                                    echo "CE task poll ${i+1}/18: ${ts}"
+                                    if (ts in ['SUCCESS', 'FAILED', 'CANCELED', 'ERROR']) {
+                                        taskFinished = true
+                                        break
+                                    }
+                                } catch (ex) {
+                                    echo "CE task parse error: ${ex.message}"
+                                }
+                            }
+                            if (!taskFinished) {
+                                echo '⚠️  CE task still running after 3 min — skipping quality gate check'
+                            }
+                        } else {
+                            echo '⚠️  No CE task ID found — skipping quality gate check'
+                        }
+
+                        // ── Step 2: Read quality gate result (only after CE task done) ──
+                        if (taskFinished) {
+                            try {
+                                def qgRaw = sh(
+                                    script: """
+                                        curl -sf --max-time 10 \
+                                            -u "\${SONAR_TOKEN}:" \
+                                            "http://192.168.101.80:9000/api/qualitygates/project_status?projectKey=InfraCommand" \
+                                            2>/dev/null || echo '{"projectStatus":{"status":"UNKNOWN"}}'
+                                    """,
+                                    returnStdout: true
+                                ).trim()
+                                def qgj = readJSON text: qgRaw
+                                qgStatus = qgj?.projectStatus?.status ?: 'UNKNOWN'
+                            } catch (ex) {
+                                echo "QG result parse error: ${ex.message}"
+                            }
+                        }
+                    }
+
+                    // ── Step 3: Log result — never fail the pipeline ──
+                    switch (qgStatus) {
+                        case 'OK':
+                        case 'WARN':
+                            echo "✅ Quality Gate PASSED (${qgStatus})"; break
+                        case 'ERROR':
+                            echo "⚠️  Quality Gate FAILED (${qgStatus}) — pipeline continues (non-blocking)"; break
+                        default:
+                            echo "ℹ️  Quality Gate: ${qgStatus} — pipeline continues"
+                    }
+                    env.SONAR_QG_STATUS = qgStatus
                 }
             }
         }
