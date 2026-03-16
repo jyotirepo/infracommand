@@ -1,7 +1,7 @@
 fastapi==0.109.2
 uvicorn[standard]==0.27.1
 pydantic==2.6.1
-paramiko==3.4.0
+paramiko>=2.11.0,<3.0.0
 pywinrm==0.4.3
 requests==2.31.0
 sqlalchemy==2.0.25

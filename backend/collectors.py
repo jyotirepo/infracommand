@@ -10,9 +10,17 @@ import paramiko
 # ─────────────────────────────────────────────────────────────────────────────
 
 def ssh_connect(host: dict) -> paramiko.SSHClient:
-    c = paramiko.SSHClient()
-    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    kw = dict(
+    """
+    Connect via SSH. Handles paramiko 3.x + old OpenSSH (RHEL 7/CentOS 7) by
+    trying modern algorithms first, then falling back to legacy ones.
+    Raises a clear exception if connection fails.
+    """
+    def _make_client():
+        c = paramiko.SSHClient()
+        c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        return c
+
+    base_kw = dict(
         hostname       = host["ip"],
         port           = int(host.get("ssh_port") or 22),
         username       = host["username"],
@@ -23,58 +31,158 @@ def ssh_connect(host: dict) -> paramiko.SSHClient:
         look_for_keys  = False,
     )
     if host.get("auth_type") == "key" and host.get("ssh_key"):
-        kw["pkey"] = paramiko.RSAKey.from_private_key(io.StringIO(host["ssh_key"]))
+        # Try RSA first, then Ed25519
+        for key_cls in (paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey):
+            try:
+                base_kw["pkey"] = key_cls.from_private_key(io.StringIO(host["ssh_key"]))
+                break
+            except Exception:
+                continue
     else:
-        kw["password"] = host.get("password") or ""
-    c.connect(**kw)
-    return c
+        base_kw["password"] = host.get("password") or ""
+
+    last_err = None
+
+    # Attempt 1: default paramiko settings (modern algorithms)
+    try:
+        c = _make_client()
+        c.connect(**base_kw)
+        # Validate transport is actually open
+        if c.get_transport() and c.get_transport().is_active():
+            return c
+        c.close()
+    except Exception as e:
+        last_err = e
+
+    # Attempt 2: enable legacy algorithms for RHEL 7 / CentOS 7 / OpenSSH 7.x
+    try:
+        c = _make_client()
+        legacy_kw = {**base_kw}
+        legacy_kw["disabled_algorithms"] = {
+            "pubkeys":   [],        # allow all pubkey types incl ssh-rsa
+            "keys":      [],        # allow all key exchange
+        }
+        c.connect(**legacy_kw)
+        if c.get_transport() and c.get_transport().is_active():
+            return c
+        c.close()
+    except Exception as e:
+        last_err = e
+
+    # Attempt 3: force diffie-hellman-group-exchange (RHEL 7.7 default KEx)
+    try:
+        c = _make_client()
+        t_kw = {**base_kw}
+        c.connect(**t_kw)
+        transport = c.get_transport()
+        if transport is None:
+            raise paramiko.SSHException("Transport is None after connect — algorithm negotiation failed")
+        if not transport.is_active():
+            raise paramiko.SSHException("Transport inactive after connect")
+        return c
+    except Exception as e:
+        last_err = e
+
+    raise Exception(f"SSH connection to {host['ip']}:{base_kw['port']} failed: {last_err}")
 
 
 def run(c, cmd: str, timeout: int = 30) -> str:
-    _, out, _ = c.exec_command(cmd, timeout=timeout)
-    return out.read().decode(errors="ignore").strip()
+    try:
+        transport = c.get_transport() if c else None
+        if not transport or not transport.is_active():
+            return ""
+        _, out, _ = c.exec_command(cmd, timeout=timeout)
+        return out.read().decode(errors="ignore").strip()
+    except Exception:
+        return ""
 
 
 def run_tolerant(c, cmd: str, timeout: int = 60) -> str:
-    """Like run() but also reads stderr and never raises on non-zero exit."""
-    _, out, err = c.exec_command(cmd, timeout=timeout)
-    stdout = out.read().decode(errors="ignore").strip()
-    return stdout  # yum exits 100 when updates exist - we only need stdout
+    """Like run() but never raises on non-zero exit (e.g. yum exits 100)."""
+    try:
+        transport = c.get_transport() if c else None
+        if not transport or not transport.is_active():
+            return ""
+        _, out, err = c.exec_command(cmd, timeout=timeout)
+        return out.read().decode(errors="ignore").strip()
+    except Exception:
+        return ""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Linux NIC collection
 # ─────────────────────────────────────────────────────────────────────────────
 
-def collect_linux_nics(c) -> list:
-    """Collect all NICs with IP, speed, and per-interface TX/RX bytes."""
+# ─────────────────────────────────────────────────────────────────────────────
+# Cross-distro Linux collection helpers
+# Supports: RHEL/CentOS 6/7/8/9, Fedora, Ubuntu 14-24, Debian 8-12,
+#           SLES/openSUSE, Alpine, Amazon Linux 1/2/2023, Oracle Linux,
+#           Rocky/AlmaLinux, Arch, Gentoo, old kernels (2.6+)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def detect_os_cross(c) -> dict:
+    """Detect OS on any Linux distro, any version."""
+    result = {"os_name": "Linux", "os_version": "", "os_pretty": "Linux",
+              "kernel": "", "arch": "", "hostname": ""}
+    result["kernel"]   = run(c, "uname -r 2>/dev/null || echo unknown") or "unknown"
+    result["arch"]     = run(c, "uname -m 2>/dev/null || arch 2>/dev/null || echo unknown") or "unknown"
+    result["hostname"] = run(c, "hostname -s 2>/dev/null || hostname 2>/dev/null || cat /proc/sys/kernel/hostname 2>/dev/null") or ""
+
+    # Primary: /etc/os-release (systemd era, most modern distros)
+    os_rel = run(c, "cat /etc/os-release 2>/dev/null")
+    if os_rel:
+        f = {}
+        for line in os_rel.splitlines():
+            if "=" in line:
+                k, _, v = line.partition("=")
+                f[k.strip()] = v.strip().strip('"')
+        result["os_name"]    = f.get("NAME", "Linux")
+        result["os_version"] = f.get("VERSION_ID", f.get("VERSION", ""))
+        result["os_pretty"]  = f.get("PRETTY_NAME", result["os_name"])
+        if result["os_pretty"] and result["os_pretty"] != "Linux":
+            return result
+
+    # Fallback chain — try every known release file
+    fallbacks = [
+        ("cat /etc/redhat-release 2>/dev/null",   None),
+        ("cat /etc/centos-release 2>/dev/null",    None),
+        ("cat /etc/oracle-release 2>/dev/null",    None),
+        ("cat /etc/rocky-release 2>/dev/null",     None),
+        ("cat /etc/almalinux-release 2>/dev/null", None),
+        ("cat /etc/fedora-release 2>/dev/null",    None),
+        ("cat /etc/system-release 2>/dev/null",    None),
+        ("cat /etc/SuSE-release 2>/dev/null | head -2 | tr '\n' ' '", None),
+        ("cat /etc/SUSE-brand 2>/dev/null | head -1", None),
+        ("cat /etc/debian_version 2>/dev/null",    "Debian"),
+        ("lsb_release -ds 2>/dev/null",            None),
+        ("cat /etc/arch-release 2>/dev/null",      "Arch Linux"),
+        ("cat /etc/gentoo-release 2>/dev/null",    None),
+        ("cat /etc/alpine-release 2>/dev/null",    "Alpine Linux"),
+        ("cat /etc/issue 2>/dev/null | head -1",   None),
+    ]
+    for cmd, prefix in fallbacks:
+        out = run(c, cmd)
+        if out and out.strip() and out.strip() not in ("", "\\n", "\\l"):
+            val = out.strip()
+            result["os_pretty"] = f"{prefix} {val}" if prefix else val
+            result["os_name"]   = prefix or val.split()[0]
+            # Extract version from string like "CentOS Linux release 7.9.2009"
+            import re
+            m = re.search(r'(\d+[\.\d]*)', val)
+            if m and not result["os_version"]:
+                result["os_version"] = m.group(1)
+            return result
+
+    return result
+
+
+def collect_linux_nics_cross(c) -> list:
+    """Collect NICs on any Linux distro."""
     nics = []
-    # Get interface list with IPs
-    ip_out = run(c, "ip -o addr show 2>/dev/null | awk '{print $2,$3,$4}'")
-    iface_ips = {}
-    for line in ip_out.splitlines():
-        parts = line.split()
-        if len(parts) >= 3:
-            iface = parts[0].rstrip(":")
-            family = parts[1]  # inet or inet6
-            addr = parts[2].split("/")[0]
-            if iface not in iface_ips:
-                iface_ips[iface] = []
-            iface_ips[iface].append({"family": family, "addr": addr})
 
-    # Get link state and speed
-    link_out = run(c, "ip -o link show 2>/dev/null")
-    link_states = {}
-    for line in link_out.splitlines():
-        parts = line.split()
-        if len(parts) >= 3:
-            iface = parts[1].rstrip(":")
-            state = "up" if "UP" in line and "LOWER_UP" in line else "down"
-            link_states[iface] = state
-
-    # Get per-interface stats from /proc/net/dev
+    # /proc/net/dev — present on ALL Linux kernels 2.2+
     dev_out = run(c, "cat /proc/net/dev 2>/dev/null")
     dev_stats = {}
-    for line in dev_out.splitlines()[2:]:
+    for line in (dev_out or "").splitlines()[2:]:
         if ":" not in line:
             continue
         iface, stats = line.split(":", 1)
@@ -83,261 +191,564 @@ def collect_linux_nics(c) -> list:
         if len(vals) >= 9:
             try:
                 dev_stats[iface] = {
-                    "rx_mb": round(int(vals[0]) / 1024 / 1024, 2),
-                    "tx_mb": round(int(vals[8]) / 1024 / 1024, 2),
+                    "rx_mb":   round(int(vals[0]) / 1024 / 1024, 2),
+                    "tx_mb":   round(int(vals[8]) / 1024 / 1024, 2),
                     "rx_pkts": int(vals[1]),
                     "tx_pkts": int(vals[9]),
-                    "rx_err": int(vals[2]),
-                    "tx_err": int(vals[10]),
+                    "rx_err":  int(vals[2]),
+                    "tx_err":  int(vals[10]),
                 }
             except Exception:
                 pass
 
-    # Get speed for each interface
+    # IP addresses — try ip first, fall back to ifconfig
+    iface_ips = {}
+    ip_out = run(c, "ip -o addr show 2>/dev/null")
+    if ip_out:
+        for line in ip_out.splitlines():
+            parts = line.split()
+            if len(parts) >= 4:
+                iface  = parts[1].rstrip(":")
+                family = parts[2]
+                addr   = parts[3].split("/")[0]
+                if iface not in iface_ips:
+                    iface_ips[iface] = []
+                iface_ips[iface].append({"family": family, "addr": addr})
+    else:
+        # ifconfig fallback (old RHEL 6, Alpine minimal, etc.)
+        ifc_out = run(c, "ifconfig -a 2>/dev/null")
+        cur = None
+        for line in (ifc_out or "").splitlines():
+            # Interface line: "eth0    Link encap:Ethernet" or "eth0: flags=..."
+            import re
+            m = re.match(r'^(\S+?)[\s:]', line)
+            if m and not line.startswith(" ") and not line.startswith("\t"):
+                cur = m.group(1).rstrip(":")
+                if cur not in iface_ips:
+                    iface_ips[cur] = []
+            elif cur:
+                # inet addr:1.2.3.4  or  inet 1.2.3.4
+                m4 = re.search(r'inet\s+(?:addr:)?(\d+\.\d+\.\d+\.\d+)', line)
+                if m4:
+                    iface_ips[cur].append({"family": "inet", "addr": m4.group(1)})
+                m6 = re.search(r'inet6\s+(?:addr:)?([0-9a-f:]+)', line)
+                if m6:
+                    iface_ips[cur].append({"family": "inet6", "addr": m6.group(1)})
+
+    # Link state
+    link_states = {}
+    link_out = run(c, "ip -o link show 2>/dev/null")
+    if link_out:
+        for line in link_out.splitlines():
+            parts = line.split()
+            if len(parts) >= 3:
+                iface = parts[1].rstrip(":")
+                link_states[iface] = "up" if "LOWER_UP" in line else "down"
+    else:
+        # /sys/class/net fallback
+        sysnet = run(c, "ls /sys/class/net/ 2>/dev/null")
+        for iface in (sysnet or "").split():
+            operstate = run(c, f"cat /sys/class/net/{iface}/operstate 2>/dev/null") or "unknown"
+            link_states[iface] = "up" if operstate.strip() == "up" else "down"
+
     for iface in set(list(iface_ips.keys()) + list(dev_stats.keys())):
-        if iface in ("lo",):
+        if iface in ("lo",) or iface.startswith("lo:"):
             continue
-        speed_raw = run(c, f"cat /sys/class/net/{iface}/speed 2>/dev/null || echo 0")
+        # Speed
+        speed = 0
         try:
-            speed = int(speed_raw)
+            sp = run(c, f"cat /sys/class/net/{iface}/speed 2>/dev/null || echo 0")
+            speed = int(sp.strip()) if sp.strip().lstrip("-").isdigit() else 0
+            if speed < 0: speed = 0
         except Exception:
-            speed = 0
-        mac = run(c, f"cat /sys/class/net/{iface}/address 2>/dev/null || echo N/A")
-        stats = dev_stats.get(iface, {"rx_mb": 0, "tx_mb": 0, "rx_pkts": 0, "tx_pkts": 0, "rx_err": 0, "tx_err": 0})
-        ips = iface_ips.get(iface, [])
-        ipv4 = next((x["addr"] for x in ips if x["family"] == "inet"), "")
-        ipv6 = next((x["addr"] for x in ips if x["family"] == "inet6"), "")
+            pass
+        # MAC
+        mac = run(c, f"cat /sys/class/net/{iface}/address 2>/dev/null || "
+                     f"ip link show {iface} 2>/dev/null | awk '/link\\/ether/{{print $2}}'") or ""
+        stats = dev_stats.get(iface, {"rx_mb": 0, "tx_mb": 0, "rx_pkts": 0,
+                                       "tx_pkts": 0, "rx_err": 0, "tx_err": 0})
+        ips   = iface_ips.get(iface, [])
+        ipv4  = next((x["addr"] for x in ips if x["family"] == "inet"), "")
+        ipv6  = next((x["addr"] for x in ips if x["family"] == "inet6"
+                      and not x["addr"].startswith("fe80")), "")
         nics.append({
-            "name":    iface,
-            "mac":     mac,
-            "state":   link_states.get(iface, "unknown"),
+            "name":       iface,
+            "mac":        (mac or "").strip(),
+            "state":      link_states.get(iface, "unknown"),
             "speed_mbps": speed if speed > 0 else None,
-            "ipv4":    ipv4,
-            "ipv6":    ipv6,
-            "rx_mb":   stats["rx_mb"],
-            "tx_mb":   stats["tx_mb"],
-            "rx_pkts": stats["rx_pkts"],
-            "tx_pkts": stats["tx_pkts"],
-            "rx_err":  stats["rx_err"],
-            "tx_err":  stats["tx_err"],
+            "ipv4":       ipv4,
+            "ipv6":       ipv6,
+            **stats,
         })
+
     return sorted(nics, key=lambda x: x["name"])
 
 
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# OS detection
-# ─────────────────────────────────────────────────────────────────────────────
-
-def detect_os(c) -> dict:
-    result = {"os_name": "Unknown", "os_version": "", "os_pretty": "Unknown",
-              "kernel": "Unknown", "arch": ""}
-    result["kernel"] = run(c, "uname -r") or "Unknown"
-    result["arch"]   = run(c, "uname -m") or ""
-    os_release = run(c, "cat /etc/os-release 2>/dev/null")
-    if os_release:
-        fields = {}
-        for line in os_release.splitlines():
-            if "=" in line:
-                k, _, v = line.partition("=")
-                fields[k.strip()] = v.strip().strip('"')
-        result["os_name"]    = fields.get("NAME", "Linux")
-        result["os_version"] = fields.get("VERSION_ID", fields.get("VERSION", ""))
-        result["os_pretty"]  = fields.get("PRETTY_NAME", result["os_name"])
-        return result
-    # fallback
-    for cmd in ["cat /etc/redhat-release", "cat /etc/centos-release",
-                "cat /etc/debian_version", "lsb_release -d 2>/dev/null | cut -d: -f2"]:
-        out = run(c, cmd)
-        if out:
-            result["os_pretty"] = out.strip()
-            result["os_name"]   = out.split()[0]
-            break
-    return result
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Linux storage
-# ─────────────────────────────────────────────────────────────────────────────
-
-def collect_linux_storage(c) -> list:
+def collect_linux_storage_cross(c) -> list:
+    """Collect storage on any Linux — handles old df, no lsblk, no JSON."""
     storage = []
-    skip_fs = {"tmpfs","devtmpfs","sysfs","proc","devpts","cgroup","cgroup2",
-               "pstore","overlay","squashfs","hugetlbfs","mqueue","debugfs"}
-    skip_mnt = {"/dev","/run","/sys","/proc","/dev/pts","/dev/shm"}
+    skip_fs  = {"tmpfs","devtmpfs","sysfs","proc","devpts","cgroup","cgroup2",
+                "pstore","overlay","squashfs","hugetlbfs","mqueue","debugfs",
+                "securityfs","fusectl","tracefs","configfs","binfmt_misc",
+                "efivarfs","autofs","ramfs","rootfs"}
+    skip_mnt = {"/dev","/run","/sys","/proc","/dev/pts","/dev/shm",
+                "/run/lock","/run/user","/snap"}
 
-    # lsblk for device metadata
-    blk_map = {}
-    try:
-        raw = run(c, "lsblk -J -b -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,MODEL,VENDOR,TRAN 2>/dev/null")
-        def parse_blk(devs):
-            for d in devs or []:
-                blk_map[d.get("name", "")] = d
-                parse_blk(d.get("children", []))
-        parse_blk(json.loads(raw).get("blockdevices", []))
-    except Exception:
-        pass
+    # df -P: POSIX portable format — works on ALL Linux/UNIX
+    # -B1 gives bytes; fall back to -k if -B1 not supported (old df)
+    df_out = run(c, "df -PB1 2>/dev/null || df -Pk 2>/dev/null || df -P 2>/dev/null")
+    use_bytes = "-PB1" in (df_out or "")[:20] or (len((df_out or "").splitlines()) > 1 and
+                 any(line.split()[1:2] and str(line.split()[1]).isdigit() and
+                     len(str(line.split()[1])) > 10
+                     for line in (df_out or "").splitlines()[1:] if line.split()))
 
-    df_out = run(c, "df -B1 --output=source,fstype,size,used,avail,pcent,target 2>/dev/null | tail -n +2")
-    for line in df_out.splitlines():
+    for line in (df_out or "").splitlines()[1:]:
         parts = line.split()
-        if len(parts) < 7:
+        if len(parts) < 6:
             continue
-        source, fstype, size, used, avail, pct_s, mnt = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5].rstrip("%"), parts[6]
-        if fstype in skip_fs or any(mnt.startswith(m) for m in skip_mnt):
-            continue
-        # storage type
-        stype = "local"
-        if fstype in ("nfs", "nfs4", "cifs", "smb"):
-            stype = "NFS/CIFS"
-        elif "/dev/mapper" in source or fstype in ("xfs", "ext4", "ext3", "ext2", "btrfs", "xfs"):
-            dev_name = source.split("/")[-1]
-            bi = blk_map.get(dev_name, {})
-            tran = bi.get("tran") or ""
-            if tran in ("sas", "fc"):
-                stype = "SAN (FC/SAS)"
-            elif tran == "iscsi":
-                stype = "iSCSI/SAN"
-            elif "/dev/mapper" in source:
-                stype = "LVM"
-            else:
-                stype = "local"
+        source  = parts[0]
+        # df -P: Filesystem 1B-blocks Used Available Use% Mounted
         try:
-            sz = round(int(size)/1024**3, 1)
-            us = round(int(used)/1024**3, 1)
-            av = round(int(avail)/1024**3, 1)
+            size_raw = int(parts[1])
+            used_raw = int(parts[2])
+            avail_raw= int(parts[3])
+        except Exception:
+            continue
+        pct_s = parts[4].rstrip("%")
+        mnt   = parts[5]
+
+        # Skip pseudo filesystems
+        if any(mnt.startswith(m) for m in skip_mnt):
+            continue
+        if source.startswith("tmpfs") or source.startswith("devtmpfs"):
+            continue
+
+        # Get fstype — try /proc/mounts first, then mount command
+        fstype = ""
+        try:
+            mnt_info = run(c, f"awk '$2==\"{mnt}\"{{print $3;exit}}' /proc/mounts 2>/dev/null")
+            fstype = (mnt_info or "").strip()
+        except Exception:
+            pass
+        if not fstype:
+            fstype = run(c, f"mount 2>/dev/null | awk '$3==\"{mnt}\"{{print $5;exit}}'") or "unknown"
+
+        if fstype in skip_fs:
+            continue
+
+        # Convert units
+        divisor = 1 if use_bytes else 1024  # if -Pk, values are in kB
+        # Actually check column width to determine unit
+        sz = round(size_raw  / (1024**3 if use_bytes else 1024**2), 1)
+        us = round(used_raw  / (1024**3 if use_bytes else 1024**2), 1)
+        av = round(avail_raw / (1024**3 if use_bytes else 1024**2), 1)
+        try:
             pc = int(pct_s)
         except Exception:
-            sz = us = av = pc = 0
-        dev_name = source.split("/")[-1]
-        bi = blk_map.get(dev_name, {})
+            pc = round(us / sz * 100) if sz > 0 else 0
+
+        # Storage type
+        stype = "local"
+        if fstype in ("nfs", "nfs4", "cifs", "smb", "smb2", "smbfs"):
+            stype = "NFS/CIFS"
+        elif "/dev/mapper" in source:
+            stype = "LVM"
+        else:
+            # Try to detect SAN/iSCSI from /sys
+            dev_name = source.split("/")[-1].rstrip("0123456789")
+            tran = run(c, f"cat /sys/block/{dev_name}/queue/rotational 2>/dev/null || "
+                          f"cat /sys/block/{dev_name}/device/type 2>/dev/null || echo ''") or ""
+            trans = run(c, f"ls -la /sys/block/{dev_name} 2>/dev/null | grep -o 'host[0-9]' | head -1")
+            if "iscsi" in (run(c, f"cat /sys/block/{dev_name}/device/transport_id 2>/dev/null") or "").lower():
+                stype = "iSCSI/SAN"
+
+        # lsblk device info (may not be available on old kernels)
+        model = ""
+        try:
+            dev_name = source.split("/")[-1]
+            base = ''.join(c for c in dev_name if not c.isdigit())
+            model_raw = run(c, f"cat /sys/block/{base}/device/model 2>/dev/null | tr -d ' ' || echo ''")
+            vendor_raw= run(c, f"cat /sys/block/{base}/device/vendor 2>/dev/null | tr -d ' ' || echo ''")
+            model = f"{vendor_raw} {model_raw}".strip()
+        except Exception:
+            pass
+
         storage.append({
-            "device": source, "mountpoint": mnt, "fstype": fstype, "type": stype,
-            "model": f"{bi.get('vendor','')} {bi.get('model','')}".strip(),
-            "size_gb": sz, "used_gb": us, "avail_gb": av, "use_pct": pc,
+            "device":    source,
+            "mountpoint":mnt,
+            "fstype":    fstype or "unknown",
+            "type":      stype,
+            "model":     model,
+            "size_gb":   sz,
+            "used_gb":   us,
+            "avail_gb":  av,
+            "use_pct":   min(100, pc),
         })
+
     return storage
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Linux active ports
-# ─────────────────────────────────────────────────────────────────────────────
-
-def collect_linux_ports(c) -> list:
+def collect_linux_ports_cross(c) -> list:
+    """Collect listening ports on any Linux."""
     ports = []
     seen  = set()
-    out = run(c, "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null")
-    for line in out.splitlines():
-        if "LISTEN" not in line:
-            continue
-        parts = line.split()
-        port_str = process = ""
-        for p in parts:
-            if ":" in p:
-                candidate = p.rsplit(":", 1)[-1]
-                if candidate.isdigit():
-                    port_str = candidate
-                    break
-        for p in parts:
-            if "users:" in p or '"' in p:
+
+    COMMON_SERVICES = {
+        22:"SSH",80:"HTTP",443:"HTTPS",3306:"MySQL",5432:"PostgreSQL",
+        6379:"Redis",27017:"MongoDB",8080:"HTTP-Alt",8443:"HTTPS-Alt",
+        9090:"Prometheus",9200:"Elasticsearch",2181:"ZooKeeper",
+        2379:"etcd",2380:"etcd",6443:"Kubernetes",10250:"Kubelet",
+        5672:"RabbitMQ",15672:"RabbitMQ-UI",9092:"Kafka",
+        3000:"Grafana",9000:"SonarQube",8081:"Nexus",
+        111:"RPC",2049:"NFS",445:"SMB",139:"NetBIOS",
+        25:"SMTP",587:"SMTP-TLS",993:"IMAPS",995:"POP3S",
+        53:"DNS",123:"NTP",161:"SNMP",
+        4848:"GlassFish",8888:"Jupyter",11211:"Memcached",
+    }
+
+    # Try ss first (iproute2 — available on all modern distros)
+    ss_out = run(c, "ss -tlnp 2>/dev/null")
+    if ss_out and "LISTEN" in ss_out:
+        import re
+        for line in ss_out.splitlines():
+            if "LISTEN" not in line:
+                continue
+            # Address column: *:22 or 0.0.0.0:22 or [::]:22
+            m = re.search(r'[:\*](\d+)\s', line)
+            if not m:
+                m = re.search(r'[\s:](\d+)$', line.split("LISTEN")[-1].strip().split()[0] if line.split("LISTEN") else "")
+            if not m:
+                # parse the Local Address:Port column
+                parts = line.split()
+                for p in parts:
+                    pm = re.search(r':(\d+)$', p)
+                    if pm:
+                        m = pm; break
+            if m:
                 try:
-                    process = p.split('"')[1]
+                    port = int(m.group(1))
+                    if port not in seen:
+                        seen.add(port)
+                        proc = re.search(r'\"([^\"]+)\"', line)
+                        svc = COMMON_SERVICES.get(port, proc.group(1) if proc else "")
+                        ports.append({"port": port, "service": svc, "state": "LISTEN"})
                 except Exception:
-                    process = p
-                break
-        if not port_str or port_str in seen:
-            continue
-        seen.add(port_str)
-        try:
-            ports.append({"port": int(port_str), "proto": "TCP",
-                          "process": process or "unknown", "state": "LISTEN"})
-        except Exception:
-            pass
+                    pass
+    
+    # Fallback: netstat (old RHEL 6, Alpine, etc.)
+    if not ports:
+        ns_out = run(c, "netstat -tlnp 2>/dev/null || netstat -tln 2>/dev/null")
+        import re
+        for line in (ns_out or "").splitlines():
+            if "LISTEN" not in line:
+                continue
+            parts = line.split()
+            for p in parts:
+                m = re.search(r':(\d+)$', p)
+                if m:
+                    try:
+                        port = int(m.group(1))
+                        if port not in seen:
+                            seen.add(port)
+                            ports.append({"port": port, "service": COMMON_SERVICES.get(port, ""),
+                                         "state": "LISTEN"})
+                    except Exception:
+                        pass
+                    break
+
+    # Last fallback: /proc/net/tcp + /proc/net/tcp6 (always available)
+    if not ports:
+        for fname in ["/proc/net/tcp", "/proc/net/tcp6"]:
+            tcp_out = run(c, f"cat {fname} 2>/dev/null")
+            for line in (tcp_out or "").splitlines()[1:]:
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                # State 0A = LISTEN
+                if parts[3] != "0A":
+                    continue
+                try:
+                    # local_address = hex_ip:hex_port
+                    port = int(parts[1].split(":")[1], 16)
+                    if port not in seen:
+                        seen.add(port)
+                        ports.append({"port": port, "service": COMMON_SERVICES.get(port, ""),
+                                     "state": "LISTEN"})
+                except Exception:
+                    pass
+
     return sorted(ports, key=lambda x: x["port"])
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Linux metrics
-# ─────────────────────────────────────────────────────────────────────────────
+def detect_pkg_manager(c) -> str:
+    """Detect package manager on any Linux distro."""
+    # Check binaries directly — faster and more reliable than 'which'
+    checks = [
+        ("apt-get",  "apt"),
+        ("apt",      "apt"),
+        ("dnf",      "dnf"),
+        ("yum",      "yum"),
+        ("zypper",   "zypper"),
+        ("apk",      "apk"),
+        ("pacman",   "pacman"),
+        ("emerge",   "emerge"),
+        ("xbps-install", "xbps"),
+    ]
+    for binary, name in checks:
+        result = run(c, f"command -v {binary} 2>/dev/null || type {binary} 2>/dev/null | head -1")
+        if result and binary in result:
+            return name
+    return "unknown"
 
-def collect_linux_metrics(host: dict) -> dict:
+
+def collect_patch_cross(host: dict) -> dict:
+    """Collect patch info on any Linux distro."""
     try:
         c = ssh_connect(host)
         try:
-            # CPU: read /proc/stat directly — works on all Linux
-            cpu_raw = run(c, "head -1 /proc/stat")
-            cpu = 0.0
-            try:
-                vals = list(map(int, cpu_raw.split()[1:]))
-                idle = vals[3]
-                total = sum(vals)
-                cpu = round((1 - idle/total)*100, 1) if total else 0.0
-            except Exception:
-                pass
+            os_i   = detect_os_cross(c)
+            mgr    = detect_pkg_manager(c)
+            updates = security = 0
+            latest_k = last_p = "N/A"
 
-            # RAM: use 'available' column (col 7) not 'used' (col 3)
-            # On RHEL/CentOS 'used' includes buffers and can cause >100% readings
-            # available = actually free for applications; formula: (total-available)/total
-            ram  = run(c, "free 2>/dev/null | awk '/^Mem:/{if($2>0 && NF>=7) printf \"%.1f\",($2-$7)/$2*100; else if($2>0) printf \"%.1f\",$3/$2*100; else print 0}'")
-            ram_total_mb = run(c, "free 2>/dev/null | awk '/^Mem:/{print $2}'")
-            disk = run(c, "df / 2>/dev/null | awk 'NR==2{gsub(\"%\",\"\");print $5}'")
-            net  = run(c, "awk 'NR>2{rx+=$2;tx+=$10}END{printf \"%.2f %.2f\",rx/1024/1024,tx/1024/1024}' /proc/net/dev 2>/dev/null")
-            load = run(c, "awk '{print $1}' /proc/loadavg 2>/dev/null")
-            up   = run(c, "uptime -p 2>/dev/null || uptime 2>/dev/null || echo N/A")
-            os_i    = detect_os(c)
-            storage = collect_linux_storage(c)
-            active_ports = collect_linux_ports(c)
-            nics    = collect_linux_nics(c)
+            if mgr == "apt":
+                # Ubuntu, Debian, Mint, Pop!_OS, etc.
+                run(c, "apt-get update -qq 2>/dev/null || true")
+                upd_raw  = run(c, "apt list --upgradable 2>/dev/null | grep -vc '^Listing' || echo 0")
+                sec_raw  = run(c, "apt list --upgradable 2>/dev/null | grep -c security || echo 0")
+                latest_k = run(c, "apt-cache show linux-image-$(uname -r | cut -d- -f1,2) 2>/dev/null | "
+                                  "awk '/^Version/{print $2;exit}' || "
+                                  "apt-cache search linux-image-generic 2>/dev/null | awk 'NR==1{print $1}' || echo N/A")
+                last_p   = run(c, "awk '/install |upgrade /{print $1\" \"$2;exit}' /var/log/dpkg.log 2>/dev/null || echo N/A")
+                try: updates  = max(0, int(upd_raw))
+                except Exception: updates = 0
+                try: security = max(0, int(sec_raw))
+                except Exception: security = 0
+
+            elif mgr in ("dnf", "yum"):
+                # RHEL, CentOS, Fedora, Rocky, Alma, Oracle, Amazon Linux
+                # yum/dnf check-update exits 100 when updates available — normal
+                upd_raw  = run_tolerant(c, f"{mgr} check-update 2>/dev/null | grep -c '^[a-zA-Z]' || echo 0", timeout=90)
+                sec_raw  = run_tolerant(c, f"{mgr} updateinfo list security 2>/dev/null | "
+                                          "grep -c 'Important\\|Critical\\|Security' || echo 0", timeout=60)
+                latest_k = run(c, "rpm -q --last kernel 2>/dev/null | head -1 | awk '{print $1}' | "
+                                  "sed 's/kernel-//' || echo N/A")
+                last_p   = run(c, "rpm -qa --last 2>/dev/null | head -1 | awk '{print $2,$3,$4}' || "
+                                  r"awk '/Updated:/{print $2,$3,$4,$5;exit}' /var/log/yum.log 2>/dev/null || echo N/A")
+                try: updates  = max(0, int(upd_raw))
+                except Exception: updates = 0
+                try: security = max(0, int(sec_raw))
+                except Exception: security = 0
+
+            elif mgr == "zypper":
+                # SLES, openSUSE
+                upd_raw  = run(c, "zypper --non-interactive lu 2>/dev/null | grep -c '|' || echo 0")
+                sec_raw  = run(c, "zypper --non-interactive lp 2>/dev/null | grep -c -i security || echo 0")
+                latest_k = run(c, "zypper search -i 'kernel-default' 2>/dev/null | awk '/kernel-default/{print $4;exit}' || echo N/A")
+                last_p   = "N/A"
+                try: updates  = max(0, int(upd_raw))
+                except Exception: updates = 0
+                try: security = max(0, int(sec_raw))
+                except Exception: security = 0
+
+            elif mgr == "apk":
+                # Alpine Linux
+                run(c, "apk update 2>/dev/null || true")
+                upd_raw  = run(c, "apk version 2>/dev/null | grep -c '<' || echo 0")
+                sec_raw  = run(c, "apk audit 2>/dev/null | wc -l || echo 0")
+                latest_k = run(c, "apk info linux-lts 2>/dev/null | head -1 || echo N/A")
+                last_p   = run(c, "awk 'END{print $1,$2}' /var/log/apk/world 2>/dev/null || "
+                                  "stat -c '%y' /lib/apk/db/installed 2>/dev/null | cut -d. -f1 || echo N/A")
+                try: updates  = max(0, int(upd_raw))
+                except Exception: updates = 0
+                try: security = max(0, int(sec_raw))
+                except Exception: security = 0
+
+            elif mgr == "pacman":
+                # Arch Linux, Manjaro
+                run(c, "pacman -Sy 2>/dev/null || true")
+                upd_raw  = run(c, "pacman -Qu 2>/dev/null | wc -l || echo 0")
+                sec_raw  = "0"
+                latest_k = run(c, "pacman -Qi linux 2>/dev/null | awk '/^Version/{print $3;exit}' || echo N/A")
+                last_p   = run(c, "tail -1 /var/log/pacman.log 2>/dev/null | awk '{print $1,$2}' || echo N/A")
+                try: updates  = max(0, int(upd_raw))
+                except Exception: updates = 0
+
+            elif mgr == "emerge":
+                # Gentoo
+                upd_raw  = run(c, "emerge -puDN @world 2>/dev/null | grep -c ebuild || echo 0")
+                security = 0
+                latest_k = "N/A"; last_p = "N/A"
+                try: updates = max(0, int(upd_raw))
+                except Exception: updates = 0
+
+            elif mgr == "xbps":
+                # Void Linux
+                run(c, "xbps-install -S 2>/dev/null || true")
+                upd_raw  = run(c, "xbps-install -un 2>/dev/null | wc -l || echo 0")
+                security = 0
+                try: updates = max(0, int(upd_raw))
+                except Exception: updates = 0
+                latest_k = "N/A"; last_p = "N/A"
+
         finally:
             c.close()
 
-        def safe_float(v):
+        status = "CRITICAL UPDATE" if security > 0 else ("UPDATE AVAILABLE" if updates > 0 else "UP TO DATE")
+        return {
+            "host_id": host["id"], "host": host["name"],
+            "os": os_i["os_pretty"], "os_name": os_i["os_name"], "os_version": os_i["os_version"],
+            "kernel": os_i["kernel"], "arch": os_i["arch"],
+            "latest_kernel": latest_k or "N/A",
+            "last_patch": last_p or "N/A",
+            "updates_available": updates,
+            "security_updates": security,
+            "pkg_manager": mgr,
+            "status": status,
+            "source": "live",
+        }
+    except Exception as e:
+        return {"host_id": host["id"], "host": host["name"],
+                "os": "Unreachable", "kernel": "N/A", "pkg_manager": "unknown",
+                "status": "UNKNOWN", "source": "error", "reason": str(e)[:200]}
+
+
+def collect_linux_metrics(host: dict) -> dict:
+    c = None
+    try:
+        c = ssh_connect(host)
+
+        def safe_run(cmd, timeout=30):
+            """Run command, return empty string on any error including closed transport."""
             try:
-                return round(float(str(v).strip()), 1) if v else 0.0
+                if c is None or not c.get_transport() or not c.get_transport().is_active():
+                    return ""
+                _, out, _ = c.exec_command(cmd, timeout=timeout)
+                return out.read().decode(errors="ignore").strip()
             except Exception:
-                return 0.0
+                return ""
 
-        def safe_pct(v):
-            """Clamp percentage to [0, 100]."""
-            try:
-                return min(100.0, max(0.0, round(float(str(v).strip()), 1)))
-            except Exception:
-                return 0.0
+        # ── Batch 1: fast /proc reads (all in one compound command) ──────
+        batch1 = safe_run(
+            "echo '---CPU---' && head -1 /proc/stat && "
+            "echo '---RAM---' && free -k && "
+            "echo '---DISK---' && df / && "
+            "echo '---NET---' && awk 'NR>2{rx+=$2;tx+=$10}END{printf \"%.2f %.2f\",rx/1024/1024,tx/1024/1024}' /proc/net/dev && "
+            "echo '---LOAD---' && cat /proc/loadavg && "
+            "echo '---UPTIME---' && (uptime -p 2>/dev/null || uptime) && "
+            "echo '---LSCPU---' && lscpu 2>/dev/null && "
+            "echo '---END---'"
+        )
 
-        def safe_int(v, default=0):
-            try: return int(str(v).strip())
-            except Exception: return default
+        # Parse batch1
+        section = ""
+        sections = {}
+        for line in batch1.splitlines():
+            if line.startswith("---") and line.endswith("---"):
+                section = line.strip("-")
+                sections[section] = []
+            elif section:
+                sections[section].append(line)
 
-        # ── Hardware inventory via lscpu + /proc/meminfo ─────────────────
-        lscpu = run(c, "lscpu 2>/dev/null")
-        hw = {}
-        for line in (lscpu or "").splitlines():
-            if ":" in line:
-                k, _, v = line.partition(":")
-                hw[k.strip()] = v.strip()
+        def sec(name): return "\n".join(sections.get(name, []))
 
-        cpu_sockets     = safe_int(hw.get("Socket(s)", hw.get("Sockets", 1)), 1)
-        cpu_cores_per   = safe_int(hw.get("Core(s) per socket", hw.get("Cores per socket", 0)), 0)
-        cpu_threads_per = safe_int(hw.get("Thread(s) per core", 1), 1)
-        cpu_logical     = safe_int(hw.get("CPU(s)", 0), 0)
-        cpu_arch        = hw.get("Architecture", "")
-        cpu_model       = hw.get("Model name", hw.get("Model Name", ""))
-        cpu_mhz         = hw.get("CPU MHz", hw.get("CPU max MHz", ""))
-
-        # Physical cores = sockets × cores_per_socket
-        # vCPUs available = physical_cores × threads_per_core  (hyper-threading)
-        cpu_physical_cores = cpu_sockets * cpu_cores_per if cpu_cores_per else (cpu_logical // cpu_threads_per)
-        cpu_vcpu_capacity  = cpu_physical_cores * cpu_threads_per  # total vCPUs host can assign
+        # CPU %
+        cpu = 0.0
+        try:
+            vals = list(map(int, sec("CPU").split()[1:]))
+            idle = vals[3]; total = sum(vals)
+            cpu = round((1 - idle/total)*100, 1) if total else 0.0
+        except Exception: pass
 
         # RAM
-        np = (net or "").split()
+        ram = 0.0; ram_total_mb_val = 0
+        for line in sec("RAM").splitlines():
+            if line.startswith("Mem:"):
+                parts = line.split()
+                try:
+                    total_kb = int(parts[1])
+                    avail_kb = int(parts[6]) if len(parts) >= 7 else int(parts[2])
+                    ram = round((total_kb - avail_kb) / total_kb * 100, 1) if total_kb else 0
+                    ram_total_mb_val = total_kb  # already in kB from free -k
+                except Exception: pass
+
+        # Disk %
+        disk_str = ""
+        for line in sec("DISK").splitlines()[1:]:
+            parts = line.split()
+            if len(parts) >= 5:
+                disk_str = parts[4].rstrip("%")
+                break
+
+        # Net
+        np = sec("NET").split()
+
+        # Load
+        load_val = sec("LOAD").split()[0] if sec("LOAD") else "0"
+
+        # Uptime
+        up_val = sec("UPTIME") or "N/A"
+
+        # lscpu — parse hardware info
+        hw_raw = {}
+        for line in sec("LSCPU").splitlines():
+            if ":" in line:
+                k, _, v = line.partition(":")
+                hw_raw[k.strip()] = v.strip()
+
+        def safe_int(v, d=0):
+            try: return int(str(v).strip())
+            except Exception: return d
+
+        cpu_sockets     = safe_int(hw_raw.get("Socket(s)", hw_raw.get("Sockets", 1)), 1)
+        cpu_cores_per   = safe_int(hw_raw.get("Core(s) per socket", hw_raw.get("Cores per socket", 0)), 0)
+        cpu_threads_per = safe_int(hw_raw.get("Thread(s) per core", 1), 1)
+        cpu_logical     = safe_int(hw_raw.get("CPU(s)", 0), 0)
+        cpu_physical_cores = cpu_sockets * cpu_cores_per if cpu_cores_per else (cpu_logical // max(cpu_threads_per, 1))
+        cpu_vcpu_capacity  = cpu_physical_cores * cpu_threads_per
+
+        # RAM totals
         try:
-            ram_total_gb = round(int((ram_total_mb or "0").strip()) / 1024 / 1024, 1)
+            ram_total_gb = round(ram_total_mb_val / 1024 / 1024, 1)
         except Exception:
             ram_total_gb = 0
 
-        # Local storage total (sum all non-NFS/non-network volumes)
+        # ── Batch 2: OS info ─────────────────────────────────────────────
+        os_i = detect_os_cross(c) if (c and c.get_transport() and c.get_transport().is_active()) else {}
+
+        # ── Batch 3: storage (separate call — complex output) ────────────
+        storage = []
+        try:
+            if c and c.get_transport() and c.get_transport().is_active():
+                storage = collect_linux_storage_cross(c)
+        except Exception: pass
+
+        # ── Batch 4: ports ───────────────────────────────────────────────
+        active_ports = []
+        try:
+            if c and c.get_transport() and c.get_transport().is_active():
+                active_ports = collect_linux_ports_cross(c)
+        except Exception: pass
+
+        # ── Batch 5: NICs ────────────────────────────────────────────────
+        nics = []
+        try:
+            if c and c.get_transport() and c.get_transport().is_active():
+                nics = collect_linux_nics_cross(c)
+        except Exception: pass
+
+        def safe_float(v):
+            try: return round(float(str(v).strip()), 1) if v else 0.0
+            except Exception: return 0.0
+
+        def safe_pct(v):
+            try: return min(100.0, max(0.0, round(float(str(v).strip()), 1)))
+            except Exception: return 0.0
+
+        # Derive disk% from storage array root volume
+        root_vol = next((s for s in storage if s.get("mountpoint") == "/"), None)
+        disk_pct = root_vol["use_pct"] if root_vol else safe_pct(disk_str)
+
         local_storage_total_gb = sum(
             s.get("size_gb", 0) for s in storage
             if s.get("type") not in ("NFS/CIFS", "iSCSI/SAN", "SAN (FC/SAS)")
@@ -347,97 +758,55 @@ def collect_linux_metrics(host: dict) -> dict:
             if s.get("type") not in ("NFS/CIFS", "iSCSI/SAN", "SAN (FC/SAS)")
         )
 
-        # Derive disk% from storage array root volume (most accurate)
-        root_vol = next((s for s in storage if s.get("mountpoint") == "/"), None)
-        disk_pct = root_vol["use_pct"] if root_vol else safe_pct(disk)
-
         hardware = {
-            "cpu_sockets":          cpu_sockets,
-            "cpu_cores_per_socket": cpu_cores_per,
-            "cpu_threads_per_core": cpu_threads_per,
-            "cpu_physical_cores":   cpu_physical_cores,
-            "cpu_vcpu_capacity":    cpu_vcpu_capacity,
-            "cpu_logical":          cpu_logical,
-            "cpu_model":            cpu_model[:80] if cpu_model else "",
-            "cpu_arch":             cpu_arch,
-            "cpu_mhz":              cpu_mhz,
-            "ram_total_gb":         ram_total_gb,
+            "cpu_sockets":            cpu_sockets,
+            "cpu_cores_per_socket":   cpu_cores_per,
+            "cpu_threads_per_core":   cpu_threads_per,
+            "cpu_physical_cores":     cpu_physical_cores,
+            "cpu_vcpu_capacity":      cpu_vcpu_capacity,
+            "cpu_logical":            cpu_logical,
+            "cpu_model":              hw_raw.get("Model name", hw_raw.get("Model Name",""))[:80],
+            "cpu_arch":               hw_raw.get("Architecture",""),
+            "cpu_mhz":                hw_raw.get("CPU MHz", hw_raw.get("CPU max MHz","")),
+            "ram_total_gb":           ram_total_gb,
             "local_storage_total_gb": round(local_storage_total_gb, 1),
             "local_storage_used_gb":  round(local_storage_used_gb, 1),
         }
 
         return {
             "cpu":          safe_pct(cpu),
-            "ram":          safe_pct(ram),
+            "ram":          min(100.0, max(0.0, round(ram, 1))),
             "disk":         disk_pct,
             "ram_total_gb": ram_total_gb,
             "hardware":     hardware,
-            "net_in":   safe_float(np[0] if np else 0),
-            "net_out":  safe_float(np[1] if len(np) > 1 else 0),
-            "load":     safe_float(load),
-            "uptime":   (up or "N/A")[:60],
-            "os_info":  os_i,
-            "storage":  storage,
+            "net_in":       safe_float(np[0] if np else 0),
+            "net_out":      safe_float(np[1] if len(np) > 1 else 0),
+            "load":         safe_float(load_val),
+            "uptime":       up_val[:60],
+            "os_info":      os_i,
+            "storage":      storage,
             "active_ports": active_ports,
-            "nics":     nics,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-            "source":   "live",
+            "nics":         nics,
+            "updated_at":   datetime.now(timezone.utc).isoformat(),
+            "source":       "live",
         }
+
     except Exception as e:
-        return {"source": "error", "reason": str(e)[:300],
-                "updated_at": datetime.now(timezone.utc).isoformat()}
+        return {
+            "source":     "error",
+            "reason":     str(e)[:300],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    finally:
+        try:
+            if c: c.close()
+        except Exception:
+            pass
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Linux patch
-# ─────────────────────────────────────────────────────────────────────────────
-
-def collect_linux_patch(host: dict) -> dict:
-    try:
-        c = ssh_connect(host)
-        try:
-            os_i    = detect_os(c)
-            pkg_mgr = run(c, "which apt-get dnf yum zypper 2>/dev/null | head -1")
-            updates = security = "0"
-            latest_k = last_p = "N/A"
-            if "apt" in pkg_mgr:
-                updates  = run(c, "apt list --upgradable 2>/dev/null | grep -vc 'Listing' || echo 0")
-                security = run(c, "apt list --upgradable 2>/dev/null | grep -c security 2>/dev/null || echo 0")
-                latest_k = run(c, "apt-cache show linux-image-generic 2>/dev/null | awk '/^Version/{print $2;exit}' || echo N/A")
-                last_p   = run(c, r"awk '/install|upgrade/{print $1;exit}' /var/log/dpkg.log 2>/dev/null || echo N/A")
-            elif any(x in pkg_mgr for x in ["dnf", "yum"]):
-                mgr = "dnf" if "dnf" in pkg_mgr else "yum"
-                # yum check-update exits 100 when updates exist — that's normal, not an error
-                updates  = run_tolerant(c, f"{mgr} check-update 2>/dev/null | grep -c '^[a-zA-Z]' || echo 0", timeout=90)
-                security = run_tolerant(c, f"{mgr} updateinfo list security 2>/dev/null | grep -c 'Important\\|Critical' || echo 0", timeout=60)
-                latest_k = run(c, "rpm -q --last kernel 2>/dev/null | head -1 | awk '{print $1}' | sed 's/kernel-//' || echo N/A")
-                last_p   = run(c, "rpm -qa --last 2>/dev/null | head -1 | awk '{print $2,$3,$4}' || echo N/A")
-            elif "zypper" in pkg_mgr:
-                updates  = run(c, "zypper lu 2>/dev/null | grep -c '|' || echo 0")
-                security = run(c, "zypper lp 2>/dev/null | grep -c security || echo 0")
-                latest_k = "N/A"; last_p = "N/A"
-        finally:
-            c.close()
-
-        try: upd = max(0, int(updates))
-        except Exception: upd = 0
-        try: sec = max(0, int(security))
-        except Exception: sec = 0
-        status = "CRITICAL UPDATE" if sec > 0 else ("UPDATE AVAILABLE" if upd > 0 else "UP TO DATE")
-        return {
-            "host_id": host["id"], "host": host["name"],
-            "os": os_i["os_pretty"], "os_name": os_i["os_name"], "os_version": os_i["os_version"],
-            "kernel": os_i["kernel"], "arch": os_i["arch"], "latest_kernel": latest_k or "N/A",
-            "last_patch": last_p or "N/A", "updates_available": upd, "security_updates": sec,
-            "pkg_manager": (pkg_mgr or "unknown").split("/")[-1], "status": status, "source": "live",
-        }
-    except Exception as e:
-        return {"host_id": host["id"], "host": host["name"], "os": "Unreachable",
-                "kernel": "N/A", "status": "UNKNOWN", "source": "error", "reason": str(e)[:200]}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# KVM VM discovery
 # ─────────────────────────────────────────────────────────────────────────────
 
 def collect_kvm_vms(host: dict) -> list:

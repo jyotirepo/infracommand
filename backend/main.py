@@ -16,7 +16,7 @@ from database import (get_db, db_save_host, db_get_hosts, db_get_host, db_delete
                       db_save_scan, db_get_scan, db_save_patch, db_get_patch,
                       db_save_logs, db_get_logs)
 from collectors import (collect_linux_metrics, collect_windows_metrics,
-                        collect_linux_patch, collect_windows_patch,
+                        collect_patch_cross, collect_windows_patch,
                         collect_kvm_vms, collect_hyperv_vms,
                         vuln_scan, port_scan)
 
@@ -47,7 +47,7 @@ def _collect_metrics(host: dict) -> dict:
     return collect_linux_metrics(host) if host["os_type"]=="linux" else collect_windows_metrics(host)
 
 def _collect_patch(host: dict) -> dict:
-    return collect_linux_patch(host) if host["os_type"]=="linux" else collect_windows_patch(host)
+    return collect_patch_cross(host) if host["os_type"]=="linux" else collect_windows_patch(host)
 
 def _collect_vms(host: dict) -> list:
     return collect_kvm_vms(host) if host["os_type"]=="linux" else collect_hyperv_vms(host)
@@ -820,8 +820,8 @@ def debug_connect(data: HostCreate):
             except Exception as e:
                 out["steps"].append({"step": "Metrics", "ok": False, "detail": traceback.format_exc()})
             try:
-                from collectors import collect_linux_patch
-                p = collect_linux_patch(host)
+                from collectors import collect_patch_cross
+                p = collect_patch_cross(host)
                 out["steps"].append({"step": "Patch", "ok": True, "detail": str(p)[:300]})
             except Exception as e:
                 out["steps"].append({"step": "Patch", "ok": False, "detail": traceback.format_exc()})
