@@ -797,10 +797,43 @@ function DetailPanel({sel,hostData,onDbReload}) {
                   sub="Hyper-Threading multiplier"/>
                 <HwRow label="Total vCPU Capacity" value={hw.cpu_vcpu_capacity}
                   sub={`Physical cores × threads = ${hw.cpu_physical_cores||0} × ${hw.cpu_threads_per_core||1}`}
-                  color={T.green}/>
-                <HwRow label="Logical CPUs" value={hw.cpu_logical}
-                  sub="As seen by OS (/proc/cpuinfo)"/>
+                  color={T.blue}/>
+                {hw.cpu_logical&&<HwRow label="Logical CPUs (OS)" value={hw.cpu_logical}
+                  sub="As seen by OS (/proc/cpuinfo)"/>}
                 {hw.cpu_mhz&&<HwRow label="CPU Speed" value={`${parseFloat(hw.cpu_mhz||0).toFixed(0)} MHz`}/>}
+                {(()=>{
+                  // vCPU allocation from running VMs
+                  const vms = hostData?.vms || [];
+                  const allocVcpu = vms.filter(v=>v.status==="running")
+                                       .reduce((s,v)=>s+(v.vcpu||0),0);
+                  const totalVcpu = hw.cpu_vcpu_capacity || hw.cpu_logical || 0;
+                  const freeVcpu  = Math.max(0, totalVcpu - allocVcpu);
+                  const usePct    = totalVcpu > 0 ? Math.min(100, Math.round(allocVcpu/totalVcpu*100)) : 0;
+                  if (!totalVcpu) return null;
+                  return (<>
+                    <HwRow label="vCPU Allocated (running VMs)"
+                      value={`${allocVcpu} vCPUs`}
+                      sub={`${vms.filter(v=>v.status==="running").length} running VMs`}
+                      color={usePct>85?T.red:usePct>65?T.amber:T.text}/>
+                    <HwRow label="vCPU Free"
+                      value={`${freeVcpu} vCPUs`}
+                      sub={`${100-usePct}% available`}
+                      color={T.green}/>
+                    <div style={{marginTop:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:T.muted,marginBottom:4}}>
+                        <span>vCPU Utilization</span><span>{usePct}%</span>
+                      </div>
+                      <div style={{height:8,background:"#f1f5f9",borderRadius:4}}>
+                        <div style={{height:8,borderRadius:4,transition:"width .4s",
+                          width:`${usePct}%`,
+                          background:usePct>85?T.red:usePct>65?T.amber:T.green}}/>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:T.muted,marginTop:3}}>
+                        <span>{allocVcpu} allocated</span><span>{freeVcpu} free of {totalVcpu}</span>
+                      </div>
+                    </div>
+                  </>);
+                })()}
               </HwCard>
 
               {/* Memory Card */}
