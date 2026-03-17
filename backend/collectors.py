@@ -813,16 +813,21 @@ def collect_kvm_vms(host: dict) -> list:
     try:
         c = ssh_connect(host)
         try:
-            raw = run(c, "virsh list --all 2>/dev/null")
-            if not raw or "error" in raw.lower():
+            names_raw = run(c, "virsh list --all --name 2>/dev/null")
+            if not names_raw or "error" in names_raw.lower():
                 return []
-            vms = []
-            for line in raw.splitlines()[2:]:
-                parts = line.split()
-                if len(parts) < 3:
+
+            vm_names = []
+            for name in names_raw.splitlines():
+                cleaned = name.strip()
+                if not cleaned or cleaned in ("-", "Name"):
                     continue
-                vname = parts[1]
-                state = "running" if "running" in line else "stopped"
+                vm_names.append(cleaned)
+
+            vms = []
+            for vname in vm_names:
+                dom_state = (run(c, f"virsh domstate {vname} 2>/dev/null") or "").strip().lower()
+                state = "running" if "running" in dom_state else "stopped"
                 # dominfo
                 info = run(c, f"virsh dominfo {vname} 2>/dev/null")
                 vcpus = ram_mb = 1
