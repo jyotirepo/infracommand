@@ -108,7 +108,30 @@ def db_delete_host(db: Session, hid: str):
 def _host_to_dict(h: HostModel) -> dict:
     return {c.name: getattr(h, c.name) for c in HostModel.__table__.columns}
 
+
+def _dedupe_storage_entries(storage: list) -> list:
+    """Keep storage rows unique by mountpoint+device while preserving order."""
+    if not isinstance(storage, list):
+        return []
+
+    unique = []
+    seen = set()
+    for row in storage:
+        if not isinstance(row, dict):
+            continue
+        mount = str(row.get("mountpoint") or "").strip().lower()
+        dev = str(row.get("device") or "").strip().lower()
+        key = (mount, dev)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(row)
+    return unique
+
 def db_save_metrics(db: Session, host_id: str, data: dict):
+    if isinstance(data, dict) and isinstance(data.get("storage"), list):
+        data = {**data, "storage": _dedupe_storage_entries(data.get("storage") or [])}
+
     try:
         serialized = json.dumps(data, default=str)  # default=str handles datetime/None edge cases
     except Exception:
@@ -126,9 +149,18 @@ def db_get_metrics(db: Session, host_id: str) -> dict | None:
     return json.loads(m.data) if m else None
 
 def db_save_vms(db: Session, host_id: str, vms: list):
+    # Replace host VM inventory with the latest discovery snapshot.
+    # Remove stale rows first so deleted/migrated VMs do not linger after refresh.
+    incoming_ids = {vm.get("id") for vm in vms if vm.get("id")}
+    existing_rows = db.query(VMModel).filter(VMModel.host_id == host_id).all()
+    for row in existing_rows:
+        if row.id not in incoming_ids:
+            db.delete(row)
+
     for vm in vms:
         existing = db.get(VMModel, vm["id"])
         if existing:
+            existing.host_id = host_id
             existing.data = json.dumps(vm)
             existing.updated_at = datetime.now(timezone.utc)
         else:
