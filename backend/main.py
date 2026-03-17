@@ -114,10 +114,10 @@ def test_connection(data: HostCreate):
     # Step 2: auth
     if host["os_type"] == "linux":
         try:
-            from collectors import ssh_connect, run, detect_os
+            from collectors import ssh_connect, run, detect_os_cross
             c = ssh_connect(host)
             result["steps"].append({"step": "SSH Auth", "status": "ok", "msg": f"Logged in as {host['username']}"})
-            os_info = detect_os(c)
+            os_info = detect_os_cross(c)
             result["steps"].append({"step": "OS Detect", "status": "ok", "msg": os_info.get("os_pretty","detected")})
             whoami = run(c, "whoami")
             id_out = run(c, "id")
@@ -806,11 +806,11 @@ def debug_connect(data: HostCreate):
     if host["os_type"] == "linux":
         # SSH
         try:
-            from collectors import ssh_connect, run, detect_os
+            from collectors import ssh_connect, run, detect_os_cross
             c = ssh_connect(host)
             out["steps"].append({"step": "SSH", "ok": True, "detail": "connected"})
             try:
-                os_i = detect_os(c)
+                os_i = detect_os_cross(c)
                 out["steps"].append({"step": "OS", "ok": True, "detail": str(os_i)})
             except Exception as e:
                 out["steps"].append({"step": "OS", "ok": False, "detail": traceback.format_exc()})
