@@ -208,9 +208,8 @@ def get_capacity(db: Session = Depends(get_db)):
         vms  = db_get_vms(db, h["id"])
         hw   = m.get("hardware", {}) or {}
 
-        # Skip hosts that have never connected (no metrics at all)
-        if not m or m.get("source") == "error":
-            continue
+        # Include all hosts in capacity view (even if metrics are missing/error).
+        # This keeps the Capacity page populated and marks such hosts as needing refresh.
 
         # Host capacity — prefer hardware{} block (populated after lscpu collection)
         # Fall back to metrics top-level fields for hosts not yet refreshed
@@ -224,7 +223,7 @@ def get_capacity(db: Session = Depends(get_db)):
         threads_per    = hw.get("cpu_threads_per_core", 1) or 1
 
         # Flag if hardware data is missing (host needs a Refresh)
-        hw_missing = not hw or not host_vcpus
+        hw_missing = (m.get("source") != "live") or (not hw) or (not host_vcpus)
 
         # VM allocations (only running VMs consume resources)
         running_vms  = [v for v in vms if v.get("status") == "running"]
