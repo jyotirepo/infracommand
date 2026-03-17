@@ -385,7 +385,18 @@ def collect_linux_storage_cross(c) -> list:
             "use_pct":   min(100, pc),
         })
 
-    return storage
+    # De-duplicate occasional duplicate df rows (same mount + device).
+    uniq = []
+    seen = set()
+    for st in storage:
+        key = ((st.get("mountpoint") or "").strip().lower(),
+               (st.get("device") or "").strip().lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(st)
+
+    return uniq
 
 
 def collect_linux_ports_cross(c) -> list:
