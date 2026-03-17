@@ -50,7 +50,27 @@ def _collect_patch(host: dict) -> dict:
     return collect_patch_cross(host) if host["os_type"]=="linux" else collect_windows_patch(host)
 
 def _collect_vms(host: dict) -> list:
-    return collect_kvm_vms(host) if host["os_type"]=="linux" else collect_hyperv_vms(host)
+    raw = collect_kvm_vms(host) if host["os_type"]=="linux" else collect_hyperv_vms(host)
+
+    # Defensive filter: discovery can occasionally return malformed/self entries.
+    # Keep only unique VM IDs that are clearly distinct from the physical host.
+    host_name = (host.get("name") or "").strip().lower()
+    host_ip = (host.get("ip") or "").strip()
+    cleaned = []
+    seen = set()
+    for vm in raw or []:
+        vm_id = (vm.get("id") or "").strip()
+        vm_name = (vm.get("name") or "").strip()
+        vm_ip = (vm.get("ip") or "").strip()
+        if not vm_id or vm_id in seen:
+            continue
+        if vm_name and vm_name.lower() == host_name:
+            continue
+        if vm_ip and vm_ip != "N/A" and host_ip and vm_ip == host_ip:
+            continue
+        seen.add(vm_id)
+        cleaned.append(vm)
+    return cleaned
 
 # ── Event log helper ──────────────────────────────────────────────────────────
 def _append_log(db, host_id: str, host_name: str, level: str, msg: str, source: str = "system"):
