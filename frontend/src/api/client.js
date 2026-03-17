@@ -1,5 +1,5 @@
 import axios from 'axios';
-const api = axios.create({ baseURL: process.env.REACT_APP_API_URL || '/api', timeout: 20000 });
+const api = axios.create({ baseURL: process.env.REACT_APP_API_URL || '/api', timeout: 90000 });
 export const getSummary      = ()          => api.get('/summary');
 export const getHosts        = ()          => api.get('/hosts');
 export const getMetricsHistory = ()        => api.get('/metrics/history');
