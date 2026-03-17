@@ -448,6 +448,17 @@ def refresh_host(hid: str, db: Session = Depends(get_db)):
     try: _auto_log_metrics(db, hid, h["name"], m)
     except Exception: pass
 
+    # If host metrics are not live (connection/auth issue), skip slow patch/VM steps.
+    # This avoids long waits and prevents stale/partial VM discovery on failed refreshes.
+    if m.get("source") != "live":
+        return {
+            "status": "ok",
+            "source": m.get("source", "error"),
+            "vms": len(db_get_vms(db, hid)),
+            "os": m.get("os_info", {}).get("os_pretty", ""),
+            "message": f"Connection error: {m.get('reason','check host')}",
+        }
+
     try:
         p = _collect_patch(h); db_save_patch(db, hid, p)
         try: _append_log(db, hid, h["name"], "INFO", f"Patch refreshed — {p.get('status','?')}", "patch")
