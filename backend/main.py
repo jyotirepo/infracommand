@@ -214,6 +214,9 @@ def get_capacity(db: Session = Depends(get_db)):
     hosts  = db_get_hosts(db)
     report = []
     for h in hosts:
+        if not isinstance(h, dict):
+            continue
+
         m    = db_get_metrics(db, h["id"]) or {}
         if not isinstance(m, dict):
             m = {}
@@ -286,10 +289,10 @@ def get_capacity(db: Session = Depends(get_db)):
         disk_commit_pct = round(vm_disk_alloc / host_disk_gb * 100, 1) if host_disk_gb else 0
 
         report.append({
-            "host_id":    h["id"],
-            "host_name":  h["name"],
-            "host_ip":    h["ip"],
-            "os_type":    h["os_type"],
+            "host_id":    h.get("id", ""),
+            "host_name":  h.get("name", ""),
+            "host_ip":    h.get("ip", ""),
+            "os_type":    h.get("os_type", ""),
             "hw_missing": hw_missing,         # True = needs Refresh to collect hardware
             "cpu_model":  cpu_model,
             "cpu_sockets":     cpu_sockets,
@@ -313,7 +316,7 @@ def get_capacity(db: Session = Depends(get_db)):
             "vms": all_vms_info,
         })
 
-    return sorted(report, key=lambda x: x["host_name"])
+    return sorted(report, key=lambda x: (x.get("host_name") or "").lower())
 
 @app.get("/api/overview")
 def get_overview(db: Session = Depends(get_db)):
@@ -784,6 +787,7 @@ def set_vm_ip(hid: str, vid: str, data: dict, db: Session = Depends(get_db)):
     vm  = next((v for v in vms if v["id"]==vid), None)
     if not vm: raise HTTPException(404,"VM not found")
     vm["ip"] = new_ip
+    vm["manual_ip"] = True
     # Update in the VMs list and re-save
     updated = [vm if v["id"]==vid else v for v in vms]
     db_save_vms(db, hid, updated)

@@ -146,7 +146,13 @@ def db_save_metrics(db: Session, host_id: str, data: dict):
 
 def db_get_metrics(db: Session, host_id: str) -> dict | None:
     m = db.get(MetricsModel, host_id)
-    return json.loads(m.data) if m else None
+    if not m:
+        return None
+    try:
+        data = json.loads(m.data)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
 def db_save_vms(db: Session, host_id: str, vms: list):
     # Replace host VM inventory with the latest discovery snapshot.
@@ -159,17 +165,42 @@ def db_save_vms(db: Session, host_id: str, vms: list):
 
     for vm in vms:
         existing = db.get(VMModel, vm["id"])
+        existing_data = {}
+        if existing:
+            try:
+                existing_data = json.loads(existing.data) if existing.data else {}
+            except Exception:
+                existing_data = {}
+
+        manual_ip = bool(existing_data.get("manual_ip"))
+        existing_ip = str(existing_data.get("ip") or "").strip()
+        incoming_ip = str(vm.get("ip") or "").strip()
+        if manual_ip and existing_ip:
+            vm = {**vm, "ip": existing_ip, "manual_ip": True}
+        elif existing_data.get("manual_ip"):
+            vm = {**vm, "manual_ip": True}
+        elif incoming_ip:
+            vm = {**vm, "manual_ip": bool(vm.get("manual_ip"))}
+
         if existing:
             existing.host_id = host_id
             existing.data = json.dumps(vm)
             existing.updated_at = datetime.now(timezone.utc)
         else:
-            db.add(VMModel(id=vm["id"], host_id=host_id, data=json.dumps(vm)))
+            db.add(VMModel(id=vm["id"], host_id=host_id, data=json.dumps(vm, default=str)))
     db.commit()
 
 def db_get_vms(db: Session, host_id: str) -> list:
     rows = db.query(VMModel).filter(VMModel.host_id == host_id).all()
-    return [json.loads(r.data) for r in rows]
+    out = []
+    for r in rows:
+        try:
+            data = json.loads(r.data)
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            out.append(data)
+    return out
 
 def db_save_scan(db: Session, target_id: str, data: dict):
     existing = db.get(ScanModel, target_id)
