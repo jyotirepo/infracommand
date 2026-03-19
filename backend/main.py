@@ -201,48 +201,67 @@ def summary(db: Session = Depends(get_db)):
 @app.get("/api/capacity")
 def get_capacity(db: Session = Depends(get_db)):
     """Capacity planning: host hardware totals vs VM allocations vs free."""
+    def _num(v, default=0.0):
+        try:
+            n = float(v)
+            return n
+        except Exception:
+            return float(default)
+
+    def _safe_list(v):
+        return v if isinstance(v, list) else []
+
     hosts  = db_get_hosts(db)
     report = []
     for h in hosts:
         m    = db_get_metrics(db, h["id"]) or {}
+        if not isinstance(m, dict):
+            m = {}
         vms  = db_get_vms(db, h["id"])
+        if not isinstance(vms, list):
+            vms = []
         hw   = m.get("hardware", {}) or {}
+        if not isinstance(hw, dict):
+            hw = {}
 
         # Include all hosts in capacity view (even if metrics are missing/error).
         # This keeps the Capacity page populated and marks such hosts as needing refresh.
 
         # Host capacity — prefer hardware{} block (populated after lscpu collection)
         # Fall back to metrics top-level fields for hosts not yet refreshed
-        host_ram_gb    = hw.get("ram_total_gb")   or m.get("ram_total_gb", 0) or 0
-        host_vcpus     = hw.get("cpu_vcpu_capacity") or hw.get("cpu_logical") or m.get("cpu_logical", 0) or 0
-        host_pcores    = hw.get("cpu_physical_cores", 0) or 0
-        host_disk_gb   = hw.get("local_storage_total_gb", 0) or 0
-        host_disk_used = hw.get("local_storage_used_gb", 0) or 0
+        host_ram_gb    = _num(hw.get("ram_total_gb", m.get("ram_total_gb", 0)), 0)
+        host_vcpus     = int(_num(hw.get("cpu_vcpu_capacity") or hw.get("cpu_logical") or m.get("cpu_logical", 0), 0))
+        host_pcores    = int(_num(hw.get("cpu_physical_cores", 0), 0))
+        host_disk_gb   = _num(hw.get("local_storage_total_gb", 0), 0)
+        host_disk_used = _num(hw.get("local_storage_used_gb", 0), 0)
         cpu_model      = hw.get("cpu_model", "")
-        cpu_sockets    = hw.get("cpu_sockets", 0)
-        threads_per    = hw.get("cpu_threads_per_core", 1) or 1
+        cpu_sockets    = int(_num(hw.get("cpu_sockets", 0), 0))
+        threads_per    = max(1, int(_num(hw.get("cpu_threads_per_core", 1), 1)))
 
         # Flag if hardware data is missing (host needs a Refresh)
         hw_missing = (m.get("source") != "live") or (not hw) or (not host_vcpus)
 
         # VM allocations (only running VMs consume resources)
-        running_vms  = [v for v in vms if v.get("status") == "running"]
+        running_vms  = [v for v in vms if isinstance(v, dict) and v.get("status") == "running"]
         all_vms_info = []
         vm_ram_alloc  = 0
         vm_vcpu_alloc = 0
         vm_disk_alloc = 0
 
         for vm in vms:
-            ram_mb  = vm.get("ram_mb", 0) or 0
-            vcpus   = vm.get("vcpu",   0) or 0
-            disk_gb = vm.get("disk_gb",0) or 0
-            for s in vm.get("storage", []):
-                disk_gb = max(disk_gb, s.get("size_gb", 0) or 0)
+            if not isinstance(vm, dict):
+                continue
+            ram_mb  = _num(vm.get("ram_mb", 0), 0)
+            vcpus   = int(_num(vm.get("vcpu", 0), 0))
+            disk_gb = _num(vm.get("disk_gb", 0), 0)
+            for s in _safe_list(vm.get("storage", [])):
+                if isinstance(s, dict):
+                    disk_gb = max(disk_gb, _num(s.get("size_gb", 0), 0))
 
             is_running = vm.get("status") == "running"
             if is_running:
                 vm_ram_alloc  += ram_mb / 1024
-                vm_vcpu_alloc += vcpus
+                vm_vcpu_alloc += int(vcpus)
                 vm_disk_alloc += disk_gb
 
             all_vms_info.append({
