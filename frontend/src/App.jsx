@@ -1534,6 +1534,7 @@ function CapacityPlanning() {
   const [data,setData]=useState([]);
   const [busy,setBusy]=useState(false);
   const [sel,setSel]=useState(null); // selected host for drill-down
+  const [hostFilter,setHostFilter]=useState("all");
 
   const load=async()=>{
     setBusy(true);
@@ -1553,44 +1554,62 @@ function CapacityPlanning() {
     );
   };
 
-  const fmt=v=>v!=null?v:"—";
+  const n=v=>{
+    const x=Number(v);
+    return Number.isFinite(x)?x:0;
+  };
+
+  const hostOptions=data.map(h=>({ id:h.host_id, name:h.host_name }));
+  const filteredData=hostFilter==="all" ? data : data.filter(h=>h.host_id===hostFilter);
 
   // Totals row
-  const totals=data.reduce((a,h)=>({
-    vcpus:        a.vcpus       +(h.cpu_vcpus||0),
-    vcpu_alloc:   a.vcpu_alloc +(h.vm_vcpu_alloc||0),
-    ram:          a.ram        +(h.ram_total_gb||0),
-    ram_alloc:    a.ram_alloc  +(h.vm_ram_alloc_gb||0),
-    disk:         a.disk       +(h.disk_total_gb||0),
-    disk_alloc:   a.disk_alloc +(h.vm_disk_alloc_gb||0),
-    vms:          a.vms        +(h.vm_count||0),
-  }),{vcpus:0,vcpu_alloc:0,ram:0,ram_alloc:0,disk:0,disk_alloc:0,vms:0});
+  const totals=filteredData.reduce((a,h)=>({
+    vcpus:        a.vcpus       +n(h.cpu_vcpus),
+    vcpu_alloc:   a.vcpu_alloc  +n(h.vm_vcpu_alloc),
+    ram:          a.ram         +n(h.ram_total_gb),
+    ram_alloc:    a.ram_alloc   +n(h.vm_ram_alloc_gb),
+    disk:         a.disk        +n(h.disk_total_gb),
+    disk_used:    a.disk_used   +n(h.disk_used_gb),
+    disk_alloc:   a.disk_alloc  +n(h.vm_disk_alloc_gb),
+    disk_free:    a.disk_free   +n(h.free_disk_gb),
+    vms:          a.vms         +n(h.vm_count),
+  }),{vcpus:0,vcpu_alloc:0,ram:0,ram_alloc:0,disk:0,disk_used:0,disk_alloc:0,disk_free:0,vms:0});
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
         <div>
           <div style={{fontWeight:700,fontSize:16}}>Capacity Planning</div>
           <div style={{fontSize:12,color:T.muted,marginTop:2}}>
             Physical host resources vs VM allocations — click a row for VM details
           </div>
         </div>
-        <button className="btn btn-ghost" onClick={load} disabled={busy}>
-          {busy?<><span className="spinner"/>Loading...</>:"↻ Refresh"}
-        </button>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <select
+            value={hostFilter}
+            onChange={e=>{ setHostFilter(e.target.value); setSel(null); }}
+            style={{minWidth:200}}
+          >
+            <option value="all">All Hosts</option>
+            {hostOptions.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}
+          </select>
+          <button className="btn btn-ghost" onClick={load} disabled={busy}>
+            {busy?<><span className="spinner"/>Loading...</>:"↻ Refresh"}
+          </button>
+        </div>
       </div>
 
       {/* Totals summary */}
-      {data.length>0&&(
+      {filteredData.length>0&&(
         <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10}}>
           {[
             ["Total vCPUs",`${totals.vcpus}`,`${totals.vcpu_alloc} allocated`,T.blue],
             ["Free vCPUs",`${totals.vcpus-totals.vcpu_alloc}`,`${totals.vcpus?Math.round((totals.vcpus-totals.vcpu_alloc)/totals.vcpus*100):0}% available`,T.green],
             ["Total RAM",`${totals.ram.toFixed(0)} GB`,`${totals.ram_alloc.toFixed(1)} GB allocated`,T.blue],
             ["Free RAM",`${(totals.ram-totals.ram_alloc).toFixed(1)} GB`,`${totals.ram?Math.round((totals.ram-totals.ram_alloc)/totals.ram*100):0}% available`,T.green],
-            ["Local Storage",`${totals.disk.toFixed(0)} GB`,`${totals.disk_alloc.toFixed(1)} GB allocated`,T.blue],
-            ["Total VMs",`${totals.vms}`,`across ${data.length} hosts`,T.purple],
+            ["Local Storage",`${totals.disk.toFixed(0)} GB`,`${totals.disk_used.toFixed(1)} GB used (${totals.disk_free.toFixed(1)} GB free)`,T.blue],
+            ["Total VMs",`${totals.vms}`,`across ${filteredData.length} host(s)`,T.purple],
           ].map(([l,v,s,c])=>(
             <div key={l} className="card" style={{padding:12}}>
               <div style={{fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>{l}</div>
@@ -1614,7 +1633,7 @@ function CapacityPlanning() {
             </tr>
           </thead>
           <tbody>
-            {data.map((h,i)=>{
+            {filteredData.map((h,i)=>{
               const vcpuPct  = h.cpu_vcpus  ? Math.round(h.vm_vcpu_alloc/h.cpu_vcpus*100)  : 0;
               const ramPct   = h.ram_total_gb ? Math.round(h.vm_ram_alloc_gb/h.ram_total_gb*100) : 0;
               const diskPct  = h.disk_total_gb ? Math.round(h.vm_disk_alloc_gb/h.disk_total_gb*100): 0;
@@ -1732,13 +1751,19 @@ function CapacityPlanning() {
             })}
           </tbody>
         </table>
-        {data.length===0&&!busy&&(
+        {filteredData.length===0&&!busy&&(
           <div style={{padding:40,textAlign:"center",color:T.muted}}>
             <div style={{fontSize:28,marginBottom:8}}>📊</div>
-            <div style={{fontWeight:600,marginBottom:6}}>No capacity data yet</div>
+            <div style={{fontWeight:600,marginBottom:6}}>{data.length===0?"No capacity data yet":"No hosts match selected filter"}</div>
             <div style={{fontSize:12}}>
-              Go to <strong>Infrastructure</strong> tab → select each host → click <strong>↻ Refresh</strong>
-              to collect hardware inventory (CPU sockets, cores, threads, RAM, storage).
+              {data.length===0?(
+                <>
+                  Go to <strong>Infrastructure</strong> tab → select each host → click <strong>↻ Refresh</strong>
+                  to collect hardware inventory (CPU sockets, cores, threads, RAM, storage).
+                </>
+              ):(
+                <>Change the host filter to <strong>All Hosts</strong> or choose another host.</>
+              )}
             </div>
           </div>
         )}
