@@ -157,14 +157,13 @@ def db_get_metrics(db: Session, host_id: str) -> dict | None:
 def db_save_vms(db: Session, host_id: str, vms: list):
     # Replace host VM inventory with the latest discovery snapshot.
     # Remove stale rows first so deleted/migrated VMs do not linger after refresh.
-    safe_vms = [vm for vm in (vms or []) if isinstance(vm, dict) and vm.get("id")]
-    incoming_ids = {vm.get("id") for vm in safe_vms if vm.get("id")}
+    incoming_ids = {vm.get("id") for vm in vms if vm.get("id")}
     existing_rows = db.query(VMModel).filter(VMModel.host_id == host_id).all()
     for row in existing_rows:
         if row.id not in incoming_ids:
             db.delete(row)
 
-    for vm in safe_vms:
+    for vm in vms:
         existing = db.get(VMModel, vm["id"])
         existing_data = {}
         if existing:
@@ -185,7 +184,7 @@ def db_save_vms(db: Session, host_id: str, vms: list):
 
         if existing:
             existing.host_id = host_id
-            existing.data = json.dumps(vm, default=str)
+            existing.data = json.dumps(vm)
             existing.updated_at = datetime.now(timezone.utc)
         else:
             db.add(VMModel(id=vm["id"], host_id=host_id, data=json.dumps(vm, default=str)))
