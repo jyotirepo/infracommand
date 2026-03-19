@@ -1538,8 +1538,14 @@ function CapacityPlanning() {
 
   const load=async()=>{
     setBusy(true);
-    try{ const r=await api.get("/capacity"); setData(r.data); }
-    catch(e){}
+    setErr("");
+    try{
+      const r=await api.get("/capacity");
+      setData(Array.isArray(r.data) ? r.data : []);
+    }catch(e){
+      setData([]);
+      setErr(e.response?.data?.detail || e.message || "Failed to load capacity data");
+    }
     setBusy(false);
   };
   useEffect(()=>{load();},[]);
@@ -1582,7 +1588,7 @@ function CapacityPlanning() {
         <div>
           <div style={{fontWeight:700,fontSize:16}}>Capacity Planning</div>
           <div style={{fontSize:12,color:T.muted,marginTop:2}}>
-            Physical host resources vs VM allocations — click a row for VM details
+            Data is shown from the database snapshot for each host and updates after refresh saves new values.
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1620,15 +1626,12 @@ function CapacityPlanning() {
         </div>
       )}
 
-      {/* Per-host table */}
       <div className="card shadow" style={{padding:0,overflow:"hidden"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
           <thead>
             <tr style={{background:"#f8fafc",borderBottom:`2px solid ${T.border}`}}>
-              {["Host","CPU Model","Physical Cores","vCPU Capacity","vCPU Allocated","vCPU Free",
-                "RAM Total","RAM Allocated","RAM Free","Disk Total","Disk Free","VMs"].map(h=>(
-                <th key={h} style={{padding:"10px 12px",fontSize:10,fontWeight:700,
-                  color:T.muted,textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+              {["Host","CPU","vCPU Total","vCPU Used","vCPU Free","RAM Total","RAM Used","RAM Free","Storage Total","Storage Used","Storage Free","VMs"].map(col=>(
+                <th key={col} style={{padding:"10px 12px",fontSize:10,fontWeight:700,color:T.muted,textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{col}</th>
               ))}
             </tr>
           </thead>
@@ -1768,6 +1771,54 @@ function CapacityPlanning() {
           </div>
         )}
       </div>
+
+      {selectedHost&&(
+        <div className="card shadow" style={{padding:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:10,flexWrap:"wrap"}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:15}}>Selected Host: {txt(selectedHost.host_name)}</div>
+              <div style={{fontSize:12,color:T.muted}}>{txt(selectedHost.host_ip)} · {txt(selectedHost.cpu_model)}</div>
+            </div>
+            <div style={{fontSize:11,color:T.muted}}>
+              {selectedHost.hw_missing ? "Hardware snapshot incomplete — refresh host for full totals." : `${n(selectedHost.vm_running)} running VM(s) of ${n(selectedHost.vm_count)} total.`}
+            </div>
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:10,marginBottom:14}}>
+            <StatCard label="CPU Capacity" value={`${n(selectedHost.cpu_vcpus)} vCPU`} sub={`${n(selectedHost.vm_vcpu_alloc)} used · ${n(selectedHost.free_vcpus)} free`} color={T.blue}/>
+            <StatCard label="Memory Capacity" value={gb(selectedHost.ram_total_gb)} sub={`${gb(selectedHost.vm_ram_alloc_gb)} used · ${gb(selectedHost.free_ram_gb)} free`} color={T.amber}/>
+            <StatCard label="Storage Capacity" value={gb(selectedHost.disk_total_gb)} sub={`${gb(selectedHost.disk_used_gb)} host used · ${gb(selectedHost.free_disk_gb)} free`} color={T.green}/>
+          </div>
+
+          <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:T.blue}}>VM Allocation Details</div>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{borderBottom:`1px solid ${T.border}`}}>
+                {["VM Name","Status","IP","RAM","vCPU","Disk"].map(col=>(
+                  <th key={col} style={{padding:"8px 10px",fontSize:10,fontWeight:700,color:T.muted,textAlign:"left",textTransform:"uppercase"}}>{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(Array.isArray(selectedHost.vms)?selectedHost.vms:[]).map((vm,idx)=>(
+                <tr key={`${vm.name||'vm'}-${idx}`} style={{borderBottom:`1px solid #e2e8f0`}}>
+                  <td style={{padding:"8px 10px",fontWeight:600}}>{txt(vm.name)}</td>
+                  <td style={{padding:"8px 10px"}}><span className={`badge ${vm.status==="running"?"b-ok":"b-stop"}`}>{txt(vm.status)}</span></td>
+                  <td style={{padding:"8px 10px",fontFamily:"IBM Plex Mono",fontSize:11,color:T.blue}}>{txt(vm.ip||"N/A")}</td>
+                  <td style={{padding:"8px 10px"}}>{gb(vm.ram_gb)}</td>
+                  <td style={{padding:"8px 10px"}}>{n(vm.vcpus)}</td>
+                  <td style={{padding:"8px 10px"}}>{gb(vm.disk_gb)}</td>
+                </tr>
+              ))}
+              {(!Array.isArray(selectedHost.vms) || selectedHost.vms.length===0)&&(
+                <tr>
+                  <td colSpan={6} style={{padding:"14px 10px",color:T.muted,textAlign:"center"}}>No VM rows stored in DB for this host yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
