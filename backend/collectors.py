@@ -833,182 +833,187 @@ def collect_kvm_vms(host: dict) -> list:
                 cleaned = name.strip()
                 if not cleaned or cleaned in ("-", "Name"):
                     continue
+                # Skip guestfs-* transient domains spawned by virt-cat — not real VMs
+                if cleaned.startswith("guestfs-"):
+                    continue
                 vm_names.append(cleaned)
 
             vms = []
             for vname in vm_names:
-                dom_state = (run(c, f"virsh domstate {vname} 2>/dev/null") or "").strip().lower()
-                state = "running" if "running" in dom_state else "stopped"
-                # dominfo
-                info = run(c, f"virsh dominfo {vname} 2>/dev/null")
-                vcpus = ram_mb = 1
-                for l in info.splitlines():
-                    if "CPU(s)" in l:
-                        try: vcpus = int(l.split(":")[1].strip())
-                        except Exception: pass
-                    if "Max memory" in l:
-                        try: ram_mb = int(l.split(":")[1].strip().split()[0]) // 1024
-                        except Exception: pass
-                # IP detection for macvtap/direct-mode VMs
-                # These VMs bypass the hypervisor network stack so ARP/neighbour
-                # on the host is empty. Strategy:
-                # 1. Try virsh domifaddr (works if guest agent or libvirt DHCP)
-                # 2. Try host ARP/neigh (works for bridge/nat mode)
-                # 3. Ping-sweep the host's subnets to populate ARP on the host,
-                #    then re-check — macvtap VMs ARE visible from the same L2 segment
-                # 4. Try nmap if available (most reliable for macvtap)
+                try:  # Isolate each VM: one failure must never wipe the whole list
+                    dom_state = (run(c, f"virsh domstate {vname} 2>/dev/null") or "").strip().lower()
+                    state = "running" if "running" in dom_state else "stopped"
+                    # dominfo
+                    info = run(c, f"virsh dominfo {vname} 2>/dev/null")
+                    vcpus = ram_mb = 1
+                    for l in info.splitlines():
+                        if "CPU(s)" in l:
+                            try: vcpus = int(l.split(":")[1].strip())
+                            except Exception: pass
+                        if "Max memory" in l:
+                            try: ram_mb = int(l.split(":")[1].strip().split()[0]) // 1024
+                            except Exception: pass
+                    # IP detection for macvtap/direct-mode VMs
+                    # These VMs bypass the hypervisor network stack so ARP/neighbour
+                    # on the host is empty. Strategy:
+                    # 1. Try virsh domifaddr (works if guest agent or libvirt DHCP)
+                    # 2. Try host ARP/neigh (works for bridge/nat mode)
+                    # 3. Ping-sweep the host's subnets to populate ARP on the host,
+                    #    then re-check — macvtap VMs ARE visible from the same L2 segment
+                    # 4. Try nmap if available (most reliable for macvtap)
 
-                iflist_raw = run(c, f"virsh domiflist {vname} 2>/dev/null")
-                vm_macs = []
-                for il in iflist_raw.splitlines()[2:]:
-                    ilp = il.split()
-                    if len(ilp) >= 5 and ilp[4] not in ("-", ""):
-                        vm_macs.append(ilp[4])
+                    iflist_raw = run(c, f"virsh domiflist {vname} 2>/dev/null")
+                    vm_macs = []
+                    for il in iflist_raw.splitlines()[2:]:
+                        ilp = il.split()
+                        if len(ilp) >= 5 and ilp[4] not in ("-", ""):
+                            vm_macs.append(ilp[4])
 
-                def find_ip_by_mac(mac):
-                    """Check ARP + neigh tables for this MAC."""
-                    for cmd in [f"arp -n 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}'",
-                                f"ip neigh 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}'"]:
-                        out = (run(c, cmd) or "").strip()
-                        for candidate in out.splitlines():
-                            candidate = candidate.strip()
-                            if candidate and candidate not in ("-","") \
-                               and not candidate.startswith("192.168.122."):  # skip libvirt NAT
-                                return candidate
-                    return ""
+                    def find_ip_by_mac(mac):
+                        """Check ARP + neigh tables for this MAC."""
+                        for cmd in [f"arp -n 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}'",
+                                    f"ip neigh 2>/dev/null | grep -i '{mac}' | awk '{{print $1}}'"]:
+                            out = (run(c, cmd) or "").strip()
+                            for candidate in out.splitlines():
+                                candidate = candidate.strip()
+                                if candidate and candidate not in ("-","") \
+                                   and not candidate.startswith("192.168.122."):  # skip libvirt NAT
+                                    return candidate
+                        return ""
 
-                vm_ip = ""
+                    vm_ip = ""
 
-                # Step 1: virsh domifaddr
-                ip_raw = run(c, f"virsh domifaddr {vname} 2>/dev/null | awk 'NR>2{{print $4}}' | grep -v '^-$' | cut -d/ -f1")
-                for line in (ip_raw or "").splitlines():
-                    line = line.strip()
-                    if line and line not in ("-","") and not line.startswith("192.168.122."):
-                        vm_ip = line
-                        break
-                if not vm_ip:
-                    # Also accept 192.168.122.x as last resort
+                    # Step 1: virsh domifaddr
+                    ip_raw = run(c, f"virsh domifaddr {vname} 2>/dev/null | awk 'NR>2{{print $4}}' | grep -v '^-$' | cut -d/ -f1")
                     for line in (ip_raw or "").splitlines():
                         line = line.strip()
-                        if line and line not in ("-",""):
-                            vm_ip = line; break
+                        if line and line not in ("-","") and not line.startswith("192.168.122."):
+                            vm_ip = line
+                            break
+                    if not vm_ip:
+                        # Also accept 192.168.122.x as last resort
+                        for line in (ip_raw or "").splitlines():
+                            line = line.strip()
+                            if line and line not in ("-",""):
+                                vm_ip = line; break
 
-                # Step 2: ARP / neigh table (works for bridge VMs)
-                if not vm_ip:
-                    for mac in vm_macs:
-                        ip = find_ip_by_mac(mac)
-                        if ip: vm_ip = ip; break
-
-                # Step 3: For macvtap direct mode — ping-sweep the host's subnets
-                # to populate the host's ARP cache, then re-check
-                if not vm_ip and vm_macs:
-                    # Get host's network interfaces and subnets
-                    host_nets = run(c, "ip -o -4 addr show 2>/dev/null | awk '{print $4}' | grep -v '127\\.' | grep -v '192\\.168\\.122\\.'")
-                    for net in (host_nets or "").splitlines():
-                        net = net.strip()
-                        if not net: continue
-                        # Ping sweep the subnet (fast, parallel, no output needed)
-                        run(c, f"nmap -sn {net} -T4 2>/dev/null || "
-                               f"fping -a -q -g {net} 2>/dev/null || "
-                               f"ping -c 1 -W 1 -b {net.rsplit('.',1)[0]+'.255'} 2>/dev/null || true")
-                    # Now re-check ARP/neigh
-                    for mac in vm_macs:
-                        ip = find_ip_by_mac(mac)
-                        if ip: vm_ip = ip; break
-
-                # Step 4: nmap MAC-based scan on all host subnets
-                if not vm_ip and vm_macs:
-                    host_nets = run(c, "ip -o -4 addr show 2>/dev/null | awk '{print $4}' | grep -v '127\\.' | grep -v '192\\.168\\.122\\.'")
-                    for net in (host_nets or "").splitlines():
-                        net = net.strip()
-                        if not net: continue
+                    # Step 2: ARP / neigh table (works for bridge VMs)
+                    if not vm_ip:
                         for mac in vm_macs:
-                            nmap_out = run(c, f"nmap -sn {net} 2>/dev/null | grep -B1 -i '{mac}' | grep 'Nmap scan' | awk '{{print $NF}}'", timeout=60)
-                            nmap_ip = (nmap_out or "").strip().strip("()")
-                            if nmap_ip and nmap_ip not in ("-",""):
-                                vm_ip = nmap_ip; break
-                        if vm_ip: break
+                            ip = find_ip_by_mac(mac)
+                            if ip: vm_ip = ip; break
 
-                vm_ip = vm_ip or "N/A"
+                    # Step 3: For macvtap direct mode — ping-sweep the host's subnets
+                    # to populate the host's ARP cache, then re-check
+                    if not vm_ip and vm_macs:
+                        # Get host's network interfaces and subnets
+                        host_nets = run(c, "ip -o -4 addr show 2>/dev/null | awk '{print $4}' | grep -v '127\\.' | grep -v '192\\.168\\.122\\.'")
+                        for net in (host_nets or "").splitlines():
+                            net = net.strip()
+                            if not net: continue
+                            # Ping sweep the subnet (fast, parallel, no output needed)
+                            run(c, f"nmap -sn {net} -T4 2>/dev/null || "
+                                   f"fping -a -q -g {net} 2>/dev/null || "
+                                   f"ping -c 1 -W 1 -b {net.rsplit('.',1)[0]+'.255'} 2>/dev/null || true")
+                        # Now re-check ARP/neigh
+                        for mac in vm_macs:
+                            ip = find_ip_by_mac(mac)
+                            if ip: vm_ip = ip; break
+
+                    # Step 4: nmap MAC-based scan on all host subnets
+                    if not vm_ip and vm_macs:
+                        host_nets = run(c, "ip -o -4 addr show 2>/dev/null | awk '{print $4}' | grep -v '127\\.' | grep -v '192\\.168\\.122\\.'")
+                        for net in (host_nets or "").splitlines():
+                            net = net.strip()
+                            if not net: continue
+                            for mac in vm_macs:
+                                nmap_out = run(c, f"nmap -sn {net} 2>/dev/null | grep -B1 -i '{mac}' | grep 'Nmap scan' | awk '{{print $NF}}'", timeout=60)
+                                nmap_ip = (nmap_out or "").strip().strip("()")
+                                if nmap_ip and nmap_ip not in ("-",""):
+                                    vm_ip = nmap_ip; break
+                            if vm_ip: break
+
+                    vm_ip = vm_ip or "N/A"
 
 
-                # Per-VM NICs — reuse iflist_raw
-                vm_nics = []
-                for il in iflist_raw.splitlines()[2:]:
-                    ilp = il.split()
-                    if len(ilp) >= 5:
-                        nic_mac = ilp[4]
-                        nic_ip = vm_ip if len(vm_nics) == 0 else ""
-                        if len(vm_nics) > 0:
-                            a = run(c, f"arp -n 2>/dev/null | grep -i '{nic_mac}' | awk '{{print $1}}' | head -1")
-                            nic_ip = (a or "").strip()
-                        vm_nics.append({
-                            "name": ilp[0], "type": ilp[1], "source": ilp[2],
-                            "model": ilp[3], "mac": nic_mac,
-                            "ipv4": nic_ip,
-                            "state": "up" if state == "running" else "down",
-                            "rx_mb": 0, "tx_mb": 0,
-                        })
-                # disk
-                disk_path = run(c, f"virsh domblklist {vname} 2>/dev/null | awk 'NR>2 && $2!=\"-\"{{print $2}}' | head -1")
-                disk_gb = 0
-                if disk_path:
-                    sz = run(c, f"qemu-img info {disk_path} 2>/dev/null | grep -oP '[0-9.]+(?= GiB)' | head -1 || echo 0")
-                    try: disk_gb = round(float(sz), 1)
-                    except Exception: pass
-                # OS
-                os_pretty = ""
-                gf = run(c, f"virt-cat -d {vname} /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"'")
-                if gf:
-                    os_pretty = gf
-                # VM storage
-                vm_storage = []
-                blklist = run(c, f"virsh domblklist {vname} --details 2>/dev/null")
-                for bl in blklist.splitlines()[2:]:
-                    bp = bl.split()
-                    if len(bp) >= 4 and bp[3] != "-":
-                        sz2 = run(c, f"qemu-img info {bp[3]} 2>/dev/null | grep -oP '[0-9.]+(?= GiB)' | head -1 || echo 0")
-                        try: sz2_gb = round(float(sz2), 1)
-                        except Exception: sz2_gb = 0
-                        vm_storage.append({"device": bp[1], "path": bp[3], "type": bp[0],
-                                           "size_gb": sz2_gb, "use_pct": 0, "fstype": "qcow2/raw",
-                                           "mountpoint": "[virtual disk]", "avail_gb": 0, "used_gb": 0})
-                cpu_pct = ram_pct = 0.0
-                if state == "running":
-                    mem_stats = run(c, f"virsh dommemstat {vname} 2>/dev/null")
-                    actual = usable = available = rss = 0
-                    for l in mem_stats.splitlines():
-                        parts = l.split()
-                        if len(parts) < 2: continue
-                        key, val = parts[0], parts[1]
-                        try:
-                            if key == "actual":    actual    = int(val)
-                            elif key == "rss":     rss       = int(val)
-                            elif key == "available": available = int(val)
-                            elif key == "usable":  usable    = int(val)
+                    # Per-VM NICs — reuse iflist_raw
+                    vm_nics = []
+                    for il in iflist_raw.splitlines()[2:]:
+                        ilp = il.split()
+                        if len(ilp) >= 5:
+                            nic_mac = ilp[4]
+                            nic_ip = vm_ip if len(vm_nics) == 0 else ""
+                            if len(vm_nics) > 0:
+                                a = run(c, f"arp -n 2>/dev/null | grep -i '{nic_mac}' | awk '{{print $1}}' | head -1")
+                                nic_ip = (a or "").strip()
+                            vm_nics.append({
+                                "name": ilp[0], "type": ilp[1], "source": ilp[2],
+                                "model": ilp[3], "mac": nic_mac,
+                                "ipv4": nic_ip,
+                                "state": "up" if state == "running" else "down",
+                                "rx_mb": 0, "tx_mb": 0,
+                            })
+                    # disk
+                    disk_path = run(c, f"virsh domblklist {vname} 2>/dev/null | awk 'NR>2 && $2!=\"-\"{{print $2}}' | head -1")
+                    disk_gb = 0
+                    if disk_path:
+                        sz = run(c, f"qemu-img info {disk_path} 2>/dev/null | grep -oP '[0-9.]+(?= GiB)' | head -1 || echo 0")
+                        try: disk_gb = round(float(sz), 1)
                         except Exception: pass
-                    # Use (actual - usable) / actual for guest-reported usage
-                    # Fall back to rss/available but cap at 100
-                    if actual > 0 and usable > 0:
-                        used_kb = actual - usable
-                        ram_pct = min(100.0, round(used_kb / actual * 100, 1))
-                    elif available > 0 and rss > 0:
-                        ram_pct = min(100.0, round(rss / available * 100, 1))
-                    else:
-                        ram_pct = round(random.uniform(20, 75), 1)
-                    cpu_pct = round(random.uniform(5, 80), 1)
-                vms.append({
-                    "id": f"vm-{host['id']}-{vname}", "host_id": host["id"],
-                    "name": vname, "type": "KVM", "hypervisor": "KVM", "status": state,
-                    "ip": vm_ip, "vcpu": vcpus, "ram_mb": ram_mb, "disk_gb": disk_gb,
-                    "os": os_pretty or "Linux", "storage": vm_storage,
-                    "nics": vm_nics,
-                    "metrics": {"cpu": min(100.0, max(0.0, cpu_pct)),
-                                "ram": min(100.0, max(0.0, ram_pct)), "disk": 0,
-                                "net_in": round(random.uniform(0, 300), 1),
-                                "net_out": round(random.uniform(0, 100), 1),
-                                "source": "live" if state == "running" else "stopped"},
-                })
+                    # OS detection skipped intentionally — virt-cat and virsh guestinfo
+                    # both risk spawning transient guestfs-* libvirt domains which then
+                    # appear as ghost VMs. OS label is cosmetic; skip it entirely.
+                    os_pretty = ""
+                    # VM storage
+                    vm_storage = []
+                    blklist = run(c, f"virsh domblklist {vname} --details 2>/dev/null")
+                    for bl in blklist.splitlines()[2:]:
+                        bp = bl.split()
+                        if len(bp) >= 4 and bp[3] != "-":
+                            sz2 = run(c, f"qemu-img info {bp[3]} 2>/dev/null | grep -oP '[0-9.]+(?= GiB)' | head -1 || echo 0")
+                            try: sz2_gb = round(float(sz2), 1)
+                            except Exception: sz2_gb = 0
+                            vm_storage.append({"device": bp[1], "path": bp[3], "type": bp[0],
+                                               "size_gb": sz2_gb, "use_pct": 0, "fstype": "qcow2/raw",
+                                               "mountpoint": "[virtual disk]", "avail_gb": 0, "used_gb": 0})
+                    cpu_pct = ram_pct = 0.0
+                    if state == "running":
+                        mem_stats = run(c, f"virsh dommemstat {vname} 2>/dev/null")
+                        actual = usable = available = rss = 0
+                        for l in mem_stats.splitlines():
+                            parts = l.split()
+                            if len(parts) < 2: continue
+                            key, val = parts[0], parts[1]
+                            try:
+                                if key == "actual":    actual    = int(val)
+                                elif key == "rss":     rss       = int(val)
+                                elif key == "available": available = int(val)
+                                elif key == "usable":  usable    = int(val)
+                            except Exception: pass
+                        # Use (actual - usable) / actual for guest-reported usage
+                        # Fall back to rss/available but cap at 100
+                        if actual > 0 and usable > 0:
+                            used_kb = actual - usable
+                            ram_pct = min(100.0, round(used_kb / actual * 100, 1))
+                        elif available > 0 and rss > 0:
+                            ram_pct = min(100.0, round(rss / available * 100, 1))
+                        else:
+                            ram_pct = round(random.uniform(20, 75), 1)
+                        cpu_pct = round(random.uniform(5, 80), 1)
+                    vms.append({
+                        "id": f"vm-{host['id']}-{vname}", "host_id": host["id"],
+                        "name": vname, "type": "KVM", "hypervisor": "KVM", "status": state,
+                        "ip": vm_ip, "vcpu": vcpus, "ram_mb": ram_mb, "disk_gb": disk_gb,
+                        "os": os_pretty or "Linux", "storage": vm_storage,
+                        "nics": vm_nics,
+                        "metrics": {"cpu": min(100.0, max(0.0, cpu_pct)),
+                                    "ram": min(100.0, max(0.0, ram_pct)), "disk": 0,
+                                    "net_in": round(random.uniform(0, 300), 1),
+                                    "net_out": round(random.uniform(0, 100), 1),
+                                    "source": "live" if state == "running" else "stopped"},
+                    })
+                except Exception:
+                    continue  # skip this VM, keep collecting the rest
         finally:
             c.close()
         return vms

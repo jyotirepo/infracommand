@@ -11,6 +11,9 @@ const T = {
   red:"#dc2626",purple:"#7c3aed",text:"#0f172a",sub:"#475569",muted:"#94a3b8",tblHead:"#f8fafc",
 };
 
+// Filter out transient libguestfs domains — they are never real VMs
+const realVMs = vms => (vms||[]).filter(vm => !String(vm.name||"").startsWith("guestfs-"));
+
 const css = `
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
@@ -803,7 +806,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
                 {hw.cpu_mhz&&<HwRow label="CPU Speed" value={`${parseFloat(hw.cpu_mhz||0).toFixed(0)} MHz`}/>}
                 {(()=>{
                   // vCPU allocation from running VMs
-                  const vms = hostData?.vms || [];
+                  const vms = realVMs(hostData?.vms || []);
                   const allocVcpu = vms.filter(v=>v.status==="running")
                                        .reduce((s,v)=>s+(v.vcpu||0),0);
                   const totalVcpu = hw.cpu_vcpu_capacity || hw.cpu_logical || 0;
@@ -1224,7 +1227,7 @@ function InfraView({rawHosts,onGlobalReload}) {
               <>
                 {rawHosts.map(h=>{
                   const det=hostCache[h.id];
-                  const vms=det?.vms||h.vms||[];
+                  const vms=realVMs(det?.vms||h.vms||[]);
                   const m=(det||h).metrics||{};
                   const isExp=expanded[h.id];
                   const isSel=sel?.type==="host"&&sel.hostId===h.id;
@@ -1310,7 +1313,7 @@ function InfraView({rawHosts,onGlobalReload}) {
               <>
                 {rawHosts.filter(h=>{
                   const det=hostCache[h.id];
-                  return (det?.vms||h.vms||[]).length>0;
+                  return realVMs(det?.vms||h.vms||[]).length>0;
                 }).map(h=>{
                   const det=hostCache[h.id];
                   const vms=det?.vms||h.vms||[];
@@ -1501,12 +1504,12 @@ function Overview({hosts,summary,history}) {
             </div>
           )}
           {/* Host's VMs */}
-          {(host?.vms||[]).length>0&&(
+          {realVMs(host?.vms||[]).length>0&&(
             <div className="card shadow" style={{padding:0,overflow:"hidden"}}>
               <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}><div className="section-hd" style={{margin:0}}>VMs on {host.name}</div></div>
               <table>
                 <thead><tr><th>Name</th><th>Hypervisor</th><th>Status</th><th>OS</th><th>IP</th><th>vCPU</th><th>RAM</th><th>CPU%</th><th>RAM%</th></tr></thead>
-                <tbody>{(host.vms||[]).map(vm=>(
+                <tbody>{realVMs(host.vms||[]).map(vm=>(
                   <tr key={vm.id}>
                     <td style={{fontWeight:600}}>🖥 {vm.name}</td>
                     <td><span className={`badge ${vm.hypervisor==="KVM"?"b-kvm":"b-hv"}`}>{vm.hypervisor}</span></td>
@@ -1783,7 +1786,7 @@ function CapacityPlanning() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {h.vms.map((vm,vi)=>(
+                                {realVMs(h.vms).map((vm,vi)=>(
                                   <tr key={`${vm.name||"vm"}-${vi}`} style={{borderBottom:`1px solid #e2e8f0`}}>
                                     <td style={{padding:"7px 10px",fontWeight:600}}>{vm.name||"—"}</td>
                                     <td style={{padding:"7px 10px"}}>
@@ -1872,7 +1875,7 @@ function CapacityPlanning() {
               </tr>
             </thead>
             <tbody>
-              {(Array.isArray(selectedHost.vms)&&selectedHost.vms.length>0)?selectedHost.vms.map((vm,idx)=>(
+              {(Array.isArray(selectedHost.vms)&&realVMs(selectedHost.vms).length>0)?realVMs(selectedHost.vms).map((vm,idx)=>(
                 <tr key={`${vm.name||"vm"}-${idx}`} style={{borderBottom:`1px solid #e2e8f0`}}>
                   <td style={{padding:"8px 10px",fontWeight:600}}>{vm.name||"—"}</td>
                   <td style={{padding:"8px 10px"}}><span className={`badge ${vm.status==="running"?"b-ok":"b-stop"}`}>{vm.status||"unknown"}</span></td>
