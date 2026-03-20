@@ -1,0 +1,1527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>InfraCommand API — v3.0</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=DM+Sans:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg:        #0b0f1a;
+  --surface:   #111827;
+  --surface2:  #1a2235;
+  --border:    #1e2d45;
+  --accent:    #00d4ff;
+  --accent2:   #7c3aed;
+  --green:     #10b981;
+  --amber:     #f59e0b;
+  --red:       #ef4444;
+  --purple:    #8b5cf6;
+  --teal:      #14b8a6;
+  --text:      #e2e8f0;
+  --muted:     #64748b;
+  --sub:       #94a3b8;
+  --mono:      'JetBrains Mono', monospace;
+  --sans:      'DM Sans', sans-serif;
+
+  --GET:    #10b981;
+  --POST:   #3b82f6;
+  --PUT:    #f59e0b;
+  --DELETE: #ef4444;
+  --PATCH:  #8b5cf6;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── Sidebar ── */
+.layout { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  padding-bottom: 40px;
+}
+
+.sidebar::-webkit-scrollbar { width: 3px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.brand {
+  padding: 24px 20px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.brand-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -.3px;
+}
+.brand-ver {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent);
+  margin-top: 3px;
+  letter-spacing: .5px;
+}
+.brand-base {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: var(--surface2);
+  border-radius: 5px;
+  border: 1px solid var(--border);
+}
+
+.nav-group { padding: 16px 0 0; }
+.nav-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 20px 8px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 20px;
+  cursor: pointer;
+  transition: all .15s;
+  border-left: 2px solid transparent;
+  font-size: 12px;
+  color: var(--sub);
+}
+.nav-item:hover { background: var(--surface2); color: var(--text); }
+.nav-item.active { background: rgba(0,212,255,.07); color: var(--accent); border-left-color: var(--accent); }
+
+.nav-badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  letter-spacing: .3px;
+}
+.badge-GET    { background: rgba(16,185,129,.15); color: var(--GET); }
+.badge-POST   { background: rgba(59,130,246,.15); color: var(--POST); }
+.badge-PUT    { background: rgba(245,158,11,.15);  color: var(--PUT); }
+.badge-DELETE { background: rgba(239,68,68,.15);   color: var(--DELETE); }
+.badge-PATCH  { background: rgba(139,92,246,.15);  color: var(--PATCH); }
+
+/* ── Main content ── */
+.main {
+  flex: 1;
+  min-width: 0;
+  padding: 40px 48px;
+  max-width: 960px;
+}
+
+/* ── Page header ── */
+.page-header {
+  margin-bottom: 40px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--border);
+}
+.page-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -.5px;
+}
+.page-title span {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.page-desc {
+  color: var(--sub);
+  font-size: 13px;
+  margin-top: 8px;
+  max-width: 600px;
+  line-height: 1.7;
+}
+.page-meta {
+  display: flex;
+  gap: 20px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+.meta-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--sub);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  border-radius: 6px;
+}
+.meta-chip b { color: var(--text); font-weight: 600; }
+
+/* ── Section headers ── */
+.section {
+  margin-bottom: 48px;
+}
+.section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── Endpoint card ── */
+.endpoint {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  transition: border-color .2s;
+}
+.endpoint:hover { border-color: #2d3f5a; }
+.endpoint.open { border-color: #2d4a6a; }
+
+.endpoint-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.method {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .8px;
+  padding: 3px 9px;
+  border-radius: 5px;
+  min-width: 58px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.method-GET    { background: rgba(16,185,129,.12); color: var(--GET);    border: 1px solid rgba(16,185,129,.25); }
+.method-POST   { background: rgba(59,130,246,.12);  color: var(--POST);   border: 1px solid rgba(59,130,246,.25); }
+.method-PUT    { background: rgba(245,158,11,.12);  color: var(--PUT);    border: 1px solid rgba(245,158,11,.25); }
+.method-DELETE { background: rgba(239,68,68,.12);   color: var(--DELETE); border: 1px solid rgba(239,68,68,.25); }
+.method-PATCH  { background: rgba(139,92,246,.12);  color: var(--PATCH);  border: 1px solid rgba(139,92,246,.25); }
+
+.endpoint-path {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  flex: 1;
+}
+.endpoint-path .param { color: var(--accent); }
+
+.endpoint-summary {
+  font-size: 12px;
+  color: var(--sub);
+  flex: 1;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.chevron {
+  color: var(--muted);
+  font-size: 10px;
+  transition: transform .2s;
+  flex-shrink: 0;
+}
+.endpoint.open .chevron { transform: rotate(180deg); }
+
+/* ── Endpoint body ── */
+.endpoint-body {
+  display: none;
+  padding: 0 18px 18px;
+  border-top: 1px solid var(--border);
+}
+.endpoint.open .endpoint-body { display: block; }
+
+.body-desc {
+  font-size: 12px;
+  color: var(--sub);
+  padding: 14px 0 12px;
+  line-height: 1.7;
+}
+
+.params-title, .body-title, .response-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 14px 0 8px;
+}
+
+.params-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.params-table th {
+  text-align: left;
+  padding: 7px 12px;
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+}
+.params-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(30,45,69,.6);
+  vertical-align: top;
+}
+.params-table tr:last-child td { border-bottom: none; }
+
+.param-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+}
+.param-type {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--purple);
+}
+.param-required {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--red);
+  letter-spacing: .5px;
+}
+.param-optional {
+  font-size: 9px;
+  color: var(--muted);
+}
+.param-desc { color: var(--sub); font-size: 12px; }
+.param-default {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* ── Code blocks ── */
+.code-block {
+  background: #0d1520;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.8;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--sub);
+  margin-top: 6px;
+}
+
+/* JSON syntax highlighting */
+.j-key    { color: #7dd3fc; }
+.j-str    { color: #86efac; }
+.j-num    { color: #fca5a5; }
+.j-bool   { color: #fbbf24; }
+.j-null   { color: #94a3b8; }
+.j-punct  { color: #64748b; }
+
+/* ── Response codes ── */
+.responses { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.response-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.status-code {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  min-width: 42px;
+  text-align: center;
+}
+.s-2xx { background: rgba(16,185,129,.15); color: var(--green); }
+.s-4xx { background: rgba(245,158,11,.15); color: var(--amber); }
+.s-5xx { background: rgba(239,68,68,.15);  color: var(--red); }
+
+.status-desc { color: var(--sub); font-size: 12px; line-height: 1.6; }
+
+/* ── Try it out panel ── */
+.try-panel {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: rgba(0,212,255,.04);
+  border: 1px solid rgba(0,212,255,.12);
+  border-radius: 8px;
+}
+.try-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.try-url {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--sub);
+  width: 100%;
+  margin-bottom: 8px;
+}
+.try-btn {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  background: var(--accent);
+  color: #000;
+  letter-spacing: .3px;
+  transition: all .15s;
+}
+.try-btn:hover { filter: brightness(1.1); }
+.try-result {
+  margin-top: 10px;
+  display: none;
+}
+.try-result.show { display: block; }
+
+/* ── Search bar ── */
+.search-wrap {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 10;
+}
+.search-input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  outline: none;
+  transition: border-color .2s;
+}
+.search-input:focus { border-color: var(--accent); }
+.search-input::placeholder { color: var(--muted); }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* ── Stats strip ── */
+.stats-strip {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 36px;
+}
+.stat-cell {
+  background: var(--surface);
+  padding: 14px 16px;
+  text-align: center;
+}
+.stat-val {
+  font-size: 22px;
+  font-weight: 700;
+  font-family: var(--mono);
+  line-height: 1;
+}
+.stat-lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-top: 4px;
+  font-weight: 600;
+}
+
+/* ── Live Swagger link ── */
+.swagger-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: linear-gradient(135deg, rgba(0,212,255,.1), rgba(124,58,237,.1));
+  border: 1px solid rgba(0,212,255,.25);
+  border-radius: 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all .2s;
+  margin-top: 16px;
+  cursor: pointer;
+}
+.swagger-link:hover {
+  background: linear-gradient(135deg, rgba(0,212,255,.18), rgba(124,58,237,.18));
+  border-color: rgba(0,212,255,.5);
+}
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- ── Sidebar ── -->
+  <nav class="sidebar">
+    <div class="brand">
+      <div class="brand-name">⚡ InfraCommand</div>
+      <div class="brand-ver">API v3.0.0 · FastAPI</div>
+      <div class="brand-base">Base: /api</div>
+    </div>
+
+    <div class="search-wrap">
+      <input class="search-input" placeholder="🔍  Search endpoints…" id="searchInput" oninput="filterNav(this.value)"/>
+    </div>
+
+    <div id="navGroups">
+      <div class="nav-group">
+        <div class="nav-label">System</div>
+        <div class="nav-item" onclick="scrollTo('summary')"><span class="nav-badge badge-GET">GET</span>summary</div>
+        <div class="nav-item" onclick="scrollTo('overview')"><span class="nav-badge badge-GET">GET</span>overview</div>
+        <div class="nav-item" onclick="scrollTo('capacity')"><span class="nav-badge badge-GET">GET</span>capacity</div>
+        <div class="nav-item" onclick="scrollTo('metrics-history')"><span class="nav-badge badge-GET">GET</span>metrics/history</div>
+        <div class="nav-item" onclick="scrollTo('alerts')"><span class="nav-badge badge-GET">GET</span>alerts</div>
+        <div class="nav-item" onclick="scrollTo('patches')"><span class="nav-badge badge-GET">GET</span>patches</div>
+        <div class="nav-item" onclick="scrollTo('logs')"><span class="nav-badge badge-GET">GET</span>logs</div>
+        <div class="nav-item" onclick="scrollTo('scans')"><span class="nav-badge badge-GET">GET</span>scans</div>
+        <div class="nav-item" onclick="scrollTo('winrm-setup')"><span class="nav-badge badge-GET">GET</span>winrm-setup</div>
+        <div class="nav-item" onclick="scrollTo('test-connection')"><span class="nav-badge badge-POST">POST</span>test-connection</div>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-label">Hosts</div>
+        <div class="nav-item" onclick="scrollTo('hosts-list')"><span class="nav-badge badge-GET">GET</span>hosts</div>
+        <div class="nav-item" onclick="scrollTo('hosts-get')"><span class="nav-badge badge-GET">GET</span>hosts/{hid}</div>
+        <div class="nav-item" onclick="scrollTo('hosts-create')"><span class="nav-badge badge-POST">POST</span>hosts</div>
+        <div class="nav-item" onclick="scrollTo('hosts-update')"><span class="nav-badge badge-PUT">PUT</span>hosts/{hid}</div>
+        <div class="nav-item" onclick="scrollTo('hosts-delete')"><span class="nav-badge badge-DELETE">DELETE</span>hosts/{hid}</div>
+        <div class="nav-item" onclick="scrollTo('hosts-refresh')"><span class="nav-badge badge-POST">POST</span>hosts/{hid}/refresh</div>
+        <div class="nav-item" onclick="scrollTo('hosts-metrics')"><span class="nav-badge badge-GET">GET</span>hosts/{hid}/metrics</div>
+        <div class="nav-item" onclick="scrollTo('hosts-patch')"><span class="nav-badge badge-GET">GET</span>hosts/{hid}/patch</div>
+        <div class="nav-item" onclick="scrollTo('hosts-patch-refresh')"><span class="nav-badge badge-POST">POST</span>hosts/{hid}/patch/refresh</div>
+        <div class="nav-item" onclick="scrollTo('hosts-logs')"><span class="nav-badge badge-GET">GET</span>hosts/{hid}/logs</div>
+        <div class="nav-item" onclick="scrollTo('hosts-logs-refresh')"><span class="nav-badge badge-POST">POST</span>hosts/{hid}/logs/refresh</div>
+        <div class="nav-item" onclick="scrollTo('hosts-scan-post')"><span class="nav-badge badge-POST">POST</span>hosts/{hid}/scan</div>
+        <div class="nav-item" onclick="scrollTo('hosts-scan-get')"><span class="nav-badge badge-GET">GET</span>hosts/{hid}/scan</div>
+        <div class="nav-item" onclick="scrollTo('hosts-portscan')"><span class="nav-badge badge-POST">POST</span>hosts/{hid}/portscan</div>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-label">VMs</div>
+        <div class="nav-item" onclick="scrollTo('vms-list')"><span class="nav-badge badge-GET">GET</span>hosts/{hid}/vms</div>
+        <div class="nav-item" onclick="scrollTo('vms-refresh')"><span class="nav-badge badge-POST">POST</span>hosts/{hid}/vms/refresh</div>
+        <div class="nav-item" onclick="scrollTo('vms-promote')"><span class="nav-badge badge-POST">POST</span>hosts/{hid}/vms/{vid}/promote</div>
+        <div class="nav-item" onclick="scrollTo('vms-ip')"><span class="nav-badge badge-PATCH">PATCH</span>hosts/{hid}/vms/{vid}/ip</div>
+        <div class="nav-item" onclick="scrollTo('vms-logs')"><span class="nav-badge badge-GET">GET</span>hosts/{hid}/vms/{vid}/logs</div>
+        <div class="nav-item" onclick="scrollTo('vms-scan-post')"><span class="nav-badge badge-POST">POST</span>hosts/{hid}/vms/{vid}/scan</div>
+        <div class="nav-item" onclick="scrollTo('vms-scan-get')"><span class="nav-badge badge-GET">GET</span>hosts/{hid}/vms/{vid}/scan</div>
+        <div class="nav-item" onclick="scrollTo('vms-portscan')"><span class="nav-badge badge-POST">POST</span>hosts/{hid}/vms/{vid}/portscan</div>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-label">Debug</div>
+        <div class="nav-item" onclick="scrollTo('debug-vmips')"><span class="nav-badge badge-GET">GET</span>hosts/{hid}/debug/vm-ips</div>
+        <div class="nav-item" onclick="scrollTo('debug-connect')"><span class="nav-badge badge-POST">POST</span>debug/connect</div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Main ── -->
+  <main class="main">
+
+    <!-- Page header -->
+    <div class="page-header">
+      <div class="page-title">InfraCommand <span>REST API</span></div>
+      <div class="page-desc">
+        Full API reference for InfraCommand v3.0 — infrastructure monitoring, VM discovery,
+        capacity planning, vulnerability scanning, and patch management.
+      </div>
+      <div class="page-meta">
+        <div class="meta-chip">📋 Version <b>3.0.0</b></div>
+        <div class="meta-chip">⚡ FastAPI <b>+ SQLite</b></div>
+        <div class="meta-chip">🔒 Auth <b>None (internal)</b></div>
+        <div class="meta-chip">📦 Format <b>JSON</b></div>
+      </div>
+      <a class="swagger-link" onclick="window.open(document.getElementById('baseUrlInput').value.replace(/\/?$/,'')+'/api/docs','_blank')">
+        🔗 Open Live Swagger UI (FastAPI built-in)
+      </a>
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+        <span style="font-size:11px;color:var(--muted)">Base URL:</span>
+        <input id="baseUrlInput" value="http://localhost:8000" style="font-family:var(--mono);font-size:11px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);outline:none;width:220px;" oninput="updateBaseUrls()"/>
+      </div>
+    </div>
+
+    <!-- Stats strip -->
+    <div class="stats-strip">
+      <div class="stat-cell"><div class="stat-val" style="color:var(--green)">9</div><div class="stat-lbl">GET</div></div>
+      <div class="stat-cell"><div class="stat-val" style="color:var(--POST)">14</div><div class="stat-lbl">POST</div></div>
+      <div class="stat-cell"><div class="stat-val" style="color:var(--PUT)">1</div><div class="stat-lbl">PUT</div></div>
+      <div class="stat-cell"><div class="stat-val" style="color:var(--DELETE)">1</div><div class="stat-lbl">DELETE</div></div>
+      <div class="stat-cell"><div class="stat-val" style="color:var(--PATCH)">1</div><div class="stat-lbl">PATCH</div></div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         SECTION: SYSTEM
+    ════════════════════════════════════════════════════ -->
+    <div class="section">
+      <div class="section-title">System &amp; Aggregates</div>
+
+      <!-- GET /summary -->
+      <div class="endpoint" id="summary">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/summary</span>
+          <span class="endpoint-summary">Host + VM count, avg CPU, warnings</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Returns a high-level aggregate across all registered hosts: total host count, total VM count, average CPU utilisation, and number of hosts currently in warning state (CPU or RAM &gt; 85%).</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">{</span>
+  <span class="j-key">"hosts"</span><span class="j-punct">:</span> <span class="j-num">4</span><span class="j-punct">,</span>
+  <span class="j-key">"total_vms"</span><span class="j-punct">:</span> <span class="j-num">12</span><span class="j-punct">,</span>
+  <span class="j-key">"avg_cpu"</span><span class="j-punct">:</span> <span class="j-num">34.2</span><span class="j-punct">,</span>
+  <span class="j-key">"warnings"</span><span class="j-punct">:</span> <span class="j-num">1</span>
+<span class="j-punct">}</span></div></div></div>
+          </div>
+          <div class="try-panel"><div class="try-title">▶ Try it out</div>
+            <input class="try-url base-url-field" value="http://localhost:8000/api/summary" readonly/>
+            <button class="try-btn" onclick="tryIt(this, 'GET', '/api/summary')">Execute</button>
+            <div class="try-result"><div class="code-block"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /overview -->
+      <div class="endpoint" id="overview">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/overview</span>
+          <span class="endpoint-summary">Detailed resource totals across all live hosts</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Returns aggregated resource metrics across all hosts that have live data: average CPU/RAM/disk, total RAM/disk used vs total, and counts of online hosts.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">{</span>
+  <span class="j-key">"hosts_online"</span><span class="j-punct">:</span> <span class="j-num">3</span><span class="j-punct">,</span>
+  <span class="j-key">"total_hosts"</span><span class="j-punct">:</span> <span class="j-num">4</span><span class="j-punct">,</span>
+  <span class="j-key">"avg_cpu"</span><span class="j-punct">:</span> <span class="j-num">41.5</span><span class="j-punct">,</span>
+  <span class="j-key">"avg_ram"</span><span class="j-punct">:</span> <span class="j-num">62.1</span><span class="j-punct">,</span>
+  <span class="j-key">"avg_disk"</span><span class="j-punct">:</span> <span class="j-num">55.3</span><span class="j-punct">,</span>
+  <span class="j-key">"ram_total_gb"</span><span class="j-punct">:</span> <span class="j-num">256</span><span class="j-punct">,</span>
+  <span class="j-key">"ram_used_gb"</span><span class="j-punct">:</span> <span class="j-num">158.9</span><span class="j-punct">,</span>
+  <span class="j-key">"disk_total_gb"</span><span class="j-punct">:</span> <span class="j-num">8192</span><span class="j-punct">,</span>
+  <span class="j-key">"disk_used_gb"</span><span class="j-punct">:</span> <span class="j-num">4510.2</span>
+<span class="j-punct">}</span></div></div></div>
+          </div>
+          <div class="try-panel"><div class="try-title">▶ Try it out</div>
+            <input class="try-url base-url-field" value="http://localhost:8000/api/overview" readonly/>
+            <button class="try-btn" onclick="tryIt(this, 'GET', '/api/overview')">Execute</button>
+            <div class="try-result"><div class="code-block"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /capacity -->
+      <div class="endpoint" id="capacity">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/capacity</span>
+          <span class="endpoint-summary">Capacity planning — hardware vs VM allocation vs free</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Returns per-host capacity data: hardware totals (vCPUs, RAM, storage), VM allocations from running VMs only, and free resources. Used by the Capacity Planning page.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">[{</span>
+  <span class="j-key">"host_id"</span><span class="j-punct">:</span> <span class="j-str">"h3a9f1b2c"</span><span class="j-punct">,</span>
+  <span class="j-key">"host_name"</span><span class="j-punct">:</span> <span class="j-str">"dc-hyper-31"</span><span class="j-punct">,</span>
+  <span class="j-key">"host_ip"</span><span class="j-punct">:</span> <span class="j-str">"192.168.101.32"</span><span class="j-punct">,</span>
+  <span class="j-key">"hw_missing"</span><span class="j-punct">:</span> <span class="j-bool">false</span><span class="j-punct">,</span>
+  <span class="j-key">"cpu_model"</span><span class="j-punct">:</span> <span class="j-str">"Intel Xeon E5-2690 v4"</span><span class="j-punct">,</span>
+  <span class="j-key">"cpu_sockets"</span><span class="j-punct">:</span> <span class="j-num">2</span><span class="j-punct">,</span>
+  <span class="j-key">"cpu_pcores"</span><span class="j-punct">:</span> <span class="j-num">28</span><span class="j-punct">,</span>
+  <span class="j-key">"cpu_vcpus"</span><span class="j-punct">:</span> <span class="j-num">56</span><span class="j-punct">,</span>
+  <span class="j-key">"ram_total_gb"</span><span class="j-punct">:</span> <span class="j-num">256</span><span class="j-punct">,</span>
+  <span class="j-key">"disk_total_gb"</span><span class="j-punct">:</span> <span class="j-num">4096</span><span class="j-punct">,</span>
+  <span class="j-key">"disk_used_gb"</span><span class="j-punct">:</span> <span class="j-num">812.4</span><span class="j-punct">,</span>
+  <span class="j-key">"vm_count"</span><span class="j-punct">:</span> <span class="j-num">8</span><span class="j-punct">,</span>
+  <span class="j-key">"vm_running"</span><span class="j-punct">:</span> <span class="j-num">7</span><span class="j-punct">,</span>
+  <span class="j-key">"vm_ram_alloc_gb"</span><span class="j-punct">:</span> <span class="j-num">119.5</span><span class="j-punct">,</span>
+  <span class="j-key">"vm_vcpu_alloc"</span><span class="j-punct">:</span> <span class="j-num">32</span><span class="j-punct">,</span>
+  <span class="j-key">"vm_disk_alloc_gb"</span><span class="j-punct">:</span> <span class="j-num">640.0</span><span class="j-punct">,</span>
+  <span class="j-key">"free_ram_gb"</span><span class="j-punct">:</span> <span class="j-num">136.5</span><span class="j-punct">,</span>
+  <span class="j-key">"free_vcpus"</span><span class="j-punct">:</span> <span class="j-num">24</span><span class="j-punct">,</span>
+  <span class="j-key">"free_disk_gb"</span><span class="j-punct">:</span> <span class="j-num">2643.6</span><span class="j-punct">,</span>
+  <span class="j-key">"vms"</span><span class="j-punct">:</span> <span class="j-punct">[{</span><span class="j-key">"name"</span><span class="j-punct">:</span><span class="j-str">"DC-JAVADEV-01"</span><span class="j-punct">,</span> <span class="j-key">"status"</span><span class="j-punct">:</span><span class="j-str">"running"</span><span class="j-punct">,</span> <span class="j-key">"ip"</span><span class="j-punct">:</span><span class="j-str">"192.168.101.45"</span><span class="j-punct">,</span> <span class="j-key">"ram_gb"</span><span class="j-punct">:</span><span class="j-num">16</span><span class="j-punct">,</span> <span class="j-key">"vcpus"</span><span class="j-punct">:</span><span class="j-num">4</span><span class="j-punct">,</span> <span class="j-key">"disk_gb"</span><span class="j-punct">:</span><span class="j-num">80</span><span class="j-punct">}]</span>
+<span class="j-punct">}]</span></div></div></div>
+          </div>
+          <div class="try-panel"><div class="try-title">▶ Try it out</div>
+            <input class="try-url base-url-field" value="http://localhost:8000/api/capacity" readonly/>
+            <button class="try-btn" onclick="tryIt(this, 'GET', '/api/capacity')">Execute</button>
+            <div class="try-result"><div class="code-block"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /metrics/history -->
+      <div class="endpoint" id="metrics-history">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/metrics/history</span>
+          <span class="endpoint-summary">24-hour CPU/RAM history for charts</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Returns 24 hourly data points for CPU and RAM utilisation used to draw the area charts on the Overview page.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">[{</span><span class="j-key">"hour"</span><span class="j-punct">:</span><span class="j-str">"00:00"</span><span class="j-punct">,</span> <span class="j-key">"cpu"</span><span class="j-punct">:</span><span class="j-num">34.1</span><span class="j-punct">,</span> <span class="j-key">"ram"</span><span class="j-punct">:</span><span class="j-num">58.7</span><span class="j-punct">}, ...]</span></div></div></div>
+          </div>
+          <div class="try-panel"><div class="try-title">▶ Try it out</div>
+            <input class="try-url base-url-field" value="http://localhost:8000/api/metrics/history" readonly/>
+            <button class="try-btn" onclick="tryIt(this, 'GET', '/api/metrics/history')">Execute</button>
+            <div class="try-result"><div class="code-block"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /alerts -->
+      <div class="endpoint" id="alerts">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/alerts</span>
+          <span class="endpoint-summary">All active alerts sorted by severity</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Generates alerts from cached metrics and patch data. Alert types: Connection, CPU, RAM, Disk, Storage (volume), NIC Error, Patch, Security Patch. Critical alerts are returned first.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">[{</span>
+  <span class="j-key">"id"</span><span class="j-punct">:</span> <span class="j-str">"a-h3a9f1b2c-cpu"</span><span class="j-punct">,</span>
+  <span class="j-key">"host"</span><span class="j-punct">:</span> <span class="j-str">"dc-hyper-31"</span><span class="j-punct">,</span>
+  <span class="j-key">"type"</span><span class="j-punct">:</span> <span class="j-str">"CPU"</span><span class="j-punct">,</span>
+  <span class="j-key">"severity"</span><span class="j-punct">:</span> <span class="j-str">"critical"</span><span class="j-punct">,</span>
+  <span class="j-key">"msg"</span><span class="j-punct">:</span> <span class="j-str">"CPU at 91%"</span><span class="j-punct">,</span>
+  <span class="j-key">"ts"</span><span class="j-punct">:</span> <span class="j-str">"2025-01-15T08:32:00Z"</span>
+<span class="j-punct">}]</span></div></div></div>
+          </div>
+          <div class="try-panel"><div class="try-title">▶ Try it out</div>
+            <input class="try-url base-url-field" value="http://localhost:8000/api/alerts" readonly/>
+            <button class="try-btn" onclick="tryIt(this, 'GET', '/api/alerts')">Execute</button>
+            <div class="try-result"><div class="code-block"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /patches -->
+      <div class="endpoint" id="patches">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/patches</span>
+          <span class="endpoint-summary">Patch status for all hosts</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Returns the cached patch status for every registered host.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">[{</span><span class="j-key">"host"</span><span class="j-punct">:</span><span class="j-str">"dc-hyper-31"</span><span class="j-punct">,</span> <span class="j-key">"status"</span><span class="j-punct">:</span><span class="j-str">"UPDATES AVAILABLE"</span><span class="j-punct">,</span> <span class="j-key">"updates_available"</span><span class="j-punct">:</span><span class="j-num">14</span><span class="j-punct">,</span> <span class="j-key">"security_updates"</span><span class="j-punct">:</span><span class="j-num">3</span><span class="j-punct">}]</span></div></div></div>
+          </div>
+          <div class="try-panel"><div class="try-title">▶ Try it out</div>
+            <input class="try-url base-url-field" value="http://localhost:8000/api/patches" readonly/>
+            <button class="try-btn" onclick="tryIt(this, 'GET', '/api/patches')">Execute</button>
+            <div class="try-result"><div class="code-block"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /logs -->
+      <div class="endpoint" id="logs">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/logs</span>
+          <span class="endpoint-summary">All host logs, optionally filtered</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Returns aggregated event logs from all hosts, newest first. Optionally filter by level.</div>
+          <div class="params-title">Query Parameters</div>
+          <table class="params-table">
+            <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th><th>Default</th></tr></thead>
+            <tbody>
+              <tr><td class="param-name">level</td><td class="param-type">string</td><td class="param-optional">optional</td><td class="param-desc">Filter by level: INFO, WARN, ERROR</td><td class="param-default">—</td></tr>
+              <tr><td class="param-name">limit</td><td class="param-type">integer</td><td class="param-optional">optional</td><td class="param-desc">Max entries to return</td><td class="param-default">200</td></tr>
+            </tbody>
+          </table>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">[{</span><span class="j-key">"ts"</span><span class="j-punct">:</span><span class="j-str">"2025-01-15T08:32:00Z"</span><span class="j-punct">,</span> <span class="j-key">"level"</span><span class="j-punct">:</span><span class="j-str">"INFO"</span><span class="j-punct">,</span> <span class="j-key">"host"</span><span class="j-punct">:</span><span class="j-str">"dc-hyper-31"</span><span class="j-punct">,</span> <span class="j-key">"msg"</span><span class="j-punct">:</span><span class="j-str">"Metrics collected — CPU:34% RAM:62%"</span><span class="j-punct">,</span> <span class="j-key">"source"</span><span class="j-punct">:</span><span class="j-str">"metrics"</span><span class="j-punct">}]</span></div></div></div>
+          </div>
+          <div class="try-panel"><div class="try-title">▶ Try it out</div>
+            <input class="try-url base-url-field" value="http://localhost:8000/api/logs?limit=50" readonly/>
+            <button class="try-btn" onclick="tryIt(this, 'GET', '/api/logs?limit=50')">Execute</button>
+            <div class="try-result"><div class="code-block"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /scans -->
+      <div class="endpoint" id="scans">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/scans</span>
+          <span class="endpoint-summary">All stored vulnerability scan results</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Returns all stored vulnerability scan results for hosts and VMs.</div>
+          <div class="try-panel"><div class="try-title">▶ Try it out</div>
+            <input class="try-url base-url-field" value="http://localhost:8000/api/scans" readonly/>
+            <button class="try-btn" onclick="tryIt(this, 'GET', '/api/scans')">Execute</button>
+            <div class="try-result"><div class="code-block"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /winrm-setup -->
+      <div class="endpoint" id="winrm-setup">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/winrm-setup</span>
+          <span class="endpoint-summary">WinRM setup commands for Windows hosts</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Returns the PowerShell commands needed to configure WinRM on a Windows host so InfraCommand can connect to it.</div>
+          <div class="try-panel"><div class="try-title">▶ Try it out</div>
+            <input class="try-url base-url-field" value="http://localhost:8000/api/winrm-setup" readonly/>
+            <button class="try-btn" onclick="tryIt(this, 'GET', '/api/winrm-setup')">Execute</button>
+            <div class="try-result"><div class="code-block"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST /test-connection -->
+      <div class="endpoint" id="test-connection">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-POST">POST</span>
+          <span class="endpoint-path">/api/test-connection</span>
+          <span class="endpoint-summary">Test SSH/WinRM before adding a host</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Tests connectivity to a host without saving it. Walks through TCP → SSH/WinRM → Metrics steps and returns pass/fail for each. Use this to validate credentials before adding a host.</div>
+          <div class="body-title">Request Body</div>
+          <div class="code-block"><span class="j-punct">{</span>
+  <span class="j-key">"name"</span><span class="j-punct">:</span>     <span class="j-str">"my-server"</span><span class="j-punct">,</span>       <span class="j-null">// required</span>
+  <span class="j-key">"ip"</span><span class="j-punct">:</span>       <span class="j-str">"192.168.1.10"</span><span class="j-punct">,</span>   <span class="j-null">// required</span>
+  <span class="j-key">"os_type"</span><span class="j-punct">:</span>  <span class="j-str">"linux"</span><span class="j-punct">,</span>          <span class="j-null">// "linux" | "windows"</span>
+  <span class="j-key">"username"</span><span class="j-punct">:</span> <span class="j-str">"root"</span><span class="j-punct">,</span>
+  <span class="j-key">"password"</span><span class="j-punct">:</span> <span class="j-str">"secret"</span><span class="j-punct">,</span>
+  <span class="j-key">"ssh_port"</span><span class="j-punct">:</span> <span class="j-num">22</span>
+<span class="j-punct">}</span></div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">{</span>
+  <span class="j-key">"ip"</span><span class="j-punct">:</span> <span class="j-str">"192.168.1.10"</span><span class="j-punct">,</span>
+  <span class="j-key">"steps"</span><span class="j-punct">:</span> <span class="j-punct">[</span>
+    <span class="j-punct">{</span><span class="j-key">"step"</span><span class="j-punct">:</span><span class="j-str">"TCP:22"</span><span class="j-punct">,</span> <span class="j-key">"ok"</span><span class="j-punct">:</span><span class="j-bool">true</span><span class="j-punct">,</span> <span class="j-key">"detail"</span><span class="j-punct">:</span><span class="j-str">"rc=0"</span><span class="j-punct">},</span>
+    <span class="j-punct">{</span><span class="j-key">"step"</span><span class="j-punct">:</span><span class="j-str">"SSH"</span><span class="j-punct">,</span>    <span class="j-key">"ok"</span><span class="j-punct">:</span><span class="j-bool">true</span><span class="j-punct">,</span> <span class="j-key">"detail"</span><span class="j-punct">:</span><span class="j-str">"authenticated"</span><span class="j-punct">},</span>
+    <span class="j-punct">{</span><span class="j-key">"step"</span><span class="j-punct">:</span><span class="j-str">"Metrics"</span><span class="j-punct">,</span><span class="j-key">"ok"</span><span class="j-punct">:</span><span class="j-bool">true</span><span class="j-punct">,</span> <span class="j-key">"detail"</span><span class="j-punct">:</span><span class="j-str">"CPU:34% RAM:62%"</span><span class="j-punct">}</span>
+  <span class="j-punct">]</span>
+<span class="j-punct">}</span></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         SECTION: HOSTS
+    ════════════════════════════════════════════════════ -->
+    <div class="section">
+      <div class="section-title">Hosts</div>
+
+      <!-- GET /hosts -->
+      <div class="endpoint" id="hosts-list">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/hosts</span>
+          <span class="endpoint-summary">List all registered hosts with metrics and VMs</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Returns all registered hosts with their cached metrics, VM list, and patch status. Passwords and SSH keys are masked.</div>
+          <div class="try-panel"><div class="try-title">▶ Try it out</div>
+            <input class="try-url base-url-field" value="http://localhost:8000/api/hosts" readonly/>
+            <button class="try-btn" onclick="tryIt(this, 'GET', '/api/hosts')">Execute</button>
+            <div class="try-result"><div class="code-block"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /hosts/{hid} -->
+      <div class="endpoint" id="hosts-get">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span></span>
+          <span class="endpoint-summary">Get a single host by ID</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="params-title">Path Parameters</div>
+          <table class="params-table">
+            <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+            <tbody><tr><td class="param-name">hid</td><td class="param-type">string</td><td class="param-required">required</td><td class="param-desc">Host ID (e.g. <code>h3a9f1b2c</code>)</td></tr></tbody>
+          </table>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><span class="status-desc">Full host object with metrics, patch, and vms arrays</span></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">Host not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST /hosts -->
+      <div class="endpoint" id="hosts-create">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-POST">POST</span>
+          <span class="endpoint-path">/api/hosts</span>
+          <span class="endpoint-summary">Add a new host and trigger initial data collection</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Registers a new host. Immediately collects metrics, patch status, and discovers VMs. Each step is independent — a failure in one does not block the others.</div>
+          <div class="body-title">Request Body</div>
+          <div class="code-block"><span class="j-punct">{</span>
+  <span class="j-key">"name"</span><span class="j-punct">:</span>       <span class="j-str">"dc-hyper-31"</span><span class="j-punct">,</span>     <span class="j-null">// required</span>
+  <span class="j-key">"ip"</span><span class="j-punct">:</span>         <span class="j-str">"192.168.101.32"</span><span class="j-punct">,</span>  <span class="j-null">// required</span>
+  <span class="j-key">"os_type"</span><span class="j-punct">:</span>    <span class="j-str">"linux"</span><span class="j-punct">,</span>           <span class="j-null">// "linux" | "windows", default "linux"</span>
+  <span class="j-key">"auth_type"</span><span class="j-punct">:</span>  <span class="j-str">"password"</span><span class="j-punct">,</span>        <span class="j-null">// "password" | "key"</span>
+  <span class="j-key">"username"</span><span class="j-punct">:</span>   <span class="j-str">"root"</span><span class="j-punct">,</span>
+  <span class="j-key">"password"</span><span class="j-punct">:</span>   <span class="j-str">"secret123"</span><span class="j-punct">,</span>       <span class="j-null">// for auth_type=password</span>
+  <span class="j-key">"ssh_key"</span><span class="j-punct">:</span>    <span class="j-null">null</span><span class="j-punct">,</span>              <span class="j-null">// PEM string for auth_type=key</span>
+  <span class="j-key">"ssh_port"</span><span class="j-punct">:</span>   <span class="j-num">22</span><span class="j-punct">,</span>
+  <span class="j-key">"winrm_port"</span><span class="j-punct">:</span> <span class="j-num">5985</span>
+<span class="j-punct">}</span></div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">201</span><div class="status-desc"><div class="code-block"><span class="j-punct">{</span><span class="j-key">"id"</span><span class="j-punct">:</span><span class="j-str">"h3a9f1b2c"</span><span class="j-punct">,</span> <span class="j-key">"name"</span><span class="j-punct">:</span><span class="j-str">"dc-hyper-31"</span><span class="j-punct">,</span> <span class="j-key">"connected"</span><span class="j-punct">:</span><span class="j-bool">true</span><span class="j-punct">,</span> <span class="j-key">"vms_found"</span><span class="j-punct">:</span><span class="j-num">8</span><span class="j-punct">,</span> <span class="j-key">"message"</span><span class="j-punct">:</span><span class="j-str">"Connected ✔ — Ubuntu 22.04, 8 VMs found"</span><span class="j-punct">}</span></div></div></div>
+            <div class="response-row"><span class="status-code s-4xx">400</span><span class="status-desc">Database error saving host</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PUT /hosts/{hid} -->
+      <div class="endpoint" id="hosts-update">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-PUT">PUT</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span></span>
+          <span class="endpoint-summary">Update host credentials or name</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Updates editable fields on a host. All fields are optional — only provided fields are updated.</div>
+          <div class="body-title">Request Body (all optional)</div>
+          <div class="code-block"><span class="j-punct">{</span>
+  <span class="j-key">"name"</span><span class="j-punct">:</span>     <span class="j-str">"new-name"</span><span class="j-punct">,</span>
+  <span class="j-key">"username"</span><span class="j-punct">:</span> <span class="j-str">"admin"</span><span class="j-punct">,</span>
+  <span class="j-key">"password"</span><span class="j-punct">:</span> <span class="j-str">"newpass"</span><span class="j-punct">,</span>
+  <span class="j-key">"ssh_key"</span><span class="j-punct">:</span>  <span class="j-str">"-----BEGIN RSA PRIVATE KEY-----..."</span><span class="j-punct">,</span>
+  <span class="j-key">"ssh_port"</span><span class="j-punct">:</span> <span class="j-num">2222</span>
+<span class="j-punct">}</span></div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><span class="status-desc"><code>{"id":"h3a9f1b2c","message":"Updated"}</code></span></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">Host not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DELETE /hosts/{hid} -->
+      <div class="endpoint" id="hosts-delete">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-DELETE">DELETE</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span></span>
+          <span class="endpoint-summary">Remove a host and all its data</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Permanently deletes a host and cascades to remove all associated metrics, VMs, patch data, scan results, and logs.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><span class="status-desc"><code>{"message":"Deleted"}</code></span></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">Host not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST /hosts/{hid}/refresh -->
+      <div class="endpoint" id="hosts-refresh">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-POST">POST</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/refresh</span>
+          <span class="endpoint-summary">Re-collect metrics, patch info, and VMs</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Triggers a full data refresh: metrics → patch → VMs. Each step is independent. If the host is unreachable, patch and VM steps are skipped to avoid long timeouts. Results are saved to DB.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">{</span><span class="j-key">"status"</span><span class="j-punct">:</span><span class="j-str">"ok"</span><span class="j-punct">,</span> <span class="j-key">"source"</span><span class="j-punct">:</span><span class="j-str">"live"</span><span class="j-punct">,</span> <span class="j-key">"vms"</span><span class="j-punct">:</span><span class="j-num">8</span><span class="j-punct">,</span> <span class="j-key">"os"</span><span class="j-punct">:</span><span class="j-str">"Ubuntu 22.04 LTS"</span><span class="j-punct">,</span> <span class="j-key">"message"</span><span class="j-punct">:</span><span class="j-str">"Refreshed — Ubuntu 22.04 LTS, 8 VMs"</span><span class="j-punct">}</span></div></div></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">Host not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /hosts/{hid}/metrics -->
+      <div class="endpoint" id="hosts-metrics">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/metrics</span>
+          <span class="endpoint-summary">Get cached metrics for a host</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Returns the most recently cached metrics snapshot for the host. Includes CPU, RAM, disk, storage, NICs, ports, OS info, and hardware details.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><span class="status-desc">Full metrics object including hardware{}, storage[], nics[], active_ports[]</span></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">Host not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /hosts/{hid}/patch -->
+      <div class="endpoint" id="hosts-patch">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/patch</span>
+          <span class="endpoint-summary">Get cached patch status for a host</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">{</span><span class="j-key">"status"</span><span class="j-punct">:</span><span class="j-str">"UPDATES AVAILABLE"</span><span class="j-punct">,</span> <span class="j-key">"updates_available"</span><span class="j-punct">:</span><span class="j-num">14</span><span class="j-punct">,</span> <span class="j-key">"security_updates"</span><span class="j-punct">:</span><span class="j-num">3</span><span class="j-punct">}</span></div></div></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">Host not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST /hosts/{hid}/patch/refresh -->
+      <div class="endpoint" id="hosts-patch-refresh">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-POST">POST</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/patch/refresh</span>
+          <span class="endpoint-summary">Re-collect patch data from the host</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">SSHes into the host and runs apt/yum/dnf to get current package update status. Saves result to DB.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><span class="status-desc">Updated patch object</span></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">Host not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /hosts/{hid}/logs -->
+      <div class="endpoint" id="hosts-logs">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/logs</span>
+          <span class="endpoint-summary">Get event logs for a host</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Returns the InfraCommand event log for a host — collection events, refresh actions, patch events, VM discovery. Up to 500 entries, newest first.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><span class="status-desc">Array of log entries with ts, level, msg, source fields</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST /hosts/{hid}/logs/refresh -->
+      <div class="endpoint" id="hosts-logs-refresh">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-POST">POST</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/logs/refresh</span>
+          <span class="endpoint-summary">Pull live system logs from the host</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">SSHes into the host and pulls the last 100 lines from journalctl / syslog / messages. Saves to DB and returns the entries.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><span class="status-desc">Array of log entries</span></div>
+            <div class="response-row"><span class="status-code s-5xx">500</span><span class="status-desc">SSH connection failed</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST /hosts/{hid}/scan -->
+      <div class="endpoint" id="hosts-scan-post">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-POST">POST</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/scan</span>
+          <span class="endpoint-summary">Run vulnerability scan on a host</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Runs a vulnerability scan against the host and saves the result. Returns CVE findings with severity, CVSS score, and affected package.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><span class="status-desc">Scan result with summary (critical/high/medium/low counts) and vulns[] array</span></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">Host not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /hosts/{hid}/scan -->
+      <div class="endpoint" id="hosts-scan-get">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/scan</span>
+          <span class="endpoint-summary">Get stored scan result for a host</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><span class="status-desc">Stored scan result</span></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">No scan — run a scan first</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST /hosts/{hid}/portscan -->
+      <div class="endpoint" id="hosts-portscan">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-POST">POST</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/portscan</span>
+          <span class="endpoint-summary">Run a TCP port scan on a host</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Scans common TCP ports on the host's IP and returns open/closed status with service identification.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">{</span><span class="j-key">"ip"</span><span class="j-punct">:</span><span class="j-str">"192.168.101.32"</span><span class="j-punct">,</span> <span class="j-key">"ports"</span><span class="j-punct">:</span><span class="j-punct">[{</span><span class="j-key">"port"</span><span class="j-punct">:</span><span class="j-num">22</span><span class="j-punct">,</span><span class="j-key">"state"</span><span class="j-punct">:</span><span class="j-str">"open"</span><span class="j-punct">,</span><span class="j-key">"service"</span><span class="j-punct">:</span><span class="j-str">"ssh"</span><span class="j-punct">}],</span> <span class="j-key">"scanned_at"</span><span class="j-punct">:</span><span class="j-str">"..."</span><span class="j-punct">}</span></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         SECTION: VMs
+    ════════════════════════════════════════════════════ -->
+    <div class="section">
+      <div class="section-title">Virtual Machines</div>
+
+      <!-- GET /hosts/{hid}/vms -->
+      <div class="endpoint" id="vms-list">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/vms</span>
+          <span class="endpoint-summary">List VMs on a host</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Returns the cached list of VMs discovered on the host. Each VM includes status, IP, vCPU, RAM, disk, NICs, storage, and live metrics.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">[{</span>
+  <span class="j-key">"id"</span><span class="j-punct">:</span>         <span class="j-str">"vm-h3a9f1b2c-DC-JAVADEV-01"</span><span class="j-punct">,</span>
+  <span class="j-key">"name"</span><span class="j-punct">:</span>       <span class="j-str">"DC-JAVADEV-01"</span><span class="j-punct">,</span>
+  <span class="j-key">"status"</span><span class="j-punct">:</span>     <span class="j-str">"running"</span><span class="j-punct">,</span>
+  <span class="j-key">"ip"</span><span class="j-punct">:</span>         <span class="j-str">"192.168.101.45"</span><span class="j-punct">,</span>
+  <span class="j-key">"vcpu"</span><span class="j-punct">:</span>       <span class="j-num">4</span><span class="j-punct">,</span>
+  <span class="j-key">"ram_mb"</span><span class="j-punct">:</span>     <span class="j-num">16384</span><span class="j-punct">,</span>
+  <span class="j-key">"disk_gb"</span><span class="j-punct">:</span>    <span class="j-num">80.0</span><span class="j-punct">,</span>
+  <span class="j-key">"hypervisor"</span><span class="j-punct">:</span> <span class="j-str">"KVM"</span><span class="j-punct">,</span>
+  <span class="j-key">"os"</span><span class="j-punct">:</span>         <span class="j-str">"Linux"</span><span class="j-punct">,</span>
+  <span class="j-key">"metrics"</span><span class="j-punct">:</span>    <span class="j-punct">{</span><span class="j-key">"cpu"</span><span class="j-punct">:</span><span class="j-num">34.1</span><span class="j-punct">,</span><span class="j-key">"ram"</span><span class="j-punct">:</span><span class="j-num">58.7</span><span class="j-punct">},</span>
+  <span class="j-key">"nics"</span><span class="j-punct">:</span>       <span class="j-punct">[...],</span>
+  <span class="j-key">"storage"</span><span class="j-punct">:</span>    <span class="j-punct">[...]</span>
+<span class="j-punct">}]</span></div></div></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">Host not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST /hosts/{hid}/vms/refresh -->
+      <div class="endpoint" id="vms-refresh">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-POST">POST</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/vms/refresh</span>
+          <span class="endpoint-summary">Re-discover VMs on a host</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Runs VM discovery via <code>virsh</code> (KVM) or Hyper-V PowerShell. Replaces the entire cached VM list for the host. Ghost <code>guestfs-*</code> domains are automatically filtered out.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">{</span><span class="j-key">"count"</span><span class="j-punct">:</span><span class="j-num">8</span><span class="j-punct">,</span> <span class="j-key">"vms"</span><span class="j-punct">:</span><span class="j-punct">[...]}</span></div></div></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">Host not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST /hosts/{hid}/vms/{vid}/promote -->
+      <div class="endpoint" id="vms-promote">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-POST">POST</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/vms/<span class="param">{vid}</span>/promote</span>
+          <span class="endpoint-summary">Promote a VM to a standalone monitored host</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Registers a discovered VM as its own standalone host entry so it can be monitored independently with full metrics, patch, and log collection.</div>
+          <div class="body-title">Request Body</div>
+          <div class="code-block"><span class="j-punct">{</span>
+  <span class="j-key">"username"</span><span class="j-punct">:</span> <span class="j-str">"root"</span><span class="j-punct">,</span>    <span class="j-null">// required</span>
+  <span class="j-key">"password"</span><span class="j-punct">:</span> <span class="j-str">"secret"</span><span class="j-punct">,</span>   <span class="j-null">// required</span>
+  <span class="j-key">"ssh_key"</span><span class="j-punct">:</span>  <span class="j-null">null</span><span class="j-punct">,</span>
+  <span class="j-key">"port"</span><span class="j-punct">:</span>     <span class="j-num">22</span>
+<span class="j-punct">}</span></div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">{</span><span class="j-key">"status"</span><span class="j-punct">:</span><span class="j-str">"ok"</span><span class="j-punct">,</span> <span class="j-key">"host_id"</span><span class="j-punct">:</span><span class="j-str">"h7b2c3d4e"</span><span class="j-punct">,</span> <span class="j-key">"message"</span><span class="j-punct">:</span><span class="j-str">"DC-JAVADEV-01 added as standalone host"</span><span class="j-punct">}</span></div></div></div>
+            <div class="response-row"><span class="status-code s-4xx">400</span><span class="status-desc">username and password required</span></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">VM not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PATCH /hosts/{hid}/vms/{vid}/ip -->
+      <div class="endpoint" id="vms-ip">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-PATCH">PATCH</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/vms/<span class="param">{vid}</span>/ip</span>
+          <span class="endpoint-summary">Manually set a VM's IP address</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Allows manually overriding a VM's IP address. Useful for macvtap direct-mode VMs where automatic detection fails. The IP is flagged as <code>manual_ip: true</code> and preserved across refreshes.</div>
+          <div class="body-title">Request Body</div>
+          <div class="code-block"><span class="j-punct">{</span><span class="j-key">"ip"</span><span class="j-punct">:</span> <span class="j-str">"192.168.101.55"</span><span class="j-punct">}</span></div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">{</span><span class="j-key">"status"</span><span class="j-punct">:</span><span class="j-str">"ok"</span><span class="j-punct">,</span> <span class="j-key">"ip"</span><span class="j-punct">:</span><span class="j-str">"192.168.101.55"</span><span class="j-punct">}</span></div></div></div>
+            <div class="response-row"><span class="status-code s-4xx">400</span><span class="status-desc">ip required</span></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">VM not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /hosts/{hid}/vms/{vid}/logs -->
+      <div class="endpoint" id="vms-logs">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/vms/<span class="param">{vid}</span>/logs</span>
+          <span class="endpoint-summary">Get logs for a specific VM</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Returns VM-specific logs from InfraCommand's event store. Falls back to filtering host logs by VM name if no VM-specific entries exist.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><span class="status-desc">Array of log entries</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST /hosts/{hid}/vms/{vid}/scan -->
+      <div class="endpoint" id="vms-scan-post">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-POST">POST</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/vms/<span class="param">{vid}</span>/scan</span>
+          <span class="endpoint-summary">Run vulnerability scan on a VM</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Runs a CVE vulnerability scan against the VM's IP and saves the result.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><span class="status-desc">Scan result with CVE findings</span></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">Host or VM not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GET /hosts/{hid}/vms/{vid}/scan -->
+      <div class="endpoint" id="vms-scan-get">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/vms/<span class="param">{vid}</span>/scan</span>
+          <span class="endpoint-summary">Get stored scan result for a VM</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><span class="status-desc">Stored scan result</span></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">No scan — run a scan first</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST /hosts/{hid}/vms/{vid}/portscan -->
+      <div class="endpoint" id="vms-portscan">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-POST">POST</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/vms/<span class="param">{vid}</span>/portscan</span>
+          <span class="endpoint-summary">Run a TCP port scan on a VM</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Scans common TCP ports on the VM's IP address.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><span class="status-desc">Port scan results with open/closed state and service names</span></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">VM not found</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         SECTION: DEBUG
+    ════════════════════════════════════════════════════ -->
+    <div class="section">
+      <div class="section-title">Debug</div>
+
+      <!-- GET /hosts/{hid}/debug/vm-ips -->
+      <div class="endpoint" id="debug-vmips">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-GET">GET</span>
+          <span class="endpoint-path">/api/hosts/<span class="param">{hid}</span>/debug/vm-ips</span>
+          <span class="endpoint-summary">Raw VM IP detection output for debugging</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">SSHes into the host and runs all VM IP detection commands, returning their raw output. Useful for diagnosing why a VM's IP cannot be auto-detected. Returns: virsh list, domifaddr, domiflist, ARP table, ip neigh per VM.</div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">{</span>
+  <span class="j-key">"virsh_list"</span><span class="j-punct">:</span> <span class="j-str">"Id   Name         State\n---  ----------   -------\n 1   DC-JAVADEV   running"</span><span class="j-punct">,</span>
+  <span class="j-key">"vms"</span><span class="j-punct">:</span> <span class="j-punct">{</span>
+    <span class="j-key">"DC-JAVADEV-01"</span><span class="j-punct">:</span> <span class="j-punct">{</span>
+      <span class="j-key">"state"</span><span class="j-punct">:</span>    <span class="j-str">"running"</span><span class="j-punct">,</span>
+      <span class="j-key">"domifaddr"</span><span class="j-punct">:</span> <span class="j-str">"..."</span><span class="j-punct">,</span>
+      <span class="j-key">"domiflist"</span><span class="j-punct">:</span> <span class="j-str">"..."</span><span class="j-punct">,</span>
+      <span class="j-key">"macs"</span><span class="j-punct">:</span>     <span class="j-punct">[</span><span class="j-str">"52:54:00:ab:cd:ef"</span><span class="j-punct">],</span>
+      <span class="j-key">"arp_52:54:00:ab:cd:ef"</span><span class="j-punct">:</span> <span class="j-str">"192.168.101.45 ether 52:54:00:ab:cd:ef"</span>
+    <span class="j-punct">}</span>
+  <span class="j-punct">}</span>
+<span class="j-punct">}</span></div></div></div>
+            <div class="response-row"><span class="status-code s-4xx">404</span><span class="status-desc">Host not found</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POST /debug/connect -->
+      <div class="endpoint" id="debug-connect">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method method-POST">POST</span>
+          <span class="endpoint-path">/api/debug/connect</span>
+          <span class="endpoint-summary">Full diagnostic — TCP, SSH, metrics with detailed errors</span>
+          <span class="chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="body-desc">Runs a complete connectivity and metrics diagnostic against any host. Returns a step-by-step result for TCP port check, SSH/WinRM auth, and metrics collection. Full exception details included — used by the Debug Console tab.</div>
+          <div class="body-title">Request Body</div>
+          <div class="code-block"><span class="j-punct">{</span>
+  <span class="j-key">"name"</span><span class="j-punct">:</span>     <span class="j-str">"debug"</span><span class="j-punct">,</span>
+  <span class="j-key">"ip"</span><span class="j-punct">:</span>       <span class="j-str">"192.168.101.32"</span><span class="j-punct">,</span>
+  <span class="j-key">"os_type"</span><span class="j-punct">:</span>  <span class="j-str">"linux"</span><span class="j-punct">,</span>
+  <span class="j-key">"username"</span><span class="j-punct">:</span> <span class="j-str">"root"</span><span class="j-punct">,</span>
+  <span class="j-key">"password"</span><span class="j-punct">:</span> <span class="j-str">"secret"</span><span class="j-punct">,</span>
+  <span class="j-key">"ssh_port"</span><span class="j-punct">:</span> <span class="j-num">22</span>
+<span class="j-punct">}</span></div>
+          <div class="response-title">Responses</div>
+          <div class="responses">
+            <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">{</span>
+  <span class="j-key">"ip"</span><span class="j-punct">:</span> <span class="j-str">"192.168.101.32"</span><span class="j-punct">,</span>
+  <span class="j-key">"steps"</span><span class="j-punct">:</span> <span class="j-punct">[</span>
+    <span class="j-punct">{</span><span class="j-key">"step"</span><span class="j-punct">:</span><span class="j-str">"TCP:22"</span><span class="j-punct">,</span>  <span class="j-key">"ok"</span><span class="j-punct">:</span><span class="j-bool">true</span><span class="j-punct">,</span>  <span class="j-key">"detail"</span><span class="j-punct">:</span><span class="j-str">"rc=0"</span><span class="j-punct">},</span>
+    <span class="j-punct">{</span><span class="j-key">"step"</span><span class="j-punct">:</span><span class="j-str">"SSH"</span><span class="j-punct">,</span>     <span class="j-key">"ok"</span><span class="j-punct">:</span><span class="j-bool">true</span><span class="j-punct">,</span>  <span class="j-key">"detail"</span><span class="j-punct">:</span><span class="j-str">"authenticated"</span><span class="j-punct">},</span>
+    <span class="j-punct">{</span><span class="j-key">"step"</span><span class="j-punct">:</span><span class="j-str">"Metrics"</span><span class="j-punct">,</span> <span class="j-key">"ok"</span><span class="j-punct">:</span><span class="j-bool">true</span><span class="j-punct">,</span>  <span class="j-key">"detail"</span><span class="j-punct">:</span><span class="j-str">"CPU:34% RAM:62% Disk:55%"</span><span class="j-punct">}</span>
+  <span class="j-punct">],</span>
+  <span class="j-key">"error"</span><span class="j-punct">:</span> <span class="j-null">null</span>
+<span class="j-punct">}</span></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:60px;padding-top:24px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);display:flex;justify-content:space-between;">
+      <span>InfraCommand API v3.0.0 · FastAPI + SQLite</span>
+      <span>Built-in Swagger UI available at <code style="font-family:var(--mono);color:var(--accent)">/api/docs</code></span>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ── Toggle endpoint open/close ──
+function toggle(header) {
+  const ep = header.closest('.endpoint');
+  ep.classList.toggle('open');
+}
+
+// ── Sidebar nav active ──
+function scrollTo(id) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('open');
+  }
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+}
+
+// ── Base URL update ──
+function updateBaseUrls() {
+  const base = document.getElementById('baseUrlInput').value.replace(/\/$/, '');
+  document.querySelectorAll('.base-url-field').forEach(input => {
+    const path = input.value.replace(/^https?:\/\/[^\/]+/, '');
+    input.value = base + path;
+  });
+}
+
+// ── Search nav ──
+function filterNav(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.style.display = item.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+  document.querySelectorAll('.nav-label').forEach(label => {
+    const group = label.closest('.nav-group');
+    const visible = [...group.querySelectorAll('.nav-item')].some(i => i.style.display !== 'none');
+    label.style.display = visible ? '' : 'none';
+  });
+}
+
+// ── Try it out ──
+async function tryIt(btn, method, path) {
+  const base = document.getElementById('baseUrlInput').value.replace(/\/$/, '');
+  const url = base + path;
+  const panel = btn.closest('.try-panel');
+  const result = panel.querySelector('.try-result');
+  const code = result.querySelector('.code-block');
+
+  btn.textContent = 'Loading…';
+  btn.disabled = true;
+  result.classList.add('show');
+  code.textContent = 'Fetching…';
+
+  try {
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' } });
+    const text = await res.text();
+    let pretty;
+    try {
+      pretty = JSON.stringify(JSON.parse(text), null, 2);
+    } catch {
+      pretty = text;
+    }
+    code.style.color = res.ok ? '#86efac' : '#fca5a5';
+    code.textContent = `HTTP ${res.status}\n\n${pretty}`;
+  } catch (e) {
+    code.style.color = '#fca5a5';
+    code.textContent = `Error: ${e.message}\n\nMake sure InfraCommand backend is running and the base URL is correct.`;
+  }
+
+  btn.textContent = 'Execute';
+  btn.disabled = false;
+}
+
+// ── Highlight active nav on scroll ──
+const endpoints = document.querySelectorAll('.endpoint[id]');
+const navItems  = document.querySelectorAll('.nav-item');
+
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      navItems.forEach(n => n.classList.remove('active'));
+      const target = document.querySelector(`.nav-item[onclick*="'${entry.target.id}'"]`);
+      if (target) target.classList.add('active');
+    }
+  });
+}, { threshold: 0.3, rootMargin: '-10% 0px -60% 0px' });
+
+endpoints.forEach(ep => obs.observe(ep));
+</script>
+</body>
+</html>
