@@ -610,7 +610,7 @@ body {
       </a>
       <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
         <span style="font-size:11px;color:var(--muted)">Base URL:</span>
-        <input id="baseUrlInput" value="http://localhost:8000" style="font-family:var(--mono);font-size:11px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);outline:none;width:220px;" oninput="updateBaseUrls()"/>
+        <input id="baseUrlInput" value="http://192.168.101.80:32302" style="font-family:var(--mono);font-size:11px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);outline:none;width:220px;" oninput="updateBaseUrls()"/>
       </div>
     </div>
 
@@ -649,7 +649,7 @@ body {
 <span class="j-punct">}</span></div></div></div>
           </div>
           <div class="try-panel"><div class="try-title">▶ Try it out</div>
-            <input class="try-url base-url-field" value="http://localhost:8000/api/summary" readonly/>
+            <input class="try-url base-url-field" value="http://192.168.101.80:32302/api/summary" readonly/>
             <button class="try-btn" onclick="tryIt(this, 'GET', '/api/summary')">Execute</button>
             <div class="try-result"><div class="code-block"></div></div>
           </div>
@@ -681,7 +681,7 @@ body {
 <span class="j-punct">}</span></div></div></div>
           </div>
           <div class="try-panel"><div class="try-title">▶ Try it out</div>
-            <input class="try-url base-url-field" value="http://localhost:8000/api/overview" readonly/>
+            <input class="try-url base-url-field" value="http://192.168.101.80:32302/api/overview" readonly/>
             <button class="try-btn" onclick="tryIt(this, 'GET', '/api/overview')">Execute</button>
             <div class="try-result"><div class="code-block"></div></div>
           </div>
@@ -724,7 +724,7 @@ body {
 <span class="j-punct">}]</span></div></div></div>
           </div>
           <div class="try-panel"><div class="try-title">▶ Try it out</div>
-            <input class="try-url base-url-field" value="http://localhost:8000/api/capacity" readonly/>
+            <input class="try-url base-url-field" value="http://192.168.101.80:32302/api/capacity" readonly/>
             <button class="try-btn" onclick="tryIt(this, 'GET', '/api/capacity')">Execute</button>
             <div class="try-result"><div class="code-block"></div></div>
           </div>
@@ -746,7 +746,7 @@ body {
             <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">[{</span><span class="j-key">"hour"</span><span class="j-punct">:</span><span class="j-str">"00:00"</span><span class="j-punct">,</span> <span class="j-key">"cpu"</span><span class="j-punct">:</span><span class="j-num">34.1</span><span class="j-punct">,</span> <span class="j-key">"ram"</span><span class="j-punct">:</span><span class="j-num">58.7</span><span class="j-punct">}, ...]</span></div></div></div>
           </div>
           <div class="try-panel"><div class="try-title">▶ Try it out</div>
-            <input class="try-url base-url-field" value="http://localhost:8000/api/metrics/history" readonly/>
+            <input class="try-url base-url-field" value="http://192.168.101.80:32302/api/metrics/history" readonly/>
             <button class="try-btn" onclick="tryIt(this, 'GET', '/api/metrics/history')">Execute</button>
             <div class="try-result"><div class="code-block"></div></div>
           </div>
@@ -775,7 +775,7 @@ body {
 <span class="j-punct">}]</span></div></div></div>
           </div>
           <div class="try-panel"><div class="try-title">▶ Try it out</div>
-            <input class="try-url base-url-field" value="http://localhost:8000/api/alerts" readonly/>
+            <input class="try-url base-url-field" value="http://192.168.101.80:32302/api/alerts" readonly/>
             <button class="try-btn" onclick="tryIt(this, 'GET', '/api/alerts')">Execute</button>
             <div class="try-result"><div class="code-block"></div></div>
           </div>
@@ -797,7 +797,7 @@ body {
             <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">[{</span><span class="j-key">"host"</span><span class="j-punct">:</span><span class="j-str">"dc-hyper-31"</span><span class="j-punct">,</span> <span class="j-key">"status"</span><span class="j-punct">:</span><span class="j-str">"UPDATES AVAILABLE"</span><span class="j-punct">,</span> <span class="j-key">"updates_available"</span><span class="j-punct">:</span><span class="j-num">14</span><span class="j-punct">,</span> <span class="j-key">"security_updates"</span><span class="j-punct">:</span><span class="j-num">3</span><span class="j-punct">}]</span></div></div></div>
           </div>
           <div class="try-panel"><div class="try-title">▶ Try it out</div>
-            <input class="try-url base-url-field" value="http://localhost:8000/api/patches" readonly/>
+            <input class="try-url base-url-field" value="http://192.168.101.80:32302/api/patches" readonly/>
             <button class="try-btn" onclick="tryIt(this, 'GET', '/api/patches')">Execute</button>
             <div class="try-result"><div class="code-block"></div></div>
           </div>
@@ -827,7 +827,7 @@ body {
             <div class="response-row"><span class="status-code s-2xx">200</span><div class="status-desc"><div class="code-block"><span class="j-punct">[{</span><span class="j-key">"ts"</span><span class="j-punct">:</span><span class="j-str">"2025-01-15T08:32:00Z"</span><span class="j-punct">,</span> <span class="j-key">"level"</span><span class="j-punct">:</span><span class="j-str">"INFO"</span><span class="j-punct">,</span> <span class="j-key">"host"</span><span class="j-punct">:</span><span class="j-str">"dc-hyper-31"</span><span class="j-punct">,</span> <span class="j-key">"msg"</span><span class="j-punct">:</span><span class="j-str">"Metrics collected — CPU:34% RAM:62%"</span><span class="j-punct">,</span> <span class="j-key">"source"</span><span class="j-punct">:</span><span class="j-str">"metrics"</span><span class="j-punct">}]</span></div></div></div>
           </div>
           <div class="try-panel"><div class="try-title">▶ Try it out</div>
-            <input class="try-url base-url-field" value="http://localhost:8000/api/logs?limit=50" readonly/>
+            <input class="try-url base-url-field" value="http://192.168.101.80:32302/api/logs?limit=50" readonly/>
             <button class="try-btn" onclick="tryIt(this, 'GET', '/api/logs?limit=50')">Execute</button>
             <div class="try-result"><div class="code-block"></div></div>
           </div>
@@ -845,7 +845,7 @@ body {
         <div class="endpoint-body">
           <div class="body-desc">Returns all stored vulnerability scan results for hosts and VMs.</div>
           <div class="try-panel"><div class="try-title">▶ Try it out</div>
-            <input class="try-url base-url-field" value="http://localhost:8000/api/scans" readonly/>
+            <input class="try-url base-url-field" value="http://192.168.101.80:32302/api/scans" readonly/>
             <button class="try-btn" onclick="tryIt(this, 'GET', '/api/scans')">Execute</button>
             <div class="try-result"><div class="code-block"></div></div>
           </div>
@@ -863,7 +863,7 @@ body {
         <div class="endpoint-body">
           <div class="body-desc">Returns the PowerShell commands needed to configure WinRM on a Windows host so InfraCommand can connect to it.</div>
           <div class="try-panel"><div class="try-title">▶ Try it out</div>
-            <input class="try-url base-url-field" value="http://localhost:8000/api/winrm-setup" readonly/>
+            <input class="try-url base-url-field" value="http://192.168.101.80:32302/api/winrm-setup" readonly/>
             <button class="try-btn" onclick="tryIt(this, 'GET', '/api/winrm-setup')">Execute</button>
             <div class="try-result"><div class="code-block"></div></div>
           </div>
@@ -921,7 +921,7 @@ body {
         <div class="endpoint-body">
           <div class="body-desc">Returns all registered hosts with their cached metrics, VM list, and patch status. Passwords and SSH keys are masked.</div>
           <div class="try-panel"><div class="try-title">▶ Try it out</div>
-            <input class="try-url base-url-field" value="http://localhost:8000/api/hosts" readonly/>
+            <input class="try-url base-url-field" value="http://192.168.101.80:32302/api/hosts" readonly/>
             <button class="try-btn" onclick="tryIt(this, 'GET', '/api/hosts')">Execute</button>
             <div class="try-result"><div class="code-block"></div></div>
           </div>
