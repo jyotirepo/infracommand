@@ -1531,27 +1531,44 @@ function Overview({hosts,summary,history}) {
 // ── Patches ───────────────────────────────────────────────────────────────────
 // ── Capacity Planning ─────────────────────────────────────────────────────────
 function CapacityPlanning() {
-  const [data,setData]=useState([]);
-  const [busy,setBusy]=useState(false);
-  const [sel,setSel]=useState(null); // selected host for drill-down
-  const [hostFilter,setHostFilter]=useState("all");
+  const [data,setData]         = useState([]);
+  const [busy,setBusy]         = useState(false);
+  const [err,setErr]           = useState("");           // FIX 1: was missing — caused crash on load
+  const [sel,setSel]           = useState(null);         // selected host_id for drill-down
+  const [hostFilter,setHostFilter] = useState("all");
 
-  const load=async()=>{
+  // FIX 2: selectedHost derived from sel + data (was never declared before)
+  const selectedHost = sel ? data.find(h=>h.host_id===sel) || null : null;
+
+  // FIX 3: helper functions missing from this scope
+  const gb = v => { const x=Number(v); return Number.isFinite(x)&&x>0?`${x} GB`:"—"; };
+  const txt = v => (v==null||v===""||v===undefined) ? "—" : String(v);
+
+  // FIX 4: StatCard was used but never defined anywhere in the file
+  const StatCard = ({label,value,sub,color}) => (
+    <div className="card" style={{padding:14}}>
+      <div style={{fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{label}</div>
+      <div style={{fontSize:22,fontWeight:700,color:color||T.text}}>{value}</div>
+      {sub&&<div style={{fontSize:11,color:T.muted,marginTop:3}}>{sub}</div>}
+    </div>
+  );
+
+  const load = async () => {
     setBusy(true);
     setErr("");
-    try{
-      const r=await api.get("/capacity");
+    try {
+      const r = await api.get("/capacity");
       setData(Array.isArray(r.data) ? r.data : []);
-    }catch(e){
+    } catch(e) {
       setData([]);
       setErr(e.response?.data?.detail || e.message || "Failed to load capacity data");
     }
     setBusy(false);
   };
-  useEffect(()=>{load();},[]);
+  useEffect(()=>{ load(); },[]);
 
-  const CommitBar=({pct,warn=80,crit=100})=>{
-    const color=pct>=crit?T.red:pct>=warn?T.amber:T.green;
+  const CommitBar = ({pct,warn=80,crit=100}) => {
+    const color = pct>=crit ? T.red : pct>=warn ? T.amber : T.green;
     return (
       <div style={{height:6,background:"#f1f5f9",borderRadius:3,minWidth:60}}>
         <div style={{height:6,borderRadius:3,transition:"width .3s",
@@ -1560,43 +1577,37 @@ function CapacityPlanning() {
     );
   };
 
-  const n=v=>{
-    const x=Number(v);
-    return Number.isFinite(x)?x:0;
-  };
+  const n = v => { const x=Number(v); return Number.isFinite(x)?x:0; };
 
-  const hostOptions=data.map(h=>({ id:h.host_id, name:h.host_name }));
-  const filteredData=hostFilter==="all" ? data : data.filter(h=>h.host_id===hostFilter);
+  const hostOptions  = data.map(h=>({ id:h.host_id, name:h.host_name }));
+  const filteredData = hostFilter==="all" ? data : data.filter(h=>h.host_id===hostFilter);
 
-  // Totals row
-  const totals=filteredData.reduce((a,h)=>({
-    vcpus:        a.vcpus       +n(h.cpu_vcpus),
-    vcpu_alloc:   a.vcpu_alloc  +n(h.vm_vcpu_alloc),
-    ram:          a.ram         +n(h.ram_total_gb),
-    ram_alloc:    a.ram_alloc   +n(h.vm_ram_alloc_gb),
-    disk:         a.disk        +n(h.disk_total_gb),
-    disk_used:    a.disk_used   +n(h.disk_used_gb),
-    disk_alloc:   a.disk_alloc  +n(h.vm_disk_alloc_gb),
-    disk_free:    a.disk_free   +n(h.free_disk_gb),
-    vms:          a.vms         +n(h.vm_count),
+  // Aggregate totals across filtered hosts
+  const totals = filteredData.reduce((a,h)=>({
+    vcpus:      a.vcpus      + n(h.cpu_vcpus),
+    vcpu_alloc: a.vcpu_alloc + n(h.vm_vcpu_alloc),
+    ram:        a.ram        + n(h.ram_total_gb),
+    ram_alloc:  a.ram_alloc  + n(h.vm_ram_alloc_gb),
+    disk:       a.disk       + n(h.disk_total_gb),
+    disk_used:  a.disk_used  + n(h.disk_used_gb),
+    disk_alloc: a.disk_alloc + n(h.vm_disk_alloc_gb),
+    disk_free:  a.disk_free  + n(h.free_disk_gb),
+    vms:        a.vms        + n(h.vm_count),
   }),{vcpus:0,vcpu_alloc:0,ram:0,ram_alloc:0,disk:0,disk_used:0,disk_alloc:0,disk_free:0,vms:0});
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
-      {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+
+      {/* ── Header ── */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
         <div>
           <div style={{fontWeight:700,fontSize:16}}>Capacity Planning</div>
           <div style={{fontSize:12,color:T.muted,marginTop:2}}>
-            Data is shown from the database snapshot for each host and updates after refresh saves new values.
+            Snapshot data from last Refresh on each host. Run ↻ Refresh per host to update.
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <select
-            value={hostFilter}
-            onChange={e=>{ setHostFilter(e.target.value); setSel(null); }}
-            style={{minWidth:200}}
-          >
+          <select value={hostFilter} onChange={e=>{ setHostFilter(e.target.value); setSel(null); }} style={{minWidth:200}}>
             <option value="all">All Hosts</option>
             {hostOptions.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}
           </select>
@@ -1606,16 +1617,23 @@ function CapacityPlanning() {
         </div>
       </div>
 
-      {/* Totals summary */}
+      {/* ── Error banner ── */}
+      {err&&(
+        <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:6,padding:"10px 14px",color:"#b91c1c",fontSize:13}}>
+          ⚠️ {err}
+        </div>
+      )}
+
+      {/* ── Summary cards ── */}
       {filteredData.length>0&&(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
           {[
-            ["Total vCPUs",`${totals.vcpus}`,`${totals.vcpu_alloc} allocated`,T.blue],
-            ["Free vCPUs",`${totals.vcpus-totals.vcpu_alloc}`,`${totals.vcpus?Math.round((totals.vcpus-totals.vcpu_alloc)/totals.vcpus*100):0}% available`,T.green],
-            ["Total RAM",`${totals.ram.toFixed(0)} GB`,`${totals.ram_alloc.toFixed(1)} GB allocated`,T.blue],
-            ["Free RAM",`${(totals.ram-totals.ram_alloc).toFixed(1)} GB`,`${totals.ram?Math.round((totals.ram-totals.ram_alloc)/totals.ram*100):0}% available`,T.green],
-            ["Local Storage",`${totals.disk.toFixed(0)} GB`,`${totals.disk_used.toFixed(1)} GB used (${totals.disk_free.toFixed(1)} GB free)`,T.blue],
-            ["Total VMs",`${totals.vms}`,`across ${filteredData.length} host(s)`,T.purple],
+            ["Total vCPUs",       `${totals.vcpus}`,                                                   `${totals.vcpu_alloc} allocated`,                                                  T.blue],
+            ["Free vCPUs",        `${totals.vcpus-totals.vcpu_alloc}`,                                 `${totals.vcpus?Math.round((totals.vcpus-totals.vcpu_alloc)/totals.vcpus*100):0}% available`, T.green],
+            ["Total RAM",         `${totals.ram.toFixed(0)} GB`,                                        `${totals.ram_alloc.toFixed(1)} GB allocated`,                                      T.blue],
+            ["Free RAM",          `${(totals.ram-totals.ram_alloc).toFixed(1)} GB`,                    `${totals.ram?Math.round((totals.ram-totals.ram_alloc)/totals.ram*100):0}% available`,T.green],
+            ["Local Storage",     `${totals.disk.toFixed(0)} GB`,                                       `${totals.disk_used.toFixed(1)} GB used · ${totals.disk_free.toFixed(1)} GB free`,  T.blue],
+            ["Total VMs",         `${totals.vms}`,                                                      `across ${filteredData.length} host(s)`,                                            T.purple],
           ].map(([l,v,s,c])=>(
             <div key={l} className="card" style={{padding:12}}>
               <div style={{fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>{l}</div>
@@ -1626,71 +1644,115 @@ function CapacityPlanning() {
         </div>
       )}
 
-      <div className="card shadow" style={{padding:0,overflow:"hidden"}}>
-        <table style={{width:"100%",borderCollapse:"collapse"}}>
+      {/* ── Main table ── */}
+      <div className="card shadow" style={{padding:0,overflow:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
           <thead>
             <tr style={{background:"#f8fafc",borderBottom:`2px solid ${T.border}`}}>
-              {["Host","CPU","vCPU Total","vCPU Used","vCPU Free","RAM Total","RAM Used","RAM Free","Storage Total","Storage Used","Storage Free","VMs"].map(col=>(
-                <th key={col} style={{padding:"10px 12px",fontSize:10,fontWeight:700,color:T.muted,textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{col}</th>
+              {/* FIX 5: table had 12 headers but only 11 data cells — "Storage Used" cell was missing */}
+              {["Host","CPU Model","vCPU Total","vCPU Used","vCPU Free","RAM Total","RAM Used","RAM Free","Disk Total","Disk Used","Disk Free","VMs"].map(col=>(
+                <th key={col} style={{padding:"10px 12px",fontSize:10,fontWeight:700,color:T.muted,
+                  textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{col}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {filteredData.map((h,i)=>{
-              const vcpuPct  = h.cpu_vcpus  ? Math.round(h.vm_vcpu_alloc/h.cpu_vcpus*100)  : 0;
-              const ramPct   = h.ram_total_gb ? Math.round(h.vm_ram_alloc_gb/h.ram_total_gb*100) : 0;
-              const diskPct  = h.disk_total_gb ? Math.round(h.vm_disk_alloc_gb/h.disk_total_gb*100): 0;
-              const isSel    = sel===h.host_id;
-              const missing  = h.hw_missing;
+              const vcpuPct = h.cpu_vcpus    ? Math.round(n(h.vm_vcpu_alloc)/n(h.cpu_vcpus)*100)       : 0;
+              const ramPct  = h.ram_total_gb  ? Math.round(n(h.vm_ram_alloc_gb)/n(h.ram_total_gb)*100)  : 0;
+              const diskPct = h.disk_total_gb ? Math.round(n(h.disk_used_gb)/n(h.disk_total_gb)*100)    : 0;
+              const isSel   = sel===h.host_id;
+              const missing = h.hw_missing;
               return (
                 <React.Fragment key={h.host_id}>
-                  {/* Warning row for hosts needing a Refresh */}
+                  {/* Warning banner for hosts that need a Refresh */}
                   {missing&&(
                     <tr style={{background:"#fffbeb"}}>
-                      <td colSpan={12} style={{padding:"6px 12px",fontSize:11,color:"#92400e"}}>
+                      <td colSpan={12} style={{padding:"6px 14px",fontSize:11,color:"#92400e"}}>
                         ⚠️ <strong>{h.host_name}</strong> — hardware inventory not yet collected.
-                        Click <strong>↻ Refresh</strong> on this host in the Infrastructure tab to populate CPU/RAM/Disk totals.
+                        Go to <strong>Infrastructure</strong> tab → select this host → click <strong>↻ Refresh</strong>.
                       </td>
                     </tr>
                   )}
+
+                  {/* Main data row — click to expand VM drill-down */}
                   <tr style={{borderBottom:`1px solid ${T.border}`,cursor:"pointer",
                     background:isSel?"#eff6ff":missing?"#fffbeb":i%2===0?"#fff":"#fafbfc"}}
                     onClick={()=>setSel(isSel?null:h.host_id)}>
+
+                    {/* Host name + IP */}
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,fontSize:12}}>{h.host_name}</div>
                       <div style={{fontSize:10,color:T.muted,fontFamily:"IBM Plex Mono"}}>{h.host_ip}</div>
                     </td>
-                    <td style={{padding:"10px 12px",fontSize:11,color:T.sub,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
-                      title={h.cpu_model}>{h.cpu_model||<span style={{color:T.amber,fontSize:10}}>↻ Refresh needed</span>}</td>
-                    <td style={{padding:"10px 12px"}}>
-                      <div style={{fontWeight:700,fontSize:13,color:T.blue}}>{h.cpu_pcores||"—"}</div>
-                      <div style={{fontSize:10,color:T.muted}}>{h.cpu_sockets} socket{h.cpu_sockets!==1?"s":""} × {h.cpu_pcores&&h.cpu_sockets?Math.round(h.cpu_pcores/h.cpu_sockets):0} cores</div>
+
+                    {/* CPU Model */}
+                    <td style={{padding:"10px 12px",fontSize:11,color:T.sub,maxWidth:160,
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={h.cpu_model}>
+                      {h.cpu_model||<span style={{color:T.amber,fontSize:10}}>↻ Refresh needed</span>}
+                      {h.cpu_model&&<div style={{fontSize:9,color:T.muted}}>{h.cpu_sockets} socket{h.cpu_sockets!==1?"s":""} · {h.cpu_pcores} cores · {h.threads_per_core}t</div>}
                     </td>
+
+                    {/* vCPU Total */}
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,color:T.blue}}>{h.cpu_vcpus||"—"}</div>
-                      <div style={{fontSize:10,color:T.muted}}>{h.cpu_pcores} × {h.threads_per_core} threads</div>
                     </td>
+
+                    {/* vCPU Used */}
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,color:vcpuPct>100?T.red:T.text}}>{h.vm_vcpu_alloc}</div>
                       <CommitBar pct={vcpuPct} warn={80} crit={100}/>
                       <div style={{fontSize:9,color:T.muted,marginTop:2}}>{vcpuPct}%</div>
                     </td>
+
+                    {/* vCPU Free */}
                     <td style={{padding:"10px 12px"}}>
-                      <div style={{fontWeight:700,color:h.free_vcpus>0?T.green:T.red}}>{h.free_vcpus}</div>
+                      <div style={{fontWeight:700,color:n(h.free_vcpus)>0?T.green:T.red}}>
+                        {h.free_vcpus!=null?h.free_vcpus:"—"}
+                      </div>
                     </td>
-                    <td style={{padding:"10px 12px",fontWeight:700,color:T.blue}}>{h.ram_total_gb?`${h.ram_total_gb} GB`:"—"}</td>
+
+                    {/* RAM Total */}
+                    <td style={{padding:"10px 12px",fontWeight:700,color:T.blue}}>
+                      {h.ram_total_gb?`${h.ram_total_gb} GB`:"—"}
+                    </td>
+
+                    {/* RAM Used (VM alloc) */}
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,color:ramPct>100?T.red:T.text}}>{h.vm_ram_alloc_gb} GB</div>
                       <CommitBar pct={ramPct} warn={80} crit={100}/>
                       <div style={{fontSize:9,color:T.muted,marginTop:2}}>{ramPct}%</div>
                     </td>
+
+                    {/* RAM Free */}
                     <td style={{padding:"10px 12px"}}>
-                      <div style={{fontWeight:700,color:h.free_ram_gb>0?T.green:T.red}}>{h.free_ram_gb} GB</div>
+                      <div style={{fontWeight:700,color:n(h.free_ram_gb)>0?T.green:T.red}}>
+                        {h.free_ram_gb!=null?`${h.free_ram_gb} GB`:"—"}
+                      </div>
                     </td>
-                    <td style={{padding:"10px 12px",fontWeight:700}}>{h.disk_total_gb?`${h.disk_total_gb} GB`:"—"}</td>
+
+                    {/* Disk Total */}
+                    <td style={{padding:"10px 12px",fontWeight:700}}>
+                      {h.disk_total_gb?`${h.disk_total_gb} GB`:"—"}
+                    </td>
+
+                    {/* FIX 5: Disk Used — this cell existed in header but was MISSING in the row */}
                     <td style={{padding:"10px 12px"}}>
-                      <div style={{fontWeight:700,color:h.free_disk_gb>0?T.green:T.red}}>{h.free_disk_gb} GB</div>
+                      <div style={{fontWeight:700,color:diskPct>80?T.amber:T.text}}>
+                        {h.disk_used_gb!=null?`${h.disk_used_gb} GB`:"—"}
+                      </div>
+                      {h.disk_total_gb&&<CommitBar pct={diskPct} warn={80} crit={95}/>}
+                      {h.disk_total_gb&&<div style={{fontSize:9,color:T.muted,marginTop:2}}>{diskPct}%</div>}
                     </td>
+
+                    {/* Disk Free */}
+                    <td style={{padding:"10px 12px"}}>
+                      <div style={{fontWeight:700,color:n(h.free_disk_gb)>0?T.green:T.red}}>
+                        {h.free_disk_gb!=null?`${h.free_disk_gb} GB`:"—"}
+                      </div>
+                    </td>
+
+                    {/* VM count */}
                     <td style={{padding:"10px 12px",textAlign:"center"}}>
                       <span style={{fontWeight:700,color:T.blue}}>{h.vm_running}</span>
                       <span style={{color:T.muted,fontSize:11}}>/{h.vm_count}</span>
@@ -1698,53 +1760,58 @@ function CapacityPlanning() {
                     </td>
                   </tr>
 
-                  {/* VM drill-down row */}
+                  {/* ── VM drill-down (expand on row click) ── */}
                   {isSel&&(
                     <tr style={{background:"#f0f7ff"}}>
-                      <td colSpan={12} style={{padding:"0 12px 12px 32px"}}>
-                        <div style={{paddingTop:10}}>
+                      <td colSpan={12} style={{padding:"0 16px 16px 32px"}}>
+                        <div style={{paddingTop:12}}>
                           <div style={{fontWeight:700,fontSize:12,marginBottom:8,color:T.blue}}>
                             VMs on {h.host_name} — {h.vm_running} running / {h.vm_count} total
                           </div>
-                          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                            <thead>
-                              <tr style={{borderBottom:`1px solid ${T.border}`}}>
-                                {["VM Name","Status","IP","RAM Allocated","vCPUs","Disk"].map(col=>(
-                                  <th key={col} style={{padding:"6px 10px",fontSize:10,fontWeight:700,
-                                    color:T.muted,textAlign:"left",textTransform:"uppercase"}}>{col}</th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {h.vms.map(vm=>(
-                                <tr key={vm.name} style={{borderBottom:`1px solid #e2e8f0`}}>
-                                  <td style={{padding:"7px 10px",fontWeight:600}}>{vm.name}</td>
-                                  <td style={{padding:"7px 10px"}}>
-                                    <span className={`badge ${vm.status==="running"?"b-ok":"b-stop"}`}>{vm.status}</span>
-                                  </td>
-                                  <td style={{padding:"7px 10px",fontFamily:"IBM Plex Mono",fontSize:11,color:T.blue}}>{vm.ip||"N/A"}</td>
-                                  <td style={{padding:"7px 10px",fontWeight:600,color:T.amber}}>{vm.ram_gb} GB</td>
-                                  <td style={{padding:"7px 10px",fontWeight:600,color:T.blue}}>{vm.vcpus}</td>
-                                  <td style={{padding:"7px 10px",color:T.sub}}>{vm.disk_gb>0?`${vm.disk_gb} GB`:"—"}</td>
+                          {(!Array.isArray(h.vms)||h.vms.length===0)?(
+                            <div style={{color:T.muted,fontSize:12,padding:"8px 0"}}>
+                              No VMs found for this host. Run ↻ Refresh on the host to discover VMs.
+                            </div>
+                          ):(
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                              <thead>
+                                <tr style={{borderBottom:`1px solid ${T.border}`}}>
+                                  {["VM Name","Status","IP","RAM","vCPUs","Disk"].map(col=>(
+                                    <th key={col} style={{padding:"6px 10px",fontSize:10,fontWeight:700,
+                                      color:T.muted,textAlign:"left",textTransform:"uppercase"}}>{col}</th>
+                                  ))}
                                 </tr>
-                              ))}
-                              {/* Totals sub-row */}
-                              <tr style={{background:"#e0f2fe",fontWeight:700}}>
-                                <td style={{padding:"7px 10px",color:T.blue}}>ALLOCATED (running VMs)</td>
-                                <td/><td/>
-                                <td style={{padding:"7px 10px",color:T.amber}}>{h.vm_ram_alloc_gb} GB</td>
-                                <td style={{padding:"7px 10px",color:T.blue}}>{h.vm_vcpu_alloc}</td>
-                                <td style={{padding:"7px 10px"}}>{h.vm_disk_alloc_gb} GB</td>
-                              </tr>
-                              <tr style={{background:"#dcfce7",fontWeight:700}}>
-                                <td style={{padding:"7px 10px",color:T.green}}>REMAINING (host free)</td>
-                                <td/><td/>
-                                <td style={{padding:"7px 10px",color:T.green}}>{h.free_ram_gb} GB</td>
-                                <td style={{padding:"7px 10px",color:T.green}}>{h.free_vcpus} vCPUs</td>
-                                <td style={{padding:"7px 10px",color:T.green}}>{h.free_disk_gb} GB</td>
-                              </tr>
-                            </tbody>
-                          </table>
+                              </thead>
+                              <tbody>
+                                {h.vms.map((vm,vi)=>(
+                                  <tr key={`${vm.name||"vm"}-${vi}`} style={{borderBottom:`1px solid #e2e8f0`}}>
+                                    <td style={{padding:"7px 10px",fontWeight:600}}>{vm.name||"—"}</td>
+                                    <td style={{padding:"7px 10px"}}>
+                                      <span className={`badge ${vm.status==="running"?"b-ok":"b-stop"}`}>{vm.status||"unknown"}</span>
+                                    </td>
+                                    <td style={{padding:"7px 10px",fontFamily:"IBM Plex Mono",fontSize:11,color:T.blue}}>{vm.ip||"N/A"}</td>
+                                    <td style={{padding:"7px 10px",fontWeight:600,color:T.amber}}>{vm.ram_gb>0?`${vm.ram_gb} GB`:"—"}</td>
+                                    <td style={{padding:"7px 10px",fontWeight:600,color:T.blue}}>{vm.vcpus||"—"}</td>
+                                    <td style={{padding:"7px 10px",color:T.sub}}>{vm.disk_gb>0?`${vm.disk_gb} GB`:"—"}</td>
+                                  </tr>
+                                ))}
+                                <tr style={{background:"#e0f2fe",fontWeight:700}}>
+                                  <td style={{padding:"7px 10px",color:T.blue}}>ALLOCATED (running VMs)</td>
+                                  <td/><td/>
+                                  <td style={{padding:"7px 10px",color:T.amber}}>{h.vm_ram_alloc_gb} GB</td>
+                                  <td style={{padding:"7px 10px",color:T.blue}}>{h.vm_vcpu_alloc}</td>
+                                  <td style={{padding:"7px 10px"}}>{h.vm_disk_alloc_gb} GB</td>
+                                </tr>
+                                <tr style={{background:"#dcfce7",fontWeight:700}}>
+                                  <td style={{padding:"7px 10px",color:T.green}}>REMAINING (host free)</td>
+                                  <td/><td/>
+                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_ram_gb!=null?`${h.free_ram_gb} GB`:"—"}</td>
+                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_vcpus!=null?`${h.free_vcpus} vCPUs`:"—"}</td>
+                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_disk_gb!=null?`${h.free_disk_gb} GB`:"—"}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1754,40 +1821,44 @@ function CapacityPlanning() {
             })}
           </tbody>
         </table>
+
+        {/* Empty state */}
         {filteredData.length===0&&!busy&&(
           <div style={{padding:40,textAlign:"center",color:T.muted}}>
             <div style={{fontSize:28,marginBottom:8}}>📊</div>
-            <div style={{fontWeight:600,marginBottom:6}}>{data.length===0?"No capacity data yet":"No hosts match selected filter"}</div>
+            <div style={{fontWeight:600,marginBottom:6}}>
+              {data.length===0?"No capacity data yet":"No hosts match the selected filter"}
+            </div>
             <div style={{fontSize:12}}>
               {data.length===0?(
-                <>
-                  Go to <strong>Infrastructure</strong> tab → select each host → click <strong>↻ Refresh</strong>
-                  to collect hardware inventory (CPU sockets, cores, threads, RAM, storage).
-                </>
+                <>Go to <strong>Infrastructure</strong> tab → select each host → click <strong>↻ Refresh</strong> to collect hardware inventory.</>
               ):(
-                <>Change the host filter to <strong>All Hosts</strong> or choose another host.</>
+                <>Change the host filter to <strong>All Hosts</strong> or choose a different host.</>
               )}
             </div>
           </div>
         )}
       </div>
 
+      {/* ── Selected host detail panel (shown when a row is expanded) ── */}
       {selectedHost&&(
         <div className="card shadow" style={{padding:16}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:10,flexWrap:"wrap"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:10,flexWrap:"wrap"}}>
             <div>
-              <div style={{fontWeight:700,fontSize:15}}>Selected Host: {txt(selectedHost.host_name)}</div>
-              <div style={{fontSize:12,color:T.muted}}>{txt(selectedHost.host_ip)} · {txt(selectedHost.cpu_model)}</div>
+              <div style={{fontWeight:700,fontSize:15}}>{selectedHost.host_name}</div>
+              <div style={{fontSize:12,color:T.muted}}>{selectedHost.host_ip} · {selectedHost.cpu_model||"CPU model unknown"}</div>
             </div>
             <div style={{fontSize:11,color:T.muted}}>
-              {selectedHost.hw_missing ? "Hardware snapshot incomplete — refresh host for full totals." : `${n(selectedHost.vm_running)} running VM(s) of ${n(selectedHost.vm_count)} total.`}
+              {selectedHost.hw_missing
+                ? "⚠️ Hardware snapshot incomplete — refresh host for full totals."
+                : `${n(selectedHost.vm_running)} running VM(s) of ${n(selectedHost.vm_count)} total`}
             </div>
           </div>
 
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:10,marginBottom:14}}>
-            <StatCard label="CPU Capacity" value={`${n(selectedHost.cpu_vcpus)} vCPU`} sub={`${n(selectedHost.vm_vcpu_alloc)} used · ${n(selectedHost.free_vcpus)} free`} color={T.blue}/>
-            <StatCard label="Memory Capacity" value={gb(selectedHost.ram_total_gb)} sub={`${gb(selectedHost.vm_ram_alloc_gb)} used · ${gb(selectedHost.free_ram_gb)} free`} color={T.amber}/>
-            <StatCard label="Storage Capacity" value={gb(selectedHost.disk_total_gb)} sub={`${gb(selectedHost.disk_used_gb)} host used · ${gb(selectedHost.free_disk_gb)} free`} color={T.green}/>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:10,marginBottom:16}}>
+            <StatCard label="CPU Capacity"     value={`${n(selectedHost.cpu_vcpus)} vCPU`}      sub={`${n(selectedHost.vm_vcpu_alloc)} used · ${n(selectedHost.free_vcpus)} free`}        color={T.blue}/>
+            <StatCard label="Memory Capacity"  value={gb(selectedHost.ram_total_gb)}             sub={`${gb(selectedHost.vm_ram_alloc_gb)} used · ${gb(selectedHost.free_ram_gb)} free`}   color={T.amber}/>
+            <StatCard label="Storage Capacity" value={gb(selectedHost.disk_total_gb)}            sub={`${gb(selectedHost.disk_used_gb)} host used · ${gb(selectedHost.free_disk_gb)} free`} color={T.green}/>
           </div>
 
           <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:T.blue}}>VM Allocation Details</div>
@@ -1795,24 +1866,26 @@ function CapacityPlanning() {
             <thead>
               <tr style={{borderBottom:`1px solid ${T.border}`}}>
                 {["VM Name","Status","IP","RAM","vCPU","Disk"].map(col=>(
-                  <th key={col} style={{padding:"8px 10px",fontSize:10,fontWeight:700,color:T.muted,textAlign:"left",textTransform:"uppercase"}}>{col}</th>
+                  <th key={col} style={{padding:"8px 10px",fontSize:10,fontWeight:700,
+                    color:T.muted,textAlign:"left",textTransform:"uppercase"}}>{col}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {(Array.isArray(selectedHost.vms)?selectedHost.vms:[]).map((vm,idx)=>(
-                <tr key={`${vm.name||'vm'}-${idx}`} style={{borderBottom:`1px solid #e2e8f0`}}>
-                  <td style={{padding:"8px 10px",fontWeight:600}}>{txt(vm.name)}</td>
-                  <td style={{padding:"8px 10px"}}><span className={`badge ${vm.status==="running"?"b-ok":"b-stop"}`}>{txt(vm.status)}</span></td>
-                  <td style={{padding:"8px 10px",fontFamily:"IBM Plex Mono",fontSize:11,color:T.blue}}>{txt(vm.ip||"N/A")}</td>
+              {(Array.isArray(selectedHost.vms)&&selectedHost.vms.length>0)?selectedHost.vms.map((vm,idx)=>(
+                <tr key={`${vm.name||"vm"}-${idx}`} style={{borderBottom:`1px solid #e2e8f0`}}>
+                  <td style={{padding:"8px 10px",fontWeight:600}}>{vm.name||"—"}</td>
+                  <td style={{padding:"8px 10px"}}><span className={`badge ${vm.status==="running"?"b-ok":"b-stop"}`}>{vm.status||"unknown"}</span></td>
+                  <td style={{padding:"8px 10px",fontFamily:"IBM Plex Mono",fontSize:11,color:T.blue}}>{vm.ip||"N/A"}</td>
                   <td style={{padding:"8px 10px"}}>{gb(vm.ram_gb)}</td>
-                  <td style={{padding:"8px 10px"}}>{n(vm.vcpus)}</td>
-                  <td style={{padding:"8px 10px"}}>{gb(vm.disk_gb)}</td>
+                  <td style={{padding:"8px 10px"}}>{n(vm.vcpus)||"—"}</td>
+                  <td style={{padding:"8px 10px"}}>{vm.disk_gb>0?`${vm.disk_gb} GB`:"—"}</td>
                 </tr>
-              ))}
-              {(!Array.isArray(selectedHost.vms) || selectedHost.vms.length===0)&&(
+              )):(
                 <tr>
-                  <td colSpan={6} style={{padding:"14px 10px",color:T.muted,textAlign:"center"}}>No VM rows stored in DB for this host yet.</td>
+                  <td colSpan={6} style={{padding:"14px 10px",color:T.muted,textAlign:"center"}}>
+                    No VMs in DB for this host — run ↻ Refresh on the host to discover VMs.
+                  </td>
                 </tr>
               )}
             </tbody>
