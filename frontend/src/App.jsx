@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import axios from "axios";
 
@@ -1664,7 +1664,7 @@ function CapacityPlanning() {
               const isSel   = sel===h.host_id;
               const missing = h.hw_missing;
               return (
-                <React.Fragment key={h.host_id}>
+                <Fragment key={h.host_id}>
                   {/* Warning banner for hosts that need a Refresh */}
                   {missing&&(
                     <tr style={{background:"#fffbeb"}}>
@@ -1816,7 +1816,7 @@ function CapacityPlanning() {
                       </td>
                     </tr>
                   )}
-                </React.Fragment>
+                </Fragment>
               );
             })}
           </tbody>
