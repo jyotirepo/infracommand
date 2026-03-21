@@ -52,6 +52,11 @@ spec:
   selector:
     matchLabels:
       app: trivy-server
+  # Recreate strategy: kill the old pod BEFORE starting the new one.
+  # Required because trivy places an exclusive lock on the DB cache directory.
+  # Two pods sharing the same hostPath cache = CrashLoopBackOff on the new pod.
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
