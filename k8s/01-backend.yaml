@@ -15,6 +15,7 @@ spec:
     spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: infracommand-backend
       containers:
         - name: backend
           image: 192.168.101.80:8082/infracommand-backend:latest

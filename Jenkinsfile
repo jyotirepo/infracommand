@@ -437,6 +437,7 @@ pipeline {
 
                         # Deploy trivy-server first (ConfigMap + Deployment + Service)
                         kubectl apply -f k8s/05-trivy.yaml
+                        kubectl apply -f k8s/06-rbac.yaml
 
                         kubectl apply -f k8s/01-backend.yaml
                         kubectl apply -f k8s/02-frontend.yaml

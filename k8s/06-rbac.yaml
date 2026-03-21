@@ -1,0 +1,41 @@
+# ── RBAC for infracommand-backend ────────────────────────────────────────────
+# Allows the backend pod to kubectl exec into the trivy-server pod
+# for remote vulnerability scanning (trivy rootfs ssh://user@host/)
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: infracommand-backend
+  namespace: infracommand
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: infracommand-backend
+  namespace: infracommand
+rules:
+  # List + get pods (to find trivy-server pod name)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # Exec into pods (to run trivy rootfs inside trivy-server)
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: infracommand-backend
+  namespace: infracommand
+subjects:
+  - kind: ServiceAccount
+    name: infracommand-backend
+    namespace: infracommand
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name: infracommand-backend
