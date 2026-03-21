@@ -62,6 +62,21 @@ spec:
       labels:
         app: trivy-server
     spec:
+      # Install sshpass + ssh client so trivy-server can SSH into target hosts
+      # for remote rootfs scanning (no trivy binary needed on target hosts)
+      initContainers:
+        - name: install-ssh-tools
+          image: aquasec/trivy:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              apt-get update -qq 2>/dev/null &&               apt-get install -y -qq openssh-client sshpass 2>/dev/null ||               (apk add --no-cache openssh-client sshpass 2>/dev/null) ||               echo "SSH tools install attempted"
+              cp /usr/bin/sshpass /shared/sshpass 2>/dev/null || true
+              cp /usr/bin/ssh     /shared/ssh     2>/dev/null || true
+          volumeMounts:
+            - name: shared-tools
+              mountPath: /shared
       containers:
         - name: trivy-server
           image: aquasec/trivy:latest
@@ -113,6 +128,8 @@ spec:
 
 ---
 # ── 3. Service ────────────────────────────────────────────────────────────────
+# NodePort so target hosts (KVM hypervisors, VMs) can call trivy-server
+# directly for rootfs scanning: trivy rootfs --server http://192.168.101.80:31954
 apiVersion: v1
 kind: Service
 metadata:
@@ -127,5 +144,6 @@ spec:
     - name: trivy
       port: 4954
       targetPort: 4954
+      nodePort: 31954        # Fixed NodePort — reachable from any host on the network
       protocol: TCP
-  type: ClusterIP
+  type: NodePort

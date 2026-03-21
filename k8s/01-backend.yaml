@@ -26,6 +26,8 @@ spec:
               value: /data/infracommand.db
             - name: TRIVY_SERVER_URL
               value: "http://trivy-server.infracommand.svc.cluster.local:4954"
+            - name: TRIVY_SERVER_EXTERNAL_URL
+              value: "http://192.168.101.80:31954"
           volumeMounts:
             - name: db-storage
               mountPath: /data

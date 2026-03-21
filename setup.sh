@@ -132,6 +132,25 @@ else
   warn "Jenkins user not found yet — sudo rights will apply once Jenkins is installed"
 fi
 
+# ── 8. Install trivy on devopsmaster ─────────────────────────
+echo ""
+echo "[8/8] Installing trivy on devopsmaster..."
+# trivy is needed on the backend container so it can be SFTP-copied
+# to target hosts automatically on first vulnerability scan.
+# No manual steps needed on target hosts.
+if ! command -v trivy >/dev/null 2>&1; then
+    TRIVY_VER=$(curl -sfL https://api.github.com/repos/aquasecurity/trivy/releases/latest         | grep tag_name | cut -d'"' -f4 | sed 's/v//')
+    if [ -n "$TRIVY_VER" ]; then
+        curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VER}/trivy_${TRIVY_VER}_Linux-64bit.tar.gz"             | tar -xz -C /usr/local/bin trivy
+        chmod +x /usr/local/bin/trivy
+        ok "trivy installed: $(trivy --version | head -1)"
+    else
+        warn "Could not determine trivy version — skipping (will retry on next pipeline run)"
+    fi
+else
+    ok "trivy already installed: $(trivy --version | head -1)"
+fi
+
 # ── Summary ────────────────────────────────────────────────────
 echo ""
 echo "============================================================"

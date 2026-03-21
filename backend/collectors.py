@@ -1462,9 +1462,19 @@ import os as _os
 import subprocess as _subprocess
 import shutil as _shutil
 
+# Internal URL — used by the backend pod to communicate with trivy-server
+# (ClusterIP DNS, only works inside the cluster)
 TRIVY_SERVER_URL = _os.environ.get(
     "TRIVY_SERVER_URL",
     "http://trivy-server.infracommand.svc.cluster.local:4954"
+)
+
+# External URL — used by TARGET HOSTS (KVM hypervisors, VMs) when they call
+# trivy rootfs --server <URL>. Must be reachable from outside the cluster.
+# Points to the NodePort service on the k8s node IP.
+TRIVY_SERVER_EXTERNAL_URL = _os.environ.get(
+    "TRIVY_SERVER_EXTERNAL_URL",
+    "http://192.168.101.80:31954"
 )
 
 # When True, trivy-server uses cached DB only — no download attempted.
@@ -1512,44 +1522,59 @@ def _parse_trivy_output(raw: str) -> list:
     return vulns
 
 
-def _trivy_scan_host(host: dict) -> list:
+def _trivy_scan_via_server(host: dict) -> list:
     """
-    SSH into the target host and run trivy rootfs pointing at the central
-    Trivy server pod.  Steps:
-      1. Check whether trivy is already installed on the target.
-      2. If not, install it via the official install script.
-      3. Run: trivy rootfs --server <TRIVY_SERVER_URL> --format json /
-      4. Parse and return the vulnerability list.
-    The target only needs outbound HTTP to the trivy server ClusterIP — no
-    internet access required after the initial trivy binary install.
+    Scan a target host via SSH using trivy rootfs.
+
+    Auto-deployment: if trivy is not on the target host, this function
+    copies it automatically via SFTP from /usr/local/bin/trivy on the
+    backend container (which always has trivy after setup.sh runs).
+    NO manual steps needed — trivy is self-deploying on first scan.
+
+    Flow:
+      1. SSH into target, check if trivy exists
+      2. If missing, SFTP-copy trivy binary from backend to target
+      3. Run: trivy rootfs --server http://192.168.101.80:31954 / --format json
+      4. Parse and return CVE list
     """
+    import os as _os
+
+    # Path to trivy on the backend container (installed by setup.sh/Jenkins)
+    LOCAL_TRIVY = _os.environ.get("TRIVY_BINARY_PATH", "/usr/local/bin/trivy")
+    REMOTE_TRIVY = "/usr/local/bin/trivy"
+
     c = ssh_connect(host)
     try:
-        # ── Step 1: check for trivy on target ────────────────────────────────
-        trivy_bin = (run(c, "which trivy 2>/dev/null") or "").strip()
+        # ── Step 1: check if trivy exists on target ───────────────────────────
+        trivy_bin = (run(c, "which trivy 2>/dev/null || echo ''") or "").strip()
 
-        # ── Step 2: install if missing ────────────────────────────────────────
+        # ── Step 2: auto-deploy trivy via SFTP if missing ─────────────────────
         if not trivy_bin:
-            run(c,
-                "curl -sfL "
-                "https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh"
-                " | sh -s -- -b /usr/local/bin 2>/dev/null || true",
-                timeout=120)
-            trivy_bin = (run(c, "which trivy 2>/dev/null") or "").strip()
+            if _os.path.exists(LOCAL_TRIVY):
+                # Copy trivy binary from backend to target using paramiko SFTP
+                sftp = c.open_sftp()
+                try:
+                    sftp.put(LOCAL_TRIVY, REMOTE_TRIVY)
+                    run(c, f"chmod +x {REMOTE_TRIVY}")
+                    trivy_bin = REMOTE_TRIVY
+                finally:
+                    sftp.close()
+            else:
+                raise RuntimeError(
+                    f"trivy binary not found at {LOCAL_TRIVY} on the backend container. "
+                    f"Ensure setup.sh has run on the Jenkins node (Stage 2 of the pipeline)."
+                )
 
-        if not trivy_bin:
-            raise RuntimeError(
-                "trivy is not available on this host and automatic installation failed. "
-                "Install manually: https://aquasecurity.github.io/trivy/latest/getting-started/installation/"
-            )
+        # ── Step 3: verify trivy works ────────────────────────────────────────
+        ver = (run(c, f"{trivy_bin} --version 2>/dev/null | head -1") or "").strip()
+        if not ver:
+            raise RuntimeError(f"trivy at {trivy_bin} is not executable on target host")
 
-        # ── Step 3: run scan via Trivy server ────────────────────────────────
-        # In offline mode pass --skip-db-update and --skip-check-update so trivy
-        # uses the cached DB without trying to download an update.
+        # ── Step 4: run trivy rootfs scan via trivy-server ────────────────────
         offline_flags = "--skip-db-update --skip-check-update " if TRIVY_SKIP_DB_UPDATE else ""
         cmd = (
             f"{trivy_bin} rootfs "
-            f"--server {TRIVY_SERVER_URL} "
+            f"--server {TRIVY_SERVER_EXTERNAL_URL} "
             f"--format json "
             f"--scanners vuln "
             f"--severity CRITICAL,HIGH,MEDIUM,LOW "
@@ -1563,10 +1588,10 @@ def _trivy_scan_host(host: dict) -> list:
         if not raw or not raw.strip().startswith("{"):
             raise RuntimeError(
                 f"trivy returned no JSON output. "
-                f"Verify the target can reach {TRIVY_SERVER_URL} and that trivy v>=0.40 is installed."
+                f"Verify the target host can reach {TRIVY_SERVER_EXTERNAL_URL}. "
+                f"Test from target: curl -sf {TRIVY_SERVER_EXTERNAL_URL}/healthz"
             )
 
-        # ── Step 4: parse ─────────────────────────────────────────────────────
         return _parse_trivy_output(raw.strip())
 
     finally:
@@ -1597,7 +1622,7 @@ def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=No
         trivy_error = "No IP address available for this target. Set the VM IP first."
     else:
         try:
-            vulns = _trivy_scan_host(host_ctx)
+            vulns = _trivy_scan_via_server(host_ctx)
         except Exception as e:
             trivy_error = str(e)
 
