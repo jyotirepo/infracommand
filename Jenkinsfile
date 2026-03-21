@@ -383,6 +383,13 @@ pipeline {
                                 --docker-password=\$NEXUS_PASS \\
                                 -n ${K8S_NAMESPACE} \\
                                 --dry-run=client -o yaml | kubectl apply -f -
+
+                            # Generic credentials for trivy-db-updater CronJob
+                            kubectl create secret generic nexus-credentials \\
+                                --from-literal=username=\\$NEXUS_USER \\
+                                --from-literal=password=\\$NEXUS_PASS \\
+                                -n ${K8S_NAMESPACE} \\
+                                --dry-run=client -o yaml | kubectl apply -f -
                         """
                     }
 
@@ -391,6 +398,7 @@ pipeline {
                     sh """
                         sudo crictl pull ${NEXUS_BACKEND}:${IMAGE_TAG}
                         sudo crictl pull ${NEXUS_FRONTEND}:${IMAGE_TAG}
+                        sudo crictl pull docker.io/aquasec/trivy:latest || true
                         echo "Images pre-pulled via CRI-O ✔"
                     """
 
@@ -400,6 +408,9 @@ pipeline {
                         # Clean up any stuck PVCs from old deployments
                         kubectl delete pvc infracommand-db-pvc -n ${K8S_NAMESPACE} --ignore-not-found=true
                         kubectl delete hpa infracommand-backend-hpa -n ${K8S_NAMESPACE} --ignore-not-found=true
+
+                        # Deploy trivy-server FIRST — backend needs it ready
+                        kubectl apply -f k8s/05-trivy.yaml
 
                         kubectl apply -f k8s/01-backend.yaml
                         kubectl apply -f k8s/02-frontend.yaml

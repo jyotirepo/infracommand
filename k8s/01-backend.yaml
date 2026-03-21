@@ -24,6 +24,8 @@ spec:
           env:
             - name: DB_PATH
               value: /data/infracommand.db
+            - name: TRIVY_SERVER_URL
+              value: "http://trivy-server.infracommand.svc.cluster.local:4954"
           volumeMounts:
             - name: db-storage
               mountPath: /data

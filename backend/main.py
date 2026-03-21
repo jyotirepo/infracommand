@@ -703,10 +703,16 @@ def get_alerts(db: Session = Depends(get_db)):
 
 # ── Scan endpoints (on-demand, target-specific) ────────────────────────────────
 @app.post("/api/hosts/{hid}/scan")
-def scan_host(hid: str, db: Session = Depends(get_db)):
+def scan_host(hid: str, db: Session = Depends(get_db), force: bool = False):
     h = db_get_host(db, hid)
-    if not h: raise HTTPException(404,"Host not found")
-    result = vuln_scan(hid, h["name"], "host", h["ip"])
+    if not h: raise HTTPException(404, "Host not found")
+    # Return cached DB result unless the user explicitly requests a rescan
+    if not force:
+        cached = db_get_scan(db, hid)
+        if cached:
+            return cached
+    # Pass full host dict so trivy SSH scan has the credentials it needs
+    result = vuln_scan(hid, h["name"], "host", h["ip"], host_ctx=h)
     db_save_scan(db, hid, result)
     return result
 
@@ -717,13 +723,20 @@ def get_host_scan(hid: str, db: Session = Depends(get_db)):
     return r
 
 @app.post("/api/hosts/{hid}/vms/{vid}/scan")
-def scan_vm(hid: str, vid: str, db: Session = Depends(get_db)):
+def scan_vm(hid: str, vid: str, db: Session = Depends(get_db), force: bool = False):
     h = db_get_host(db, hid)
-    if not h: raise HTTPException(404,"Host not found")
+    if not h: raise HTTPException(404, "Host not found")
     vms = db_get_vms(db, hid)
-    vm = next((v for v in vms if v["id"]==vid), None)
-    if not vm: raise HTTPException(404,"VM not found — refresh VMs first")
-    result = vuln_scan(vid, vm["name"], "vm", vm.get("ip","N/A"), h["name"])
+    vm = next((v for v in vms if v["id"] == vid), None)
+    if not vm: raise HTTPException(404, "VM not found — refresh VMs first")
+    # Return cached DB result unless the user explicitly requests a rescan
+    if not force:
+        cached = db_get_scan(db, vid)
+        if cached:
+            return cached
+    # Use the VM IP but inherit SSH credentials from the parent host
+    vm_host_ctx = {**h, "ip": vm.get("ip", "N/A"), "name": vm["name"]}
+    result = vuln_scan(vid, vm["name"], "vm", vm.get("ip", "N/A"), h["name"], host_ctx=vm_host_ctx)
     db_save_scan(db, vid, result)
     return result
 

@@ -11,9 +11,6 @@ const T = {
   red:"#dc2626",purple:"#7c3aed",text:"#0f172a",sub:"#475569",muted:"#94a3b8",tblHead:"#f8fafc",
 };
 
-// Filter out transient libguestfs domains — they are never real VMs
-const realVMs = vms => (vms||[]).filter(vm => !String(vm.name||"").startsWith("guestfs-"));
-
 const css = `
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
@@ -429,19 +426,23 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
   const [result,setResult]=useState(null);
   const [busy,setBusy]=useState(false);
 
-  const scan=async()=>{
-    if(!hostId || hostId==="undefined") {
+  const scan=async(force=false)=>{
+    if(!hostId || hostId==="undefined"){
       setResult({error:"Host ID not available — try closing and reopening."});
       return;
     }
-    setBusy(true);setResult(null);
-    try {
-      const r=await api.post(vmId?`/hosts/${hostId}/vms/${vmId}/scan`:`/hosts/${hostId}/scan`);
+    setBusy(true);
+    if(force) setResult(null);
+    try{
+      const path=vmId
+        ?`/hosts/${hostId}/vms/${vmId}/scan${force?"?force=true":""}`
+        :`/hosts/${hostId}/scan${force?"?force=true":""}`;
+      const r=await api.post(path);
       setResult(r.data);
-    } catch(e){setResult({error:e.response?.data?.detail||"Scan failed"});}
+    }catch(e){setResult({error:e.response?.data?.detail||"Scan failed"});}
     setBusy(false);
   };
-  useEffect(()=>{ if(hostId && hostId!=="undefined") scan(); },[hostId]); // eslint-disable-line
+  useEffect(()=>{ if(hostId && hostId!=="undefined") scan(false); },[hostId]); // eslint-disable-line
   const dl=()=>{
     if(!result||result.error) return;
     const txt=`InfraCommand Vulnerability Report\nTarget: ${result.target} (${result.ip})\nDate: ${result.scanned_at}\n\nSUMMARY: Critical:${result.summary?.critical} High:${result.summary?.high} Medium:${result.summary?.medium}\n\n${result.vulns?.map(v=>`${v.id} [${v.severity}] CVSS:${v.cvss} ${v.pkg}: ${v.desc}`).join("\n")}`;
@@ -456,7 +457,7 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
             <div style={{color:T.muted,fontSize:12}}>IP: {ip}</div></div>
           <div style={{display:"flex",gap:8}}>
             {result&&!result.error&&<button className="btn btn-ghost btn-sm" onClick={dl}>↓ Export</button>}
-            <button className="btn btn-scan btn-sm" onClick={scan} disabled={busy}>{busy?<><span className="spinner"/>Scanning...</>:"↻ Rescan"}</button>
+            <button className="btn btn-scan btn-sm" onClick={()=>scan(true)} disabled={busy}>{busy?<><span className="spinner"/>Scanning...</>:"↻ Rescan"}</button>
             <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
           </div>
         </div>
@@ -464,30 +465,68 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
         {result?.error&&<div style={{color:T.red,padding:10,background:"#fee2e2",borderRadius:7}}>{result.error}</div>}
         {result&&!result.error&&(
           <>
+            {/* Scanner badge + timestamp */}
+            {result.scanner&&(
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,fontSize:11,color:T.muted}}>
+                <span style={{background:"#f0fdf4",color:T.green,border:"1px solid #bbf7d0",
+                  borderRadius:5,padding:"2px 8px",fontWeight:700}}>🔍 {result.scanner}</span>
+                <span>Scanned: {result.scanned_at ? new Date(result.scanned_at).toLocaleString() : "—"}</span>
+              </div>
+            )}
+            {/* Trivy error banner */}
+            {result.scan_error&&(
+              <div style={{padding:"10px 14px",marginBottom:12,background:"#fffbeb",
+                border:"1px solid #fde68a",borderRadius:7,fontSize:12,color:"#92400e"}}>
+                ⚠️ <strong>Scan error:</strong> {result.scan_error}
+              </div>
+            )}
+            {/* Summary KPIs */}
             <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
               {[["Total",result.summary?.total,T.blue],["Critical",result.summary?.critical,T.red],
                 ["High",result.summary?.high,T.amber],["Medium",result.summary?.medium,T.purple],["Low",result.summary?.low,T.muted]].map(([l,v,c])=>(
                 <KPI key={l} label={l} value={v} color={c}/>
               ))}
             </div>
+            {/* Open ports */}
             {result.open_ports?.length>0&&(
               <div style={{marginBottom:14}}>
                 <div className="section-hd">Open Ports</div>
                 {result.open_ports.map(p=><span key={p.port} className={`port-chip ${p.risky?"port-risky":"port-open"}`}>:{p.port} {p.service}</span>)}
               </div>
             )}
-            <table>
-              <thead><tr><th>CVE ID</th><th>Severity</th><th>CVSS</th><th>Package</th><th>Description</th></tr></thead>
-              <tbody>{result.vulns?.map(v=>(
-                <tr key={v.id}>
-                  <td><a href={v.url} target="_blank" rel="noreferrer" style={{color:T.blue,fontFamily:"IBM Plex Mono",fontSize:11}}>{v.id}</a></td>
-                  <td><SevBadge sev={v.severity}/></td>
-                  <td><span style={{fontFamily:"IBM Plex Mono",fontWeight:700,color:v.cvss>=9?T.red:v.cvss>=7?T.amber:T.sub}}>{v.cvss}</span></td>
-                  <td><code style={{background:"#f1f5f9",padding:"2px 5px",borderRadius:4,fontSize:11}}>{v.pkg}</code></td>
-                  <td style={{color:T.sub}}>{v.desc}</td>
-                </tr>
-              ))}</tbody>
-            </table>
+            {/* No vulns found */}
+            {(!result.vulns||result.vulns.length===0)&&!result.scan_error&&(
+              <div style={{padding:24,textAlign:"center",color:T.green,fontWeight:600,fontSize:13}}>
+                ✅ No vulnerabilities found by Trivy.
+              </div>
+            )}
+            {/* Vuln table */}
+            {result.vulns?.length>0&&(
+            <div style={{overflowX:"auto"}}>
+              <table>
+                <thead><tr>
+                  <th>CVE ID</th><th>Severity</th><th>CVSS</th>
+                  <th>Package</th><th>Installed</th><th>Fixed In</th><th>Description</th>
+                </tr></thead>
+                <tbody>{result.vulns.map((v,i)=>(
+                  <tr key={`${v.id}-${i}`}>
+                    <td><a href={v.url} target="_blank" rel="noreferrer"
+                      style={{color:T.blue,fontFamily:"IBM Plex Mono",fontSize:11}}>{v.id||"—"}</a></td>
+                    <td><SevBadge sev={v.severity}/></td>
+                    <td><span style={{fontFamily:"IBM Plex Mono",fontWeight:700,
+                      color:v.cvss>=9?T.red:v.cvss>=7?T.amber:T.sub}}>{v.cvss||"—"}</span></td>
+                    <td><code style={{background:"#f1f5f9",padding:"2px 5px",
+                      borderRadius:4,fontSize:11}}>{v.pkg}</code></td>
+                    <td style={{fontFamily:"IBM Plex Mono",fontSize:11,color:T.muted}}>{v.version||"—"}</td>
+                    <td style={{fontFamily:"IBM Plex Mono",fontSize:11,
+                      color:v.fixed_in?T.green:T.muted,fontWeight:v.fixed_in?700:400}}>
+                      {v.fixed_in||"no fix yet"}</td>
+                    <td style={{color:T.sub,maxWidth:200,fontSize:12}}>{v.desc}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+            )}
           </>
         )}
       </div>
@@ -806,7 +845,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
                 {hw.cpu_mhz&&<HwRow label="CPU Speed" value={`${parseFloat(hw.cpu_mhz||0).toFixed(0)} MHz`}/>}
                 {(()=>{
                   // vCPU allocation from running VMs
-                  const vms = realVMs(hostData?.vms || []);
+                  const vms = hostData?.vms || [];
                   const allocVcpu = vms.filter(v=>v.status==="running")
                                        .reduce((s,v)=>s+(v.vcpu||0),0);
                   const totalVcpu = hw.cpu_vcpu_capacity || hw.cpu_logical || 0;
@@ -1227,7 +1266,7 @@ function InfraView({rawHosts,onGlobalReload}) {
               <>
                 {rawHosts.map(h=>{
                   const det=hostCache[h.id];
-                  const vms=realVMs(det?.vms||h.vms||[]);
+                  const vms=det?.vms||h.vms||[];
                   const m=(det||h).metrics||{};
                   const isExp=expanded[h.id];
                   const isSel=sel?.type==="host"&&sel.hostId===h.id;
@@ -1313,7 +1352,7 @@ function InfraView({rawHosts,onGlobalReload}) {
               <>
                 {rawHosts.filter(h=>{
                   const det=hostCache[h.id];
-                  return realVMs(det?.vms||h.vms||[]).length>0;
+                  return (det?.vms||h.vms||[]).length>0;
                 }).map(h=>{
                   const det=hostCache[h.id];
                   const vms=det?.vms||h.vms||[];
@@ -1504,12 +1543,12 @@ function Overview({hosts,summary,history}) {
             </div>
           )}
           {/* Host's VMs */}
-          {realVMs(host?.vms||[]).length>0&&(
+          {(host?.vms||[]).length>0&&(
             <div className="card shadow" style={{padding:0,overflow:"hidden"}}>
               <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}><div className="section-hd" style={{margin:0}}>VMs on {host.name}</div></div>
               <table>
                 <thead><tr><th>Name</th><th>Hypervisor</th><th>Status</th><th>OS</th><th>IP</th><th>vCPU</th><th>RAM</th><th>CPU%</th><th>RAM%</th></tr></thead>
-                <tbody>{realVMs(host.vms||[]).map(vm=>(
+                <tbody>{(host.vms||[]).map(vm=>(
                   <tr key={vm.id}>
                     <td style={{fontWeight:600}}>🖥 {vm.name}</td>
                     <td><span className={`badge ${vm.hypervisor==="KVM"?"b-kvm":"b-hv"}`}>{vm.hypervisor}</span></td>
@@ -1786,7 +1825,7 @@ function CapacityPlanning() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {realVMs(h.vms).map((vm,vi)=>(
+                                {h.vms.map((vm,vi)=>(
                                   <tr key={`${vm.name||"vm"}-${vi}`} style={{borderBottom:`1px solid #e2e8f0`}}>
                                     <td style={{padding:"7px 10px",fontWeight:600}}>{vm.name||"—"}</td>
                                     <td style={{padding:"7px 10px"}}>
@@ -1875,7 +1914,7 @@ function CapacityPlanning() {
               </tr>
             </thead>
             <tbody>
-              {(Array.isArray(selectedHost.vms)&&realVMs(selectedHost.vms).length>0)?realVMs(selectedHost.vms).map((vm,idx)=>(
+              {(Array.isArray(selectedHost.vms)&&selectedHost.vms.length>0)?selectedHost.vms.map((vm,idx)=>(
                 <tr key={`${vm.name||"vm"}-${idx}`} style={{borderBottom:`1px solid #e2e8f0`}}>
                   <td style={{padding:"8px 10px",fontWeight:600}}>{vm.name||"—"}</td>
                   <td style={{padding:"8px 10px"}}><span className={`badge ${vm.status==="running"?"b-ok":"b-stop"}`}>{vm.status||"unknown"}</span></td>
