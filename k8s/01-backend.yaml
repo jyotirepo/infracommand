@@ -27,12 +27,15 @@ spec:
             - name: TRIVY_SERVER_URL
               value: "http://trivy-server.infracommand.svc.cluster.local:4954"
             - name: TRIVY_SERVER_EXTERNAL_URL
-              value: "http://192.168.101.80:31954"
+              value: "http://192.168.101.80:4954"
           volumeMounts:
             - name: db-storage
               mountPath: /data
             - name: trivy-binary
               mountPath: /usr/local/bin/trivy
+              readOnly: true
+            - name: kubectl-binary
+              mountPath: /usr/local/bin/kubectl
               readOnly: true
       volumes:
         - name: db-storage
@@ -42,6 +45,10 @@ spec:
         - name: trivy-binary
           hostPath:
             path: /usr/local/bin/trivy
+            type: File
+        - name: kubectl-binary
+          hostPath:
+            path: /usr/local/bin/kubectl
             type: File
       imagePullSecrets:
         - name: nexus-pull-secret
