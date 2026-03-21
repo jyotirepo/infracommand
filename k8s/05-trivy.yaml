@@ -5,36 +5,33 @@
 #   infracommand namespace. Zero dependency on any other namespace.
 #
 # HOW THE CVE DATABASE WORKS:
-#   Jenkins (has internet) mirrors trivy-db from ghcr.io → Nexus :8083
-#   trivy-server pod pulls the DB from Nexus :8083 (no internet needed)
-#   DB is updated every time the Jenkins pipeline runs (stage 9)
+#   Jenkins mirrors trivy-db from ghcr.io → Nexus :8083 (stage 9)
+#   trivy-server pulls the DB from Nexus :8083 on startup (no internet needed)
+#   DB is refreshed every time the Jenkins pipeline runs
 #
-# REPOS:
-#   App images  → Nexus :8082  (infracommand-docker repo)  ← unchanged
-#   Trivy DB    → Nexus :8083  (aquasecurity repo)         ← separate, new
+# HOW SCANNING WORKS:
+#   Backend SSHes into target host, copies trivy binary via SFTP if missing,
+#   then runs: trivy rootfs --server http://192.168.101.80:31954 /
+#   NodePort :31954 makes trivy-server reachable from outside the cluster.
+#   NO trivy installation needed on target hosts — auto-deployed on first scan.
 #
-# OFFLINE / AIR-GAP MODE:
-#   Set TRIVY_SKIP_DB_UPDATE = "true" in ConfigMap below.
-#   trivy-server will use the last cached DB from the hostPath volume.
-#   Run the Jenkins pipeline from a machine with internet to refresh.
+# OFFLINE MODE:
+#   Set TRIVY_SKIP_DB_UPDATE = "true" in ConfigMap to use cached DB only.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── 1. ConfigMap — all trivy-server settings in one place ────────────────────
+# ── 1. ConfigMap ──────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: trivy-config
   namespace: infracommand
 data:
-  # Pull CVE DB from the dedicated aquasecurity Nexus repo (:8083)
-  # Jenkins mirrors ghcr.io/aquasecurity/trivy-db → :8083 on every build
   TRIVY_DB_REPOSITORY:       "192.168.101.80:8083/trivy-db"
   TRIVY_JAVA_DB_REPOSITORY:  "192.168.101.80:8083/trivy-java-db"
   TRIVY_LISTEN:              "0.0.0.0:4954"
   TRIVY_CACHE_DIR:           "/var/trivy-cache"
   TRIVY_NO_PROGRESS:         "true"
-  # Flip both to "true" for full offline mode (no download, use cached DB only)
   TRIVY_SKIP_DB_UPDATE:      "false"
   TRIVY_SKIP_CHECK_UPDATE:   "false"
 
@@ -52,9 +49,9 @@ spec:
   selector:
     matchLabels:
       app: trivy-server
-  # Recreate strategy: kill the old pod BEFORE starting the new one.
-  # Required because trivy places an exclusive lock on the DB cache directory.
-  # Two pods sharing the same hostPath cache = CrashLoopBackOff on the new pod.
+  # Recreate: kill old pod before starting new one.
+  # Required — trivy locks the DB cache dir exclusively.
+  # Two pods sharing the same hostPath = CrashLoopBackOff.
   strategy:
     type: Recreate
   template:
@@ -62,21 +59,6 @@ spec:
       labels:
         app: trivy-server
     spec:
-      # Install sshpass + ssh client so trivy-server can SSH into target hosts
-      # for remote rootfs scanning (no trivy binary needed on target hosts)
-      initContainers:
-        - name: install-ssh-tools
-          image: aquasec/trivy:latest
-          command:
-            - /bin/sh
-            - -c
-            - |
-              apt-get update -qq 2>/dev/null &&               apt-get install -y -qq openssh-client sshpass 2>/dev/null ||               (apk add --no-cache openssh-client sshpass 2>/dev/null) ||               echo "SSH tools install attempted"
-              cp /usr/bin/sshpass /shared/sshpass 2>/dev/null || true
-              cp /usr/bin/ssh     /shared/ssh     2>/dev/null || true
-          volumeMounts:
-            - name: shared-tools
-              mountPath: /shared
       containers:
         - name: trivy-server
           image: aquasec/trivy:latest
@@ -87,7 +69,6 @@ spec:
             - "0.0.0.0:4954"
             - --cache-dir
             - /var/trivy-cache
-          # All config comes from the ConfigMap — change values there, not here
           envFrom:
             - configMapRef:
                 name: trivy-config
@@ -105,7 +86,6 @@ spec:
           volumeMounts:
             - name: trivy-cache
               mountPath: /var/trivy-cache
-          # 30s delay — DB download from Nexus takes ~20-30s on first start
           readinessProbe:
             httpGet:
               path: /healthz
@@ -122,14 +102,13 @@ spec:
       volumes:
         - name: trivy-cache
           hostPath:
-            # DB persists across pod restarts — no re-download on every restart
             path: /opt/infracommand/trivy-cache
             type: DirectoryOrCreate
 
 ---
-# ── 3. Service ────────────────────────────────────────────────────────────────
-# NodePort so target hosts (KVM hypervisors, VMs) can call trivy-server
-# directly for rootfs scanning: trivy rootfs --server http://192.168.101.80:31954
+# ── 3. Service — NodePort ─────────────────────────────────────────────────────
+# ClusterIP :4954 for backend pod (internal)
+# NodePort :31954 for target hosts outside the cluster
 apiVersion: v1
 kind: Service
 metadata:
@@ -144,6 +123,6 @@ spec:
     - name: trivy
       port: 4954
       targetPort: 4954
-      nodePort: 31954        # Fixed NodePort — reachable from any host on the network
+      nodePort: 31954
       protocol: TCP
   type: NodePort
