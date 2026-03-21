@@ -31,11 +31,18 @@ spec:
           volumeMounts:
             - name: db-storage
               mountPath: /data
+            - name: trivy-binary
+              mountPath: /usr/local/bin/trivy
+              readOnly: true
       volumes:
         - name: db-storage
           hostPath:
             path: /opt/infracommand/db
             type: DirectoryOrCreate
+        - name: trivy-binary
+          hostPath:
+            path: /usr/local/bin/trivy
+            type: File
       imagePullSecrets:
         - name: nexus-pull-secret
 ---
