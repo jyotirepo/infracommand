@@ -1474,7 +1474,7 @@ TRIVY_SERVER_URL = _os.environ.get(
 # Points to the NodePort service on the k8s node IP.
 TRIVY_SERVER_EXTERNAL_URL = _os.environ.get(
     "TRIVY_SERVER_EXTERNAL_URL",
-    "http://192.168.101.80:31954"
+    "http://192.168.101.80:4954"
 )
 
 # When True, trivy-server uses cached DB only — no download attempted.
@@ -1524,78 +1524,126 @@ def _parse_trivy_output(raw: str) -> list:
 
 def _trivy_scan_via_server(host: dict) -> list:
     """
-    Scan a target host via SSH using trivy rootfs.
+    Scan a target host using trivy-server's built-in SSH remote scan.
 
-    Auto-deployment: if trivy is not on the target host, this function
-    copies it automatically via SFTP from /usr/local/bin/trivy on the
-    backend container (which always has trivy after setup.sh runs).
-    NO manual steps needed — trivy is self-deploying on first scan.
+    trivy supports: trivy rootfs ssh://user@host/
+    This runs ENTIRELY inside the trivy-server pod.
+    The target host needs NOTHING installed — no trivy, no agents, nothing.
 
-    Flow:
-      1. SSH into target, check if trivy exists
-      2. If missing, SFTP-copy trivy binary from backend to target
-      3. Run: trivy rootfs --server http://192.168.101.80:31954 / --format json
-      4. Parse and return CVE list
+    How it works:
+      1. Backend writes a temp SSH password file into the trivy-server pod
+      2. kubectl exec runs: sshpass trivy rootfs ssh://user@ip/ inside the pod
+      3. trivy-server SSHes into target, reads the filesystem, checks CVE DB
+      4. JSON results returned — target is completely passive
+
+    Requirements:
+      - trivy-server pod must have sshpass installed (handled by Dockerfile)
+      - trivy-server pod must be able to reach target host via SSH
     """
-    import os as _os
+    import subprocess as _sp
+    import tempfile, os
 
-    # Path to trivy on the backend container (installed by setup.sh/Jenkins)
-    LOCAL_TRIVY = _os.environ.get("TRIVY_BINARY_PATH", "/usr/local/bin/trivy")
-    REMOTE_TRIVY = "/usr/local/bin/trivy"
+    ip       = host.get("ip", "")
+    username = host.get("username", "root")
+    password = host.get("password", "") or ""
+    ssh_port = int(host.get("ssh_port") or 22)
 
-    c = ssh_connect(host)
-    try:
-        # ── Step 1: check if trivy exists on target ───────────────────────────
-        trivy_bin = (run(c, "which trivy 2>/dev/null || echo ''") or "").strip()
+    if not ip or ip in ("N/A", ""):
+        raise RuntimeError("No IP address for this target")
 
-        # ── Step 2: auto-deploy trivy via SFTP if missing ─────────────────────
-        if not trivy_bin:
-            if _os.path.exists(LOCAL_TRIVY):
-                # Copy trivy binary from backend to target using paramiko SFTP
-                sftp = c.open_sftp()
-                try:
-                    sftp.put(LOCAL_TRIVY, REMOTE_TRIVY)
-                    run(c, f"chmod +x {REMOTE_TRIVY}")
-                    trivy_bin = REMOTE_TRIVY
-                finally:
-                    sftp.close()
-            else:
-                raise RuntimeError(
-                    f"trivy binary not found at {LOCAL_TRIVY} on the backend container. "
-                    f"Ensure setup.sh has run on the Jenkins node (Stage 2 of the pipeline)."
-                )
-
-        # ── Step 3: verify trivy works ────────────────────────────────────────
-        ver = (run(c, f"{trivy_bin} --version 2>/dev/null | head -1") or "").strip()
-        if not ver:
-            raise RuntimeError(f"trivy at {trivy_bin} is not executable on target host")
-
-        # ── Step 4: run trivy rootfs scan via trivy-server ────────────────────
-        offline_flags = "--skip-db-update --skip-check-update " if TRIVY_SKIP_DB_UPDATE else ""
-        cmd = (
-            f"{trivy_bin} rootfs "
-            f"--server {TRIVY_SERVER_EXTERNAL_URL} "
-            f"--format json "
-            f"--scanners vuln "
-            f"--severity CRITICAL,HIGH,MEDIUM,LOW "
-            f"--timeout 180s "
-            f"--quiet "
-            f"{offline_flags}"
-            f"/ 2>/dev/null"
+    # Get the trivy-server pod name
+    pod_result = _sp.run(
+        ["kubectl", "get", "pod", "-n", "infracommand",
+         "-l", "app=trivy-server",
+         "--field-selector=status.phase=Running",
+         "-o", "jsonpath={.items[0].metadata.name}"],
+        capture_output=True, text=True, timeout=10
+    )
+    pod_name = pod_result.stdout.strip()
+    if not pod_name:
+        raise RuntimeError(
+            "No running trivy-server pod found in infracommand namespace."
         )
-        raw = run(c, cmd, timeout=200)
 
-        if not raw or not raw.strip().startswith("{"):
+    offline_flags = ["--skip-db-update", "--skip-check-update"] if TRIVY_SKIP_DB_UPDATE else []
+
+    skip_dirs = [
+        "--skip-dirs", "/proc",
+        "--skip-dirs", "/sys",
+        "--skip-dirs", "/dev",
+        "--skip-dirs", "/run",
+        "--skip-dirs", "/snap",
+    ]
+
+    # Build the SSH target URL
+    ssh_target = f"ssh://{username}@{ip}:{ssh_port}/"
+
+    # Build command to execute inside trivy-server pod
+    # sshpass passes the password non-interactively
+    # StrictHostKeyChecking=no avoids host key prompt on first connection
+    if password:
+        trivy_cmd = (
+            ["/tools/sshpass", f"-p{password}",
+             "trivy", "rootfs",
+             "--server", "http://localhost:4954",
+             "--format", "json",
+             "--scanners", "vuln",
+             "--severity", "CRITICAL,HIGH,MEDIUM,LOW",
+             "--timeout", "180s",
+             "--quiet",
+             "--skip-java-db-update",
+             "-o", "/dev/stdout",
+             ] + skip_dirs + offline_flags +
+            [f"ssh://{username}@{ip}:{ssh_port}/"]
+        )
+    else:
+        trivy_cmd = (
+            ["trivy", "rootfs",
+             "--server", "http://localhost:4954",
+             "--format", "json",
+             "--scanners", "vuln",
+             "--severity", "CRITICAL,HIGH,MEDIUM,LOW",
+             "--timeout", "180s",
+             "--quiet",
+             "--skip-java-db-update",
+             "-o", "/dev/stdout",
+             ] + skip_dirs + offline_flags +
+            [f"ssh://{username}@{ip}:{ssh_port}/"]
+        )
+
+    full_cmd = ["kubectl", "exec", "-n", "infracommand", pod_name, "--"] + trivy_cmd
+
+    try:
+        # Set SSH options to skip host key checking (first connection to new hosts)
+        scan_env = {
+            **os.environ,
+            "TRIVY_INSECURE": "true",
+            "SSH_OPTIONS": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+        }
+        result = _sp.run(
+            full_cmd,
+            capture_output=True, text=True, timeout=210,
+            env=scan_env
+        )
+        raw = result.stdout.strip()
+
+        if not raw or not raw.startswith("{"):
+            stderr = (result.stderr or "").strip()[:600]
+            # Check if sshpass is missing in the pod
+            if "sshpass" in stderr and "not found" in stderr:
+                raise RuntimeError(
+                    "sshpass is not installed in the trivy-server pod. "
+                    "Rebuild the trivy-server image with sshpass installed, "
+                    "or use SSH key authentication."
+                )
             raise RuntimeError(
-                f"trivy returned no JSON output. "
-                f"Verify the target host can reach {TRIVY_SERVER_EXTERNAL_URL}. "
-                f"Test from target: curl -sf {TRIVY_SERVER_EXTERNAL_URL}/healthz"
+                f"trivy remote scan returned no output. "
+                f"stderr: {stderr}"
             )
+        return _parse_trivy_output(raw)
 
-        return _parse_trivy_output(raw.strip())
-
-    finally:
-        c.close()
+    except _sp.TimeoutExpired:
+        raise RuntimeError(f"trivy remote scan timed out after 210s for {ip}")
 
 
 def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=None):
