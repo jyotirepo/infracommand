@@ -1,62 +1,45 @@
 # ── Trivy Server — infracommand namespace ────────────────────────────────────
 #
-# ARCHITECTURE:
+# WHAT THIS FILE DOES:
+#   Deploys a self-contained Trivy vulnerability scanner inside the
+#   infracommand namespace. Zero dependency on any other namespace.
 #
-#   [Internet] ──daily──▶ trivy-db-updater CronJob
-#                              │
-#                              ▼  push OCI artifact
-#                         Nexus registry (192.168.101.80:8082)
-#                              │
-#                              ▼  pull DB on startup
-#                         trivy-server pod (:4954)
-#                              │
-#                              ▼  HTTP scan requests
-#                         infracommand-backend pod
+# HOW THE CVE DATABASE WORKS:
+#   Jenkins (has internet) mirrors trivy-db from ghcr.io → Nexus :8083
+#   trivy-server pod pulls the DB from Nexus :8083 (no internet needed)
+#   DB is updated every time the Jenkins pipeline runs (stage 9)
 #
-# TWO OPERATING MODES (controlled by TRIVY_SKIP_DB_UPDATE):
+# REPOS:
+#   App images  → Nexus :8082  (infracommand-docker repo)  ← unchanged
+#   Trivy DB    → Nexus :8083  (aquasecurity repo)         ← separate, new
 #
-#   ONLINE  (default):  trivy-server pulls DB from Nexus on startup.
-#                       CronJob mirrors ghcr.io → Nexus daily at 02:00.
-#                       Only the Jenkins/CronJob node needs internet.
-#
-#   OFFLINE (air-gap):  Set TRIVY_SKIP_DB_UPDATE=true in trivy-config ConfigMap.
-#                       Trivy uses the cached DB already on the hostPath volume.
-#                       Pre-seed once by copying a valid trivy cache to:
-#                         /opt/infracommand/trivy-cache on the k8s node.
+# OFFLINE / AIR-GAP MODE:
+#   Set TRIVY_SKIP_DB_UPDATE = "true" in ConfigMap below.
+#   trivy-server will use the last cached DB from the hostPath volume.
+#   Run the Jenkins pipeline from a machine with internet to refresh.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── 1. Secret: Nexus credentials for DB updater ──────────────────────────────
-# Run once manually (not committed to Git — credentials must stay secret):
-#
-#   kubectl create secret generic nexus-credentials \
-#     --from-literal=username=<nexus-user> \
-#     --from-literal=password=<nexus-pass> \
-#     -n infracommand
-#
-# The docker-registry pull secret (nexus-pull-secret) already exists.
-# ─────────────────────────────────────────────────────────────────────────────
-
-# ── 2. ConfigMap: Trivy server configuration ─────────────────────────────────
+# ── 1. ConfigMap — all trivy-server settings in one place ────────────────────
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: trivy-config
   namespace: infracommand
 data:
-  # Pull vulnerability DB from your Nexus mirror instead of ghcr.io.
-  # This is the ONLY change needed for offline / air-gapped operation.
-  TRIVY_DB_REPOSITORY:       "192.168.101.80:8082/aquasecurity/trivy-db"
-  TRIVY_JAVA_DB_REPOSITORY:  "192.168.101.80:8082/aquasecurity/trivy-java-db"
+  # Pull CVE DB from the dedicated aquasecurity Nexus repo (:8083)
+  # Jenkins mirrors ghcr.io/aquasecurity/trivy-db → :8083 on every build
+  TRIVY_DB_REPOSITORY:       "192.168.101.80:8083/trivy-db"
+  TRIVY_JAVA_DB_REPOSITORY:  "192.168.101.80:8083/trivy-java-db"
   TRIVY_LISTEN:              "0.0.0.0:4954"
   TRIVY_CACHE_DIR:           "/var/trivy-cache"
   TRIVY_NO_PROGRESS:         "true"
-  # OFFLINE MODE: change both to "true" to use cached DB only (no download at all)
+  # Flip both to "true" for full offline mode (no download, use cached DB only)
   TRIVY_SKIP_DB_UPDATE:      "false"
   TRIVY_SKIP_CHECK_UPDATE:   "false"
 
 ---
-# ── 3. Trivy Server Deployment ───────────────────────────────────────────────
+# ── 2. Deployment ─────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -74,8 +57,6 @@ spec:
       labels:
         app: trivy-server
     spec:
-      imagePullSecrets:
-        - name: nexus-pull-secret
       containers:
         - name: trivy-server
           image: aquasec/trivy:latest
@@ -86,6 +67,7 @@ spec:
             - "0.0.0.0:4954"
             - --cache-dir
             - /var/trivy-cache
+          # All config comes from the ConfigMap — change values there, not here
           envFrom:
             - configMapRef:
                 name: trivy-config
@@ -95,14 +77,15 @@ spec:
               protocol: TCP
           resources:
             requests:
-              cpu: "200m"
+              cpu:    "200m"
               memory: "512Mi"
             limits:
-              cpu: "1000m"
+              cpu:    "1000m"
               memory: "1Gi"
           volumeMounts:
             - name: trivy-cache
               mountPath: /var/trivy-cache
+          # 30s delay — DB download from Nexus takes ~20-30s on first start
           readinessProbe:
             httpGet:
               path: /healthz
@@ -119,11 +102,12 @@ spec:
       volumes:
         - name: trivy-cache
           hostPath:
+            # DB persists across pod restarts — no re-download on every restart
             path: /opt/infracommand/trivy-cache
             type: DirectoryOrCreate
 
 ---
-# ── 4. Trivy Server Service ───────────────────────────────────────────────────
+# ── 3. Service ────────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -140,87 +124,3 @@ spec:
       targetPort: 4954
       protocol: TCP
   type: ClusterIP
-
----
-# ── 5. DB Updater CronJob ─────────────────────────────────────────────────────
-# Runs daily at 02:00. Copies the trivy-db OCI artifact from ghcr.io into
-# your Nexus registry so the trivy-server can pull it without internet.
-#
-# PREREQUISITE in Nexus:
-#   Create a Docker hosted repository named "aquasecurity":
-#   Nexus UI → Repositories → Create repository → docker (hosted)
-#   Name: aquasecurity  Port: (leave blank, uses Nexus proxy port)
-#
-# Run immediately (without waiting for schedule):
-#   kubectl create job --from=cronjob/trivy-db-updater trivy-db-update-now -n infracommand
-# ─────────────────────────────────────────────────────────────────────────────
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: trivy-db-updater
-  namespace: infracommand
-  labels:
-    app: trivy-db-updater
-spec:
-  schedule: "0 2 * * *"
-  concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 3
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          restartPolicy: OnFailure
-          imagePullSecrets:
-            - name: nexus-pull-secret
-          containers:
-            - name: db-updater
-              # Use crane — the lightest OCI artifact copy tool
-              # crane is a single static binary, no Docker daemon required
-              image: gcr.io/go-containerregistry/crane:latest
-              imagePullPolicy: IfNotPresent
-              env:
-                - name: NEXUS_REGISTRY
-                  value: "192.168.101.80:8082"
-                - name: NEXUS_USER
-                  valueFrom:
-                    secretKeyRef:
-                      name: nexus-credentials
-                      key: username
-                - name: NEXUS_PASS
-                  valueFrom:
-                    secretKeyRef:
-                      name: nexus-credentials
-                      key: password
-              command:
-                - /bin/sh
-                - -c
-                - |
-                  set -e
-                  echo "=== Trivy DB Updater: $(date) ==="
-
-                  SOURCE="ghcr.io/aquasecurity/trivy-db:2"
-                  DEST="${NEXUS_REGISTRY}/aquasecurity/trivy-db:2"
-                  SOURCE_JAVA="ghcr.io/aquasecurity/trivy-java-db:1"
-                  DEST_JAVA="${NEXUS_REGISTRY}/aquasecurity/trivy-java-db:1"
-
-                  echo "Copying trivy-db: ${SOURCE} -> ${DEST}"
-                  crane copy "${SOURCE}" "${DEST}" \
-                    --insecure \
-                    --platform linux/amd64 \
-                    2>&1
-
-                  echo "Copying trivy-java-db: ${SOURCE_JAVA} -> ${DEST_JAVA}"
-                  crane copy "${SOURCE_JAVA}" "${DEST_JAVA}" \
-                    --insecure \
-                    --platform linux/amd64 \
-                    2>&1
-
-                  echo "=== Done. trivy-db and trivy-java-db mirrored to Nexus. ==="
-              resources:
-                requests:
-                  cpu: "100m"
-                  memory: "128Mi"
-                limits:
-                  cpu: "500m"
-                  memory: "256Mi"

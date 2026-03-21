@@ -11,10 +11,17 @@ pipeline {
         FRONTEND_IMAGE = "jsethy2010/infracommand-frontend"
         IMAGE_TAG      = "${BUILD_NUMBER}"
 
-        // ── Nexus private registry (primary — K8s pulls from here) ───────────
+        // ── Nexus — app images (infracommand-docker repo) ─────────────────────
         NEXUS_REGISTRY = "192.168.101.80:8082"
         NEXUS_BACKEND  = "192.168.101.80:8082/infracommand-backend"
         NEXUS_FRONTEND = "192.168.101.80:8082/infracommand-frontend"
+
+        // ── Nexus — trivy DB repo (aquasecurity repo, separate port) ─────────
+        TRIVY_REGISTRY      = "192.168.101.80:8083"
+        TRIVY_DB_SOURCE     = "ghcr.io/aquasecurity/trivy-db:2"
+        TRIVY_JAVA_SOURCE   = "ghcr.io/aquasecurity/trivy-java-db:1"
+        TRIVY_DB_DEST       = "192.168.101.80:8083/trivy-db:2"
+        TRIVY_JAVA_DEST     = "192.168.101.80:8083/trivy-java-db:1"
 
         // ── Kubernetes ────────────────────────────────────────────────────────
         K8S_NAMESPACE  = "infracommand"
@@ -45,16 +52,12 @@ pipeline {
         }
 
         // ──────────────────────────────────────────────────────
-        // 2. SERVER SETUP (one-time, idempotent — safe to run on every build)
+        // 2. SERVER SETUP (idempotent — safe to run every build)
         // ──────────────────────────────────────────────────────
         stage('Server Setup') {
             steps {
                 sh '''
                     echo "=== Bootstrapping sudo rights for Jenkins ==="
-                    # Write all required sudoers entries directly
-                    # This works because jenkins already has NOPASSWD for apt-get
-                    # from the initial one-time setup, OR we use tee via sudo apt-get
-                    # which is allowed. We use a self-bootstrapping approach:
                     SUDOERS_FILE=/etc/sudoers.d/jenkins-infracommand
                     ENTRY_CRICTL="jenkins ALL=(ALL) NOPASSWD: /usr/bin/crictl"
                     ENTRY_CTR="jenkins ALL=(ALL) NOPASSWD: /usr/bin/ctr"
@@ -72,6 +75,56 @@ pipeline {
                     echo "=== Running setup.sh ==="
                     chmod +x setup.sh
                     sudo bash setup.sh
+
+                    # ── Ensure crane is installed on Jenkins node ─────────────
+                    # crane copies OCI artifacts (trivy-db) from ghcr.io to Nexus.
+                    # Installed once; subsequent runs use the cached binary.
+                    if ! command -v crane >/dev/null 2>&1; then
+                        echo "Installing crane..."
+                        CRANE_VER=$(curl -sfL \
+                            https://api.github.com/repos/google/go-containerregistry/releases/latest \
+                            | grep tag_name | cut -d'"' -f4)
+                        curl -sfL \
+                            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VER}/go-containerregistry_Linux_x86_64.tar.gz" \
+                            | sudo tar -xz -C /usr/local/bin crane
+                        echo "crane installed: $(crane version)"
+                    else
+                        echo "crane already available: $(crane version)"
+                    fi
+
+                    # ── Ensure Nexus Docker container exposes port 8083 ───────
+                    # The aquasecurity trivy-db repo needs port 8083.
+                    # If the nexus container was started without 8083, recreate it.
+                    NEXUS_PORTS=$(docker inspect nexus 2>/dev/null \
+                        | python3 -c "import sys,json; p=json.load(sys.stdin); \
+                          ports=p[0].get('HostConfig',{}).get('PortBindings',{}); \
+                          print(','.join(ports.keys()))" 2>/dev/null || echo "")
+
+                    if echo "$NEXUS_PORTS" | grep -q "8083"; then
+                        echo "Nexus already exposes port 8083 ✔"
+                    else
+                        echo "Nexus does not expose port 8083 — recreating container with 8083 added..."
+                        docker stop nexus || true
+                        docker rm   nexus || true
+                        docker run -d \
+                            --name nexus \
+                            --restart unless-stopped \
+                            -p 8081:8081 \
+                            -p 8082:8082 \
+                            -p 8083:8083 \
+                            -v nexus-data:/nexus-data \
+                            sonatype/nexus3
+
+                        echo "Waiting for Nexus to start..."
+                        for i in $(seq 1 30); do
+                            if curl -sf http://192.168.101.80:8081/service/rest/v1/status >/dev/null 2>&1; then
+                                echo "Nexus is up ✔"
+                                break
+                            fi
+                            echo "  waiting... ($i/30)"
+                            sleep 10
+                        done
+                    fi
                 '''
             }
         }
@@ -81,23 +134,16 @@ pipeline {
         // ──────────────────────────────────────────────────────
         stage('Install Backend Dependencies') {
             steps {
-                // Install python3-venv if missing (Ubuntu/Debian — runs as jenkins user via sudo)
                 sh '''
                     PYTHON_VER=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
                     echo "Detected Python: $PYTHON_VER"
-
-                    # Install venv package for the exact python version found
                     sudo apt-get install -y python3-venv python3${PYTHON_VER#3}-venv python3-pip 2>/dev/null || \
                     sudo apt-get install -y python3-venv python3-pip || true
-
-                    # Also install pip as fallback
                     python3 -m ensurepip --upgrade 2>/dev/null || true
                 '''
                 dir('backend') {
                     sh '''
-                        # Remove stale venv if it exists from a failed run
                         rm -rf venv
-
                         python3 -m venv venv
                         . venv/bin/activate
                         pip install --upgrade pip
@@ -116,7 +162,7 @@ pipeline {
         }
 
         // ──────────────────────────────────────────────────────
-        // 3. TEST & BUILD
+        // 4. TEST & BUILD
         // ──────────────────────────────────────────────────────
         stage('Test Backend') {
             steps {
@@ -138,7 +184,7 @@ pipeline {
         }
 
         // ──────────────────────────────────────────────────────
-        // 4. TRIVY — FILE SYSTEM SCAN
+        // 5. TRIVY — FILE SYSTEM SCAN
         // ──────────────────────────────────────────────────────
         stage('File System Scan') {
             steps {
@@ -155,12 +201,7 @@ pipeline {
         }
 
         // ──────────────────────────────────────────────────────
-        // 5. SONARQUBE ANALYSIS + QUALITY GATE
-        // ──────────────────────────────────────────────────────
-        // ──────────────────────────────────────────────────────
-        // 5. SONARQUBE ANALYSIS + QUALITY GATE
-        //    qualitygate.wait=false — we do our OWN polling
-        //    against /api/ce/task so we never hang on IN_PROGRESS
+        // 6. SONARQUBE ANALYSIS + QUALITY GATE
         // ──────────────────────────────────────────────────────
         stage('SonarQube Analysis') {
             environment {
@@ -168,24 +209,14 @@ pipeline {
             }
             steps {
                 withSonarQubeEnv('sonar') {
-                    // qualitygate.wait=false — scanner exits immediately after
-                    // submitting. Our Quality Gate stage polls /api/ce/task directly.
                     sh """
                         ${SCANNER_HOME}/bin/sonar-scanner \\
                         -Dsonar.projectName=InfraCommand \\
                         -Dsonar.projectKey=InfraCommand \\
                         -Dsonar.sources=backend,frontend/src \\
-                        -Dsonar.python.version=3.11 \\
-                        -Dsonar.exclusions=**/node_modules/**,**/build/**,**/venv/**,**/*.html \\
+                        -Dsonar.python.version=3 \\
                         -Dsonar.qualitygate.wait=false
                     """
-                }
-                // Read task ID from .scannerwork/report-task.txt
-                script {
-                    def reportTask = readFile('.scannerwork/report-task.txt')
-                    def m = reportTask =~ /ceTaskId=(.+)/
-                    env.SONAR_TASK_ID = m ? m[0][1].trim() : ''
-                    echo "SonarQube CE task ID: ${env.SONAR_TASK_ID ?: 'not found'}"
                 }
             }
         }
@@ -193,75 +224,25 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 script {
-                    def qgStatus = 'UNKNOWN'
-
-                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-
-                        // ── Step 1: Poll /api/ce/task until CE task finishes ──
-                        // Uses grep/sed for JSON parsing — no readJSON plugin needed
-                        // (max 3 min = 18 × 10 s)
-                        def taskFinished = false
-                        if (env.SONAR_TASK_ID) {
-                            for (int i = 0; i < 18; i++) {
-                                sleep(10)
-                                def ts = sh(
-                                    script: """
-                                        curl -sf --max-time 10 \
-                                            -u "\${SONAR_TOKEN}:" \
-                                            "http://192.168.101.80:9000/api/ce/task?id=${env.SONAR_TASK_ID}" \
-                                            2>/dev/null \
-                                        | grep -oP '(?<="status":")[^"]+' \
-                                        | head -1 \
-                                        || echo 'UNKNOWN'
-                                    """,
-                                    returnStdout: true
-                                ).trim()
-                                echo "CE task poll ${i+1}/18: ${ts}"
-                                if (ts == 'SUCCESS' || ts == 'FAILED' || ts == 'CANCELED' || ts == 'ERROR') {
-                                    taskFinished = true
-                                    break
-                                }
-                            }
-                            if (!taskFinished) {
-                                echo '⚠️  CE task still running after 3 min — skipping quality gate check'
+                    withSonarQubeEnv('sonar') {
+                        def taskId = sh(
+                            script: "grep ceTaskId .scannerwork/report-task.txt 2>/dev/null | cut -d= -f2 || echo ''",
+                            returnStdout: true
+                        ).trim()
+                        if (taskId) {
+                            timeout(time: 5, unit: 'MINUTES') {
+                                waitForQualityGate abortPipeline: false
                             }
                         } else {
-                            echo '⚠️  No CE task ID found — skipping quality gate check'
-                        }
-
-                        // ── Step 2: Read quality gate result (only after CE task done) ──
-                        if (taskFinished) {
-                            qgStatus = sh(
-                                script: """
-                                    curl -sf --max-time 10 \
-                                        -u "\${SONAR_TOKEN}:" \
-                                        "http://192.168.101.80:9000/api/qualitygates/project_status?projectKey=InfraCommand" \
-                                        2>/dev/null \
-                                    | grep -oP '(?<="status":")[^"]+' \
-                                    | head -1 \
-                                    || echo 'UNKNOWN'
-                                """,
-                                returnStdout: true
-                            ).trim()
+                            echo "No SonarQube task ID found, skipping quality gate"
                         }
                     }
-
-                    // ── Step 3: Log result — never fail the pipeline ──
-                    if (qgStatus == 'OK' || qgStatus == 'WARN') {
-                        echo "✅ Quality Gate PASSED (${qgStatus})"
-                    } else if (qgStatus == 'ERROR') {
-                        echo "⚠️  Quality Gate FAILED (${qgStatus}) — pipeline continues (non-blocking)"
-                    } else {
-                        echo "ℹ️  Quality Gate: ${qgStatus} — pipeline continues"
-                    }
-                    env.SONAR_QG_STATUS = qgStatus
                 }
             }
         }
 
         // ──────────────────────────────────────────────────────
-        // 6. DOCKER — BUILD BOTH IMAGES
-        //    Tagged for Nexus (primary) AND Docker Hub (mirror)
+        // 7. BUILD DOCKER IMAGES
         // ──────────────────────────────────────────────────────
         stage('Build Backend Docker Image') {
             steps {
@@ -286,7 +267,7 @@ pipeline {
         }
 
         // ──────────────────────────────────────────────────────
-        // 7. TRIVY — DOCKER IMAGE SCANS
+        // 8. TRIVY — IMAGE SCANS
         // ──────────────────────────────────────────────────────
         stage('Scan Backend Image') {
             steps {
@@ -311,7 +292,53 @@ pipeline {
         }
 
         // ──────────────────────────────────────────────────────
-        // 8. PUSH TO NEXUS  (primary — K8s pulls from here)
+        // 9. MIRROR TRIVY CVE DATABASE TO NEXUS
+        //    Jenkins (has internet) pulls from ghcr.io and pushes
+        //    to the dedicated aquasecurity Nexus repo at :8083.
+        //    The trivy-server pod inside K8s pulls from :8083 —
+        //    no internet access needed inside the cluster.
+        // ──────────────────────────────────────────────────────
+        stage('Mirror Trivy DB to Nexus') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'nexus-cred',
+                    usernameVariable: 'NEXUS_USER',
+                    passwordVariable: 'NEXUS_PASS'
+                )]) {
+                    sh """
+                        echo "=== Mirroring Trivy CVE DB: ghcr.io → Nexus :8083 ==="
+
+                        # Login to the aquasecurity Nexus repo
+                        echo "\$NEXUS_PASS" | crane auth login ${TRIVY_REGISTRY} \\
+                            --username "\$NEXUS_USER" \\
+                            --password-stdin \\
+                            --insecure
+
+                        # Copy trivy-db OCI artifact
+                        echo "Copying trivy-db..."
+                        crane copy ${TRIVY_DB_SOURCE} ${TRIVY_DB_DEST} \\
+                            --insecure \\
+                            --platform linux/amd64
+                        echo "trivy-db mirrored ✔"
+
+                        # Copy trivy-java-db OCI artifact
+                        echo "Copying trivy-java-db..."
+                        crane copy ${TRIVY_JAVA_SOURCE} ${TRIVY_JAVA_DEST} \\
+                            --insecure \\
+                            --platform linux/amd64
+                        echo "trivy-java-db mirrored ✔"
+
+                        # Verify both are reachable in Nexus
+                        curl -sf -u "\$NEXUS_USER:\$NEXUS_PASS" \\
+                            http://${TRIVY_REGISTRY}/v2/trivy-db/tags/list | python3 -m json.tool
+                        echo "=== Trivy DB mirror complete ==="
+                    """
+                }
+            }
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 10. PUSH TO NEXUS (primary — K8s pulls from here)
         // ──────────────────────────────────────────────────────
         stage('Push Images to Nexus') {
             steps {
@@ -336,7 +363,7 @@ pipeline {
         }
 
         // ──────────────────────────────────────────────────────
-        // 9. PUSH TO DOCKER HUB  (public mirror)
+        // 11. PUSH TO DOCKER HUB (public mirror)
         // ──────────────────────────────────────────────────────
         stage('Push Docker Images') {
             steps {
@@ -350,7 +377,7 @@ pipeline {
         }
 
         // ──────────────────────────────────────────────────────
-        // 10. ARCHIVE SECURITY REPORTS
+        // 12. ARCHIVE SECURITY REPORTS
         // ──────────────────────────────────────────────────────
         stage('Archive Reports') {
             steps {
@@ -359,8 +386,9 @@ pipeline {
         }
 
         // ──────────────────────────────────────────────────────
-        // 11. KUBERNETES — DEPLOY IN ORDER
-        //     Cluster pulls images from Nexus via pull secret
+        // 13. KUBERNETES — DEPLOY IN ORDER
+        //     trivy-server deployed FIRST so it is ready before
+        //     the backend pod starts scanning.
         // ──────────────────────────────────────────────────────
         stage('Deploy To Kubernetes') {
             steps {
@@ -377,6 +405,7 @@ pipeline {
                         sh """
                             kubectl create namespace ${K8S_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
 
+                            # Pull-secret for app images from :8082
                             kubectl create secret docker-registry nexus-pull-secret \\
                                 --docker-server=${NEXUS_REGISTRY} \\
                                 --docker-username=\$NEXUS_USER \\
@@ -384,17 +413,15 @@ pipeline {
                                 -n ${K8S_NAMESPACE} \\
                                 --dry-run=client -o yaml | kubectl apply -f -
 
-                            # Generic credentials for trivy-db-updater CronJob
+                            # Generic secret for trivy-server to pull DB from :8083
                             kubectl create secret generic nexus-credentials \\
-                                --from-literal=username=\\$NEXUS_USER \\
-                                --from-literal=password=\\$NEXUS_PASS \\
+                                --from-literal=username=\$NEXUS_USER \\
+                                --from-literal=password=\$NEXUS_PASS \\
                                 -n ${K8S_NAMESPACE} \\
                                 --dry-run=client -o yaml | kubectl apply -f -
                         """
                     }
 
-                    // Pre-pull images via crictl (CRI-O runtime)
-                    // CRI-O insecure registry configured in /etc/crio/crio.conf.d/insecure-registry.conf
                     sh """
                         sudo crictl pull ${NEXUS_BACKEND}:${IMAGE_TAG}
                         sudo crictl pull ${NEXUS_FRONTEND}:${IMAGE_TAG}
@@ -405,17 +432,15 @@ pipeline {
                     sh """
                         kubectl apply -f k8s/00-namespace.yaml
 
-                        # Clean up any stuck PVCs from old deployments
                         kubectl delete pvc infracommand-db-pvc -n ${K8S_NAMESPACE} --ignore-not-found=true
                         kubectl delete hpa infracommand-backend-hpa -n ${K8S_NAMESPACE} --ignore-not-found=true
 
-                        # Deploy trivy-server FIRST — backend needs it ready
+                        # Deploy trivy-server first (ConfigMap + Deployment + Service)
                         kubectl apply -f k8s/05-trivy.yaml
 
                         kubectl apply -f k8s/01-backend.yaml
                         kubectl apply -f k8s/02-frontend.yaml
                         kubectl apply -f k8s/03-ingress.yaml
-                        # HPA disabled for single-node — kubectl apply -f k8s/04-hpa.yaml
                     """
 
                     sh """
@@ -428,14 +453,15 @@ pipeline {
                             -n ${K8S_NAMESPACE}
                     """
 
-                    sh "kubectl rollout status deployment/infracommand-backend  -n ${K8S_NAMESPACE} --timeout=120s"
-                    sh "kubectl rollout status deployment/infracommand-frontend -n ${K8S_NAMESPACE} --timeout=120s"
+                    sh "kubectl rollout status deployment/trivy-server            -n ${K8S_NAMESPACE} --timeout=180s"
+                    sh "kubectl rollout status deployment/infracommand-backend    -n ${K8S_NAMESPACE} --timeout=120s"
+                    sh "kubectl rollout status deployment/infracommand-frontend   -n ${K8S_NAMESPACE} --timeout=120s"
                 }
             }
         }
 
         // ──────────────────────────────────────────────────────
-        // 12. VERIFY DEPLOYMENT
+        // 14. VERIFY DEPLOYMENT
         // ──────────────────────────────────────────────────────
         stage('Verify the Deployment') {
             steps {
@@ -453,8 +479,7 @@ pipeline {
         }
 
         // ──────────────────────────────────────────────────────
-        // 13. GRAFANA — DEPLOY ANNOTATION
-        //     Marks every deploy on Grafana dashboards
+        // 15. GRAFANA — DEPLOY ANNOTATION
         // ──────────────────────────────────────────────────────
         stage('Grafana Deploy Annotation') {
             steps {
@@ -495,9 +520,10 @@ pipeline {
                     <b>Message:</b>    ${env.GIT_MSG} <br>
                     <b>Build URL:</b>  <a href="${env.BUILD_URL}">${env.BUILD_URL}</a> <br><br>
 
-                    <h3>🌐 Application URLs (after deploy)</h3>
-                    Dashboard: <a href="http://infracommand.local">http://infracommand.local</a> <br>
-                    API:       <a href="http://infracommand.local/api/health">http://infracommand.local/api/health</a> <br><br>
+                    <h3>🌐 Application URLs</h3>
+                    Dashboard: <a href="http://192.168.101.80:32302">http://192.168.101.80:32302</a> <br>
+                    API Docs:  <a href="http://192.168.101.80:32302/api-docs">http://192.168.101.80:32302/api-docs</a> <br>
+                    API:       <a href="http://192.168.101.80:32302/api/docs">http://192.168.101.80:32302/api/docs</a> <br><br>
 
                     <h3>🐳 Images Published</h3>
                     Nexus Backend:      ${NEXUS_BACKEND}:${IMAGE_TAG} <br>
@@ -505,7 +531,7 @@ pipeline {
                     DockerHub Backend:  ${BACKEND_IMAGE}:${IMAGE_TAG} <br>
                     DockerHub Frontend: ${FRONTEND_IMAGE}:${IMAGE_TAG} <br><br>
 
-                    <h3>🔐 Trivy Security Reports</h3>
+                    <h3>🔐 Security Reports</h3>
                     🔹 <a href="${env.BUILD_URL}artifact/trivy-fs-report.html">File System Scan</a> <br>
                     🔹 <a href="${env.BUILD_URL}artifact/trivy-backend-image-report.html">Backend Image Scan</a> <br>
                     🔹 <a href="${env.BUILD_URL}artifact/trivy-frontend-image-report.html">Frontend Image Scan</a> <br><br>
@@ -516,7 +542,7 @@ pipeline {
             )
         }
         success {
-            echo "✅ InfraCommand deployed! Open http://infracommand.local in browser."
+            echo "✅ InfraCommand deployed! Open http://192.168.101.80:32302 in browser."
         }
         failure {
             echo "❌ Pipeline failed. Check Trivy reports and SonarQube."
