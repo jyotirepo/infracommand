@@ -425,116 +425,274 @@ function PortScanModal({target,hostId,vmId,ip,onClose}) {
 function VulnScanModal({target,hostId,vmId,ip,onClose}) {
   const [result,setResult]=useState(null);
   const [busy,setBusy]=useState(false);
+  const [elapsed,setElapsed]=useState(0);
+  const [filterSev,setFilterSev]=useState("ALL");
+  const [filterPkg,setFilterPkg]=useState("");
+  const [page,setPage]=useState(0);
+  const PAGE=20;
+  const timerRef=React.useRef(null);
+
+  const startTimer=()=>{
+    setElapsed(0);
+    timerRef.current=setInterval(()=>setElapsed(e=>e+1),1000);
+  };
+  const stopTimer=()=>{
+    clearInterval(timerRef.current);
+    timerRef.current=null;
+  };
 
   const scan=async(force=false)=>{
-    if(!hostId || hostId==="undefined"){
+    if(!hostId||hostId==="undefined"){
       setResult({error:"Host ID not available — try closing and reopening."});
       return;
     }
     setBusy(true);
-    if(force) setResult(null);
+    setPage(0);
+    if(force){setResult(null);startTimer();}
     try{
       const path=vmId
         ?`/hosts/${hostId}/vms/${vmId}/scan${force?"?force=true":""}`
         :`/hosts/${hostId}/scan${force?"?force=true":""}`;
-      const r=await api.post(path);
+      const r=await api.post(path,null,{timeout:300000}); // 5 min timeout
       setResult(r.data);
-    }catch(e){setResult({error:e.response?.data?.detail||"Scan failed"});}
+    }catch(e){
+      const msg=e.code==="ECONNABORTED"
+        ?"Scan timed out — the RPM/dpkg database transfer takes 2-3 min. Try again."
+        :(e.response?.data?.detail||"Scan failed");
+      setResult({error:msg});
+    }
+    stopTimer();
     setBusy(false);
   };
-  useEffect(()=>{ if(hostId && hostId!=="undefined") scan(false); },[hostId]); // eslint-disable-line
+
+  useEffect(()=>{
+    if(hostId&&hostId!=="undefined") scan(false);
+    return ()=>stopTimer();
+  },[hostId]); // eslint-disable-line
+
+  // Filter + paginate
+  const allVulns = result?.vulns||[];
+  const filtered = allVulns.filter(v=>{
+    if(filterSev!=="ALL"&&v.severity!==filterSev) return false;
+    if(filterPkg&&!v.pkg?.toLowerCase().includes(filterPkg.toLowerCase())) return false;
+    return true;
+  });
+  const pages=Math.ceil(filtered.length/PAGE);
+  const shown=filtered.slice(page*PAGE,(page+1)*PAGE);
+
   const dl=()=>{
     if(!result||result.error) return;
-    const txt=`InfraCommand Vulnerability Report\nTarget: ${result.target} (${result.ip})\nDate: ${result.scanned_at}\n\nSUMMARY: Critical:${result.summary?.critical} High:${result.summary?.high} Medium:${result.summary?.medium}\n\n${result.vulns?.map(v=>`${v.id} [${v.severity}] CVSS:${v.cvss} ${v.pkg}: ${v.desc}`).join("\n")}`;
+    const txt=`InfraCommand Vulnerability Report
+Target: ${result.target} (${result.ip})
+Date: ${result.scanned_at}
+
+SUMMARY: Critical:${result.summary?.critical} High:${result.summary?.high} Medium:${result.summary?.medium} Low:${result.summary?.low}
+
+${allVulns.map(v=>`${v.id} [${v.severity}] CVSS:${v.cvss} ${v.pkg}@${v.version}: ${v.desc}`).join("
+")}`;
     const a=document.createElement("a");a.href="data:text/plain,"+encodeURIComponent(txt);
     a.download=`vuln-${result.target}-${Date.now()}.txt`;a.click();
   };
+
+  const fmtTime=s=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+  const SEV_COLORS={"CRITICAL":T.red,"HIGH":T.amber,"MEDIUM":T.purple,"LOW":T.muted};
+
   return (
     <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className="modal" style={{width:700,maxWidth:"96vw"}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
-          <div><div style={{fontWeight:700,fontSize:15}}>Vulnerability Scan — {target}</div>
-            <div style={{color:T.muted,fontSize:12}}>IP: {ip}</div></div>
-          <div style={{display:"flex",gap:8}}>
+      <div className="modal" style={{width:860,maxWidth:"98vw",maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
+
+        {/* ── Header ── */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12,flexShrink:0}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:15}}>Vulnerability Scan — {target}</div>
+            <div style={{color:T.muted,fontSize:12}}>IP: {ip}</div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
             {result&&!result.error&&<button className="btn btn-ghost btn-sm" onClick={dl}>↓ Export</button>}
-            <button className="btn btn-scan btn-sm" onClick={()=>scan(true)} disabled={busy}>{busy?<><span className="spinner"/>Scanning...</>:"↻ Rescan"}</button>
+            <button className="btn btn-scan btn-sm" onClick={()=>scan(true)} disabled={busy}>
+              {busy?<><span className="spinner"/>Scanning…</>:"↻ Rescan"}
+            </button>
             <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
           </div>
         </div>
-        {busy&&<div className="scan-bar" style={{marginBottom:12}}/>}
-        {result?.error&&<div style={{color:T.red,padding:10,background:"#fee2e2",borderRadius:7}}>{result.error}</div>}
+
+        {/* ── Loading state ── */}
+        {busy&&(
+          <div style={{flexShrink:0,marginBottom:12}}>
+            <div className="scan-bar"/>
+            <div style={{marginTop:8,padding:"12px 16px",background:"#f8fafc",borderRadius:8,
+              border:"1px solid #e2e8f0",fontSize:13,color:T.sub}}>
+              <div style={{fontWeight:600,marginBottom:4}}>
+                🔍 Scanning {target}… {elapsed>0&&<span style={{color:T.muted,fontWeight:400}}>({fmtTime(elapsed)})</span>}
+              </div>
+              <div style={{fontSize:12,color:T.muted}}>
+                {elapsed<10&&"Connecting via SSH…"}
+                {elapsed>=10&&elapsed<30&&"Fetching package database from host…"}
+                {elapsed>=30&&elapsed<60&&"Transferring RPM/dpkg database (may take 1-2 min)…"}
+                {elapsed>=60&&elapsed<120&&"Analysing packages against CVE database…"}
+                {elapsed>=120&&"Almost done — large package database detected…"}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Error ── */}
+        {result?.error&&(
+          <div style={{color:T.red,padding:"10px 14px",background:"#fee2e2",borderRadius:7,fontSize:13}}>
+            {result.error}
+          </div>
+        )}
+
+        {/* ── Results ── */}
         {result&&!result.error&&(
-          <>
-            {/* Scanner badge + timestamp */}
-            {result.scanner&&(
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,fontSize:11,color:T.muted}}>
-                <span style={{background:"#f0fdf4",color:T.green,border:"1px solid #bbf7d0",
-                  borderRadius:5,padding:"2px 8px",fontWeight:700}}>🔍 {result.scanner}</span>
-                <span>Scanned: {result.scanned_at ? new Date(result.scanned_at).toLocaleString() : "—"}</span>
-              </div>
-            )}
-            {/* Trivy error banner */}
+          <div style={{display:"flex",flexDirection:"column",minHeight:0,flex:1}}>
+
+            {/* Scanner + timestamp */}
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:11,color:T.muted,flexShrink:0}}>
+              <span style={{background:"#f0fdf4",color:T.green,border:"1px solid #bbf7d0",
+                borderRadius:5,padding:"2px 8px",fontWeight:700}}>🔍 Trivy</span>
+              <span>Scanned: {result.scanned_at?new Date(result.scanned_at).toLocaleString():"—"}</span>
+            </div>
+
+            {/* Scan error banner */}
             {result.scan_error&&(
-              <div style={{padding:"10px 14px",marginBottom:12,background:"#fffbeb",
-                border:"1px solid #fde68a",borderRadius:7,fontSize:12,color:"#92400e"}}>
-                ⚠️ <strong>Scan error:</strong> {result.scan_error}
+              <div style={{padding:"10px 14px",marginBottom:10,background:"#fffbeb",
+                border:"1px solid #fde68a",borderRadius:7,fontSize:12,color:"#92400e",flexShrink:0}}>
+                ⚠️ <strong>Scan warning:</strong> {result.scan_error}
               </div>
             )}
-            {/* Summary KPIs */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
-              {[["Total",result.summary?.total,T.blue],["Critical",result.summary?.critical,T.red],
-                ["High",result.summary?.high,T.amber],["Medium",result.summary?.medium,T.purple],["Low",result.summary?.low,T.muted]].map(([l,v,c])=>(
-                <KPI key={l} label={l} value={v} color={c}/>
+
+            {/* KPI row — clickable to filter */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:12,flexShrink:0}}>
+              {[["Total",result.summary?.total,"ALL",T.blue],
+                ["Critical",result.summary?.critical,"CRITICAL",T.red],
+                ["High",result.summary?.high,"HIGH",T.amber],
+                ["Medium",result.summary?.medium,"MEDIUM",T.purple],
+                ["Low",result.summary?.low,"LOW",T.muted]].map(([l,v,sev,c])=>(
+                <div key={l} onClick={()=>{setFilterSev(filterSev===sev?"ALL":sev);setPage(0);}}
+                  style={{padding:"8px 6px",borderRadius:8,textAlign:"center",cursor:"pointer",
+                    border:`2px solid ${filterSev===sev?c:"transparent"}`,
+                    background:filterSev===sev?"#f8fafc":"transparent",transition:"all .15s"}}>
+                  <div style={{fontSize:20,fontWeight:800,color:c}}>{v??0}</div>
+                  <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:".5px"}}>{l}</div>
+                </div>
               ))}
             </div>
+
             {/* Open ports */}
             {result.open_ports?.length>0&&(
-              <div style={{marginBottom:14}}>
+              <div style={{marginBottom:10,flexShrink:0}}>
                 <div className="section-hd">Open Ports</div>
-                {result.open_ports.map(p=><span key={p.port} className={`port-chip ${p.risky?"port-risky":"port-open"}`}>:{p.port} {p.service}</span>)}
+                {result.open_ports.map(p=>(
+                  <span key={p.port} className={`port-chip ${p.risky?"port-risky":"port-open"}`}>
+                    :{p.port} {p.service}
+                  </span>
+                ))}
               </div>
             )}
-            {/* No vulns found */}
-            {(!result.vulns||result.vulns.length===0)&&!result.scan_error&&(
+
+            {/* No vulns */}
+            {allVulns.length===0&&!result.scan_error&&(
               <div style={{padding:24,textAlign:"center",color:T.green,fontWeight:600,fontSize:13}}>
-                ✅ No vulnerabilities found by Trivy.
+                ✅ No vulnerabilities found.
               </div>
             )}
-            {/* Vuln table */}
-            {result.vulns?.length>0&&(
-            <div style={{overflowX:"auto"}}>
-              <table>
-                <thead><tr>
-                  <th>CVE ID</th><th>Severity</th><th>CVSS</th>
-                  <th>Package</th><th>Installed</th><th>Fixed In</th><th>Description</th>
-                </tr></thead>
-                <tbody>{result.vulns.map((v,i)=>(
-                  <tr key={`${v.id}-${i}`}>
-                    <td><a href={v.url} target="_blank" rel="noreferrer"
-                      style={{color:T.blue,fontFamily:"IBM Plex Mono",fontSize:11}}>{v.id||"—"}</a></td>
-                    <td><SevBadge sev={v.severity}/></td>
-                    <td><span style={{fontFamily:"IBM Plex Mono",fontWeight:700,
-                      color:v.cvss>=9?T.red:v.cvss>=7?T.amber:T.sub}}>{v.cvss||"—"}</span></td>
-                    <td><code style={{background:"#f1f5f9",padding:"2px 5px",
-                      borderRadius:4,fontSize:11}}>{v.pkg}</code></td>
-                    <td style={{fontFamily:"IBM Plex Mono",fontSize:11,color:T.muted}}>{v.version||"—"}</td>
-                    <td style={{fontFamily:"IBM Plex Mono",fontSize:11,
-                      color:v.fixed_in?T.green:T.muted,fontWeight:v.fixed_in?700:400}}>
-                      {v.fixed_in||"no fix yet"}</td>
-                    <td style={{color:T.sub,maxWidth:200,fontSize:12}}>{v.desc}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
+
+            {/* Filter bar */}
+            {allVulns.length>0&&(
+              <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center",flexShrink:0}}>
+                <input
+                  placeholder="Filter by package…"
+                  value={filterPkg}
+                  onChange={e=>{setFilterPkg(e.target.value);setPage(0);}}
+                  style={{flex:1,padding:"5px 10px",borderRadius:6,border:"1px solid #e2e8f0",
+                    fontSize:12,outline:"none"}}
+                />
+                <select value={filterSev} onChange={e=>{setFilterSev(e.target.value);setPage(0);}}
+                  style={{padding:"5px 8px",borderRadius:6,border:"1px solid #e2e8f0",fontSize:12}}>
+                  {["ALL","CRITICAL","HIGH","MEDIUM","LOW"].map(s=>(
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <span style={{fontSize:11,color:T.muted,whiteSpace:"nowrap"}}>
+                  {filtered.length} of {allVulns.length}
+                </span>
+              </div>
             )}
-          </>
+
+            {/* Vuln table — scrollable */}
+            {shown.length>0&&(
+              <div style={{overflowY:"auto",flex:1,minHeight:0}}>
+                <table style={{fontSize:12}}>
+                  <thead style={{position:"sticky",top:0,background:"#fff",zIndex:1}}>
+                    <tr>
+                      <th style={{width:130}}>CVE ID</th>
+                      <th style={{width:80}}>Severity</th>
+                      <th style={{width:55}}>CVSS</th>
+                      <th style={{width:120}}>Package</th>
+                      <th style={{width:100}}>Installed</th>
+                      <th style={{width:100}}>Fixed In</th>
+                      <th>Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((v,i)=>(
+                      <tr key={`${v.id}-${i}`}>
+                        <td style={{fontFamily:"IBM Plex Mono",fontSize:11}}>
+                          <a href={v.url} target="_blank" rel="noreferrer"
+                            style={{color:T.blue,textDecoration:"none"}}>{v.id||"—"}</a>
+                        </td>
+                        <td>
+                          <span style={{padding:"2px 7px",borderRadius:4,fontSize:10,fontWeight:700,
+                            background:SEV_COLORS[v.severity]+"22",color:SEV_COLORS[v.severity]||T.muted}}>
+                            {v.severity}
+                          </span>
+                        </td>
+                        <td style={{fontFamily:"IBM Plex Mono",fontWeight:700,
+                          color:v.cvss>=9?T.red:v.cvss>=7?T.amber:T.muted}}>
+                          {v.cvss||"—"}
+                        </td>
+                        <td><code style={{background:"#f1f5f9",padding:"1px 5px",
+                          borderRadius:4,fontSize:11}}>{v.pkg}</code></td>
+                        <td style={{fontFamily:"IBM Plex Mono",fontSize:11,color:T.muted}}>
+                          {v.version||"—"}
+                        </td>
+                        <td style={{fontFamily:"IBM Plex Mono",fontSize:11,
+                          color:v.fixed_in?T.green:T.muted,fontWeight:v.fixed_in?700:400}}>
+                          {v.fixed_in||"no fix"}
+                        </td>
+                        <td style={{color:T.sub,maxWidth:200,overflow:"hidden",
+                          textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={v.desc}>
+                          {v.desc}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {pages>1&&(
+              <div style={{display:"flex",gap:6,justifyContent:"center",
+                alignItems:"center",paddingTop:10,flexShrink:0}}>
+                <button className="btn btn-ghost btn-sm"
+                  onClick={()=>setPage(p=>Math.max(0,p-1))} disabled={page===0}>← Prev</button>
+                <span style={{fontSize:12,color:T.muted}}>
+                  Page {page+1} of {pages} ({filtered.length} results)
+                </span>
+                <button className="btn btn-ghost btn-sm"
+                  onClick={()=>setPage(p=>Math.min(pages-1,p+1))} disabled={page===pages-1}>Next →</button>
+              </div>
+            )}
+
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-// ── Detail Panel (Host or VM) ─────────────────────────────────────────────────
 function DetailPanel({sel,hostData,onDbReload}) {
   const [tab,setTab]=useState("metrics");
   const [portModal,setPortModal]=useState(false);
