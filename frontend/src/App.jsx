@@ -473,6 +473,7 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
   // Filter + paginate
   const allVulns = result?.vulns||[];
   const filtered = allVulns.filter(v=>{
+    if(filterSev==="PORT") return v.port_exposed===true;
     if(filterSev!=="ALL"&&v.severity!==filterSev) return false;
     if(filterPkg&&!v.pkg?.toLowerCase().includes(filterPkg.toLowerCase())) return false;
     return true;
@@ -482,16 +483,14 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
 
   const dl=()=>{
     if(!result||result.error) return;
-    const txt=`InfraCommand Vulnerability Report
-Target: ${result.target} (${result.ip})
-Date: ${result.scanned_at}
-
-SUMMARY: Critical:${result.summary?.critical} High:${result.summary?.high} Medium:${result.summary?.medium} Low:${result.summary?.low}
-
-${allVulns.map(v=>`${v.id} [${v.severity}] CVSS:${v.cvss} ${v.pkg}@${v.version}: ${v.desc}`).join("
-")}`;
+    const lines=allVulns.map(v=>v.id+" ["+v.severity+"] CVSS:"+v.cvss+" "+v.pkg+"@"+v.version+": "+v.desc);
+    const txt="InfraCommand Vulnerability Report\nTarget: "+result.target+" ("+result.ip+")\n"
+      +"Date: "+result.scanned_at+"\n\n"
+      +"CRITICAL:"+result.summary?.critical+" HIGH:"+result.summary?.high
+      +" MEDIUM:"+result.summary?.medium+" LOW:"+result.summary?.low+"\n\n"
+      +lines.join("\n");
     const a=document.createElement("a");a.href="data:text/plain,"+encodeURIComponent(txt);
-    a.download=`vuln-${result.target}-${Date.now()}.txt`;a.click();
+    a.download="vuln-"+result.target+"-"+Date.now()+".txt";a.click();
   };
 
   const fmtTime=s=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
@@ -563,18 +562,19 @@ ${allVulns.map(v=>`${v.id} [${v.severity}] CVSS:${v.cvss} ${v.pkg}@${v.version}:
             )}
 
             {/* KPI row — clickable to filter */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:12,flexShrink:0}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:6,marginBottom:12,flexShrink:0}}>
               {[["Total",result.summary?.total,"ALL",T.blue],
-                ["Critical",result.summary?.critical,"CRITICAL",T.red],
-                ["High",result.summary?.high,"HIGH",T.amber],
-                ["Medium",result.summary?.medium,"MEDIUM",T.purple],
-                ["Low",result.summary?.low,"LOW",T.muted]].map(([l,v,sev,c])=>(
+                ["🔴 Critical",result.summary?.critical,"CRITICAL",T.red],
+                ["🟠 High",result.summary?.high,"HIGH",T.amber],
+                ["🟡 Medium",result.summary?.medium,"MEDIUM",T.purple],
+                ["⚪ Low",result.summary?.low,"LOW",T.muted],
+                ["⚡ Port Exposed",result.summary?.port_exposed,"PORT",T.red]].map(([l,v,sev,c])=>(
                 <div key={l} onClick={()=>{setFilterSev(filterSev===sev?"ALL":sev);setPage(0);}}
                   style={{padding:"8px 6px",borderRadius:8,textAlign:"center",cursor:"pointer",
                     border:`2px solid ${filterSev===sev?c:"transparent"}`,
-                    background:filterSev===sev?"#f8fafc":"transparent",transition:"all .15s"}}>
-                  <div style={{fontSize:20,fontWeight:800,color:c}}>{v??0}</div>
-                  <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:".5px"}}>{l}</div>
+                    background:filterSev===sev?"#fff7ed":"transparent",transition:"all .15s"}}>
+                  <div style={{fontSize:18,fontWeight:800,color:c}}>{v??0}</div>
+                  <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:".5px"}}>{l}</div>
                 </div>
               ))}
             </div>
@@ -652,8 +652,17 @@ ${allVulns.map(v=>`${v.id} [${v.severity}] CVSS:${v.cvss} ${v.pkg}@${v.version}:
                           color:v.cvss>=9?T.red:v.cvss>=7?T.amber:T.muted}}>
                           {v.cvss||"—"}
                         </td>
-                        <td><code style={{background:"#f1f5f9",padding:"1px 5px",
-                          borderRadius:4,fontSize:11}}>{v.pkg}</code></td>
+                        <td>
+                          <code style={{background:"#f1f5f9",padding:"1px 5px",
+                            borderRadius:4,fontSize:11}}>{v.pkg}</code>
+                          {v.port_exposed&&(
+                            <span title={"Exposed via port "+v.exposed_port}
+                              style={{marginLeft:4,fontSize:9,background:"#fee2e2",
+                              color:T.red,borderRadius:3,padding:"1px 4px",fontWeight:700}}>
+                              :{v.exposed_port}
+                            </span>
+                          )}
+                        </td>
                         <td style={{fontFamily:"IBM Plex Mono",fontSize:11,color:T.muted}}>
                           {v.version||"—"}
                         </td>
