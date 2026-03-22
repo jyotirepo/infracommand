@@ -422,38 +422,59 @@ pipeline {
                         """
                     }
 
-                    // Auth + SMTP secrets — injected from Jenkins credential store
-                    withCredentials([
-                        string(credentialsId: 'smtp-host',  variable: 'SMTP_HOST'),
-                        string(credentialsId: 'smtp-port',  variable: 'SMTP_PORT'),
-                        string(credentialsId: 'smtp-user',  variable: 'SMTP_USER'),
-                        string(credentialsId: 'smtp-pass',  variable: 'SMTP_PASS'),
-                        string(credentialsId: 'smtp-from',  variable: 'SMTP_FROM'),
-                    ]) {
-                        sh """
-                            # JWT secret — generate once, never overwrite
-                            if ! kubectl get secret infracommand-auth-secret \
-                                    -n ${K8S_NAMESPACE} >/dev/null 2>&1; then
-                                JWT_KEY=\$(openssl rand -hex 32)
-                                kubectl create secret generic infracommand-auth-secret \
-                                    --from-literal=jwt-secret=\$JWT_KEY \
-                                    -n ${K8S_NAMESPACE}
-                                echo "JWT secret created ✔"
-                            else
-                                echo "JWT secret already exists — not overwriting ✔"
-                            fi
+                    // ── JWT Secret (required) ─────────────────────────────────────────────
+                    sh """
+                        # JWT secret — generated once, never overwritten across deploys
+                        if ! kubectl get secret infracommand-auth-secret \
+                                -n ${K8S_NAMESPACE} >/dev/null 2>&1; then
+                            JWT_KEY=\$(openssl rand -hex 32)
+                            kubectl create secret generic infracommand-auth-secret \
+                                --from-literal=jwt-secret=\$JWT_KEY \
+                                -n ${K8S_NAMESPACE}
+                            echo "JWT secret created ✔"
+                        else
+                            echo "JWT secret already exists — not overwriting ✔"
+                        fi
+                    """
 
-                            # SMTP secret — update on every run from Jenkins credentials
-                            kubectl create secret generic infracommand-smtp-secret \
-                                --from-literal=smtp-host=\$SMTP_HOST \
-                                --from-literal=smtp-port=\$SMTP_PORT \
-                                --from-literal=smtp-user=\$SMTP_USER \
-                                --from-literal=smtp-pass=\$SMTP_PASS \
-                                --from-literal=smtp-from=\$SMTP_FROM \
-                                -n ${K8S_NAMESPACE} \
-                                --dry-run=client -o yaml | kubectl apply -f -
-                            echo "SMTP secret applied ✔"
-                        """
+                    // ── SMTP Secret (optional — pipeline continues if credentials missing) ─
+                    script {
+                        try {
+                            withCredentials([
+                                string(credentialsId: 'smtp-host', variable: 'SMTP_HOST'),
+                                string(credentialsId: 'smtp-port', variable: 'SMTP_PORT'),
+                                string(credentialsId: 'smtp-user', variable: 'SMTP_USER'),
+                                string(credentialsId: 'smtp-pass', variable: 'SMTP_PASS'),
+                                string(credentialsId: 'smtp-from', variable: 'SMTP_FROM'),
+                            ]) {
+                                sh """
+                                    kubectl create secret generic infracommand-smtp-secret \
+                                        --from-literal=smtp-host=\$SMTP_HOST \
+                                        --from-literal=smtp-port=\$SMTP_PORT \
+                                        --from-literal=smtp-user=\$SMTP_USER \
+                                        --from-literal=smtp-pass=\$SMTP_PASS \
+                                        --from-literal=smtp-from=\$SMTP_FROM \
+                                        -n ${K8S_NAMESPACE} \
+                                        --dry-run=client -o yaml | kubectl apply -f -
+                                    echo "SMTP secret applied ✔"
+                                """
+                            }
+                        } catch (err) {
+                            echo "⚠️  SMTP credentials not found in Jenkins — email sending disabled."
+                            echo "    Add Secret Text credentials: smtp-host, smtp-port, smtp-user, smtp-pass, smtp-from"
+                            echo "    Passwords will be shown on screen instead of emailed until SMTP is configured."
+                            // Create empty SMTP secret so the backend pod starts without errors
+                            sh """
+                                kubectl create secret generic infracommand-smtp-secret \
+                                    --from-literal=smtp-host="" \
+                                    --from-literal=smtp-port="587" \
+                                    --from-literal=smtp-user="" \
+                                    --from-literal=smtp-pass="" \
+                                    --from-literal=smtp-from="infracommand@devops.local" \
+                                    -n ${K8S_NAMESPACE} \
+                                    --dry-run=client -o yaml | kubectl apply -f -
+                            """
+                        }
                     }
 
                     sh """
