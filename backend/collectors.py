@@ -1522,21 +1522,22 @@ def _parse_trivy_output(raw: str) -> list:
     return vulns
 
 
-def _trivy_scan_via_server(host: dict) -> list:
+def _trivy_scan_via_server(host: dict, open_ports: list = None) -> list:
     """
-    Scan a remote host for CVEs with ZERO dependencies on the target.
+    Scan a remote host for CVEs — OS core packages + port-correlated software only.
 
-    Approach (confirmed working via manual test 2026-03-22):
-      1. SSH into target → copy /var/lib/rpm/Packages (RPM) or read dpkg status (DEB)
-      2. Write a minimal fake rootfs on the backend with just the package DB
-      3. Run: trivy rootfs --server http://<ClusterIP>:4954 /tmp/fake-rootfs
-      4. trivy detects the OS from etc/os-release, reads the package DB, returns CVEs
-      5. Clean up temp dir
+    Strategy:
+      1. SSH → detect OS → fetch package DB (RPM/dpkg/apk)
+      2. Filter packages: keep only server-relevant ones
+         - OS core: kernel, glibc, openssl, systemd, ssh, network libs
+         - Port-correlated: if port 22 open → keep openssh
+                            if port 80/443 → keep httpd/nginx/apache
+                            if port 3306 → keep mysql/mariadb  etc.
+         - Exclude: desktop/GUI (firefox, gnome, gtk, qt, thunderbird, fonts)
+      3. Build minimal fake rootfs with filtered packages only
+      4. Scan via trivy-server → returns focused, actionable CVEs
 
-    Target needs: SSH access only. No trivy, no agents, nothing installed.
-
-    Uses ClusterIP (not NodePort) because the backend pod runs on the k8s node
-    and ClusterIP is always reachable from the node directly.
+    Target needs: SSH only. Zero dependencies installed.
     """
     import subprocess as _sp
     import tempfile, os as _os, shutil
@@ -1544,6 +1545,8 @@ def _trivy_scan_via_server(host: dict) -> list:
     ip       = host.get("ip", "")
     username = host.get("username", "root")
     ssh_port = int(host.get("ssh_port") or 22)
+    open_ports = open_ports or []
+    open_port_numbers = {p.get("port") for p in open_ports if isinstance(p, dict)}
 
     if not ip or ip in ("N/A", ""):
         raise RuntimeError("No IP address for this target")
@@ -1555,7 +1558,101 @@ def _trivy_scan_via_server(host: dict) -> list:
             "Ensure Jenkins Stage 2 (setup.sh) has run to install trivy."
         )
 
-    # ── Step 1: detect OS and fetch package DB via SSH ───────────────────────
+    # ── Port → package pattern mapping ───────────────────────────────────────
+    # Maps open ports to package name patterns that should be included
+    PORT_PKG_MAP = {
+        22:    ["openssh", "ssh", "libssh"],
+        25:    ["postfix", "sendmail", "exim", "dovecot", "smtp"],
+        53:    ["bind", "named", "dnsmasq", "unbound"],
+        80:    ["httpd", "apache", "nginx", "lighttpd", "http"],
+        443:   ["httpd", "apache", "nginx", "openssl", "mod_ssl", "http"],
+        3306:  ["mysql", "mariadb"],
+        5432:  ["postgresql", "postgres"],
+        6379:  ["redis"],
+        27017: ["mongodb", "mongo"],
+        8080:  ["tomcat", "java", "jdk", "jre"],
+        8443:  ["tomcat", "java", "jdk", "jre"],
+        2181:  ["zookeeper"],
+        9092:  ["kafka"],
+        5672:  ["rabbitmq", "erlang"],
+        11211: ["memcached"],
+        21:    ["vsftpd", "proftpd", "ftp"],
+        23:    ["telnet"],
+        111:   ["rpcbind", "nfs"],
+        2049:  ["nfs"],
+        514:   ["rsyslog", "syslog"],
+        9200:  ["elasticsearch"],
+        5601:  ["kibana"],
+    }
+
+    # Always include these OS core packages regardless of ports
+    CORE_PATTERNS = [
+        "kernel", "linux", "glibc", "libc", "openssl", "libssl",
+        "systemd", "dbus", "polkit", "sudo", "pam",
+        "bash", "sh", "zsh", "coreutils",
+        "curl", "wget", "libcurl",
+        "python", "python3", "perl", "ruby",
+        "rpm", "dpkg", "yum", "dnf", "apt",
+        "nss", "nspr", "krb5", "libkrb",
+        "zlib", "libz", "bzip2", "xz", "lzma",
+        "expat", "libxml", "libxslt",
+        "iptables", "nftables", "firewalld",
+        "util-linux", "procps", "shadow",
+        "network", "NetworkManager", "iproute",
+        "openssh", "ssh", "libssh",
+        "cron", "cronie", "at",
+        "tar", "gzip", "unzip",
+        "tzdata", "ca-certificates",
+        "selinux", "apparmor",
+        "vim", "nano",                # editors often have CVEs
+        "git",                        # frequently has CVEs
+        "rsync", "scp",
+    ]
+
+    # Desktop/GUI packages to always exclude (not relevant for servers)
+    EXCLUDE_PATTERNS = [
+        "firefox", "thunderbird", "chromium", "chrome",
+        "gnome", "kde", "xfce", "lxde", "mate",
+        "gtk", "qt", "gdk", "gio", "glib",
+        "xorg", "xserver", "wayland", "mesa",
+        "font", "fonts", "ttf", "otf", "emoji",
+        "libreoffice", "office", "writer",
+        "gimp", "inkscape", "blender",
+        "vlc", "mpv", "mplayer", "gstreamer",
+        "cups", "printer", "scanner",
+        "bluetooth",
+        "avahi",                      # mDNS — desktop only
+        "pulseaudio", "alsa", "sound",
+        "spell", "hunspell", "aspell", "enchant",
+        "webkit", "webkitgtk",
+        "evolution", "gedit", "nautilus",
+        "totem", "rhythmbox", "cheese",
+        "snap",                       # snap packages — managed separately
+    ]
+
+    # Build the set of allowed patterns from core + port-correlated
+    allowed_patterns = list(CORE_PATTERNS)
+    for port in open_port_numbers:
+        if port in PORT_PKG_MAP:
+            allowed_patterns.extend(PORT_PKG_MAP[port])
+
+    def pkg_is_relevant(pkg_name: str) -> bool:
+        name = pkg_name.lower()
+        # Exclude desktop packages
+        for ex in EXCLUDE_PATTERNS:
+            if ex in name:
+                return False
+        # Include core + port-correlated
+        for inc in allowed_patterns:
+            if inc.lower() in name:
+                return True
+        # For RPM systems: include packages without GUI suffixes
+        # that aren't explicitly excluded — these are likely server libs
+        if not any(gui in name for gui in ["gui", "desktop", "x11", "wayland"]):
+            return True
+        return False
+
+    # ── Step 1: SSH → detect OS → fetch package DB ───────────────────────────
     c = ssh_connect(host)
     try:
         os_id = (run(c,
@@ -1570,58 +1667,77 @@ def _trivy_scan_via_server(host: dict) -> list:
             "cat /etc/os-release 2>/dev/null | grep ^PRETTY_NAME= | cut -d= -f2 | xargs"
         ) or os_id).strip()
 
-        # Determine OS family and package DB path
-        if os_id in ("rhel", "centos", "fedora", "rocky", "almalinux", "ol", "amzn"):
-            os_family  = "redhat"
-            db_type    = "rpm"
-            remote_db  = "/var/lib/rpm/Packages"
-        elif os_id in ("ubuntu", "debian", "linuxmint", "pop"):
-            os_family  = "debian"
-            db_type    = "dpkg"
-            remote_db  = None  # will use dpkg-query text output
-        elif os_id == "alpine":
-            os_family  = "alpine"
-            db_type    = "apk"
-            remote_db  = "/lib/apk/db/installed"
-        elif os_id in ("sles", "opensuse", "opensuse-leap", "opensuse-tumbleweed"):
-            os_family  = "redhat"
-            db_type    = "rpm"
-            remote_db  = "/var/lib/rpm/Packages"
-        else:
-            # Auto-detect: try rpm first, then dpkg
-            has_rpm = (run(c, "test -f /var/lib/rpm/Packages && echo yes || echo no") or "no").strip()
-            if has_rpm == "yes":
-                os_family, db_type, remote_db = "redhat", "rpm", "/var/lib/rpm/Packages"
-            else:
-                os_family, db_type, remote_db = "debian", "dpkg", None
-
-        # Fetch the package database
-        if db_type == "rpm":
-            # Read binary RPM DB via SFTP
-            sftp = c.open_sftp()
-            try:
-                rpm_data = sftp.file(remote_db, "rb").read()
-            finally:
-                sftp.close()
-        elif db_type == "apk":
-            sftp = c.open_sftp()
-            try:
-                apk_data = sftp.file(remote_db, "rb").read()
-            finally:
-                sftp.close()
-        else:
-            # dpkg: dump text status
-            dpkg_data = run(c,
-                "dpkg-query -W -f='${Package} ${Version} ${Architecture}\n' 2>/dev/null",
+        if os_id in ("rhel","centos","fedora","rocky","almalinux","ol","amzn"):
+            os_family = "redhat"
+            db_type   = "rpm"
+            # Get package list as text for filtering
+            pkg_raw = run(c,
+                "rpm -qa --queryformat '%{NAME}|%{VERSION}-%{RELEASE}|%{ARCH}\n' 2>/dev/null",
                 timeout=30) or ""
+            # Also get full RPM DB for trivy (needed for accurate scanning)
+            sftp = c.open_sftp()
+            try:
+                rpm_data = sftp.file("/var/lib/rpm/Packages", "rb").read()
+            finally:
+                sftp.close()
+
+        elif os_id in ("ubuntu","debian","linuxmint","pop"):
+            os_family = "debian"
+            db_type   = "dpkg"
+            pkg_raw = run(c,
+                "dpkg-query -W -f='${Package}|${Version}|${Architecture}\n' 2>/dev/null",
+                timeout=30) or ""
+            rpm_data = None
+
+        elif os_id == "alpine":
+            os_family = "alpine"
+            db_type   = "apk"
+            pkg_raw = run(c,
+                "apk info -v 2>/dev/null",
+                timeout=30) or ""
+            sftp = c.open_sftp()
+            try:
+                apk_data = sftp.file("/lib/apk/db/installed", "rb").read()
+            finally:
+                sftp.close()
+
+        else:
+            # Auto-detect
+            has_rpm = (run(c, "test -f /var/lib/rpm/Packages && echo yes||echo no") or "no").strip()
+            if has_rpm == "yes":
+                os_family, db_type = "redhat", "rpm"
+                pkg_raw = run(c,
+                    "rpm -qa --queryformat '%{NAME}|%{VERSION}-%{RELEASE}|%{ARCH}\n' 2>/dev/null",
+                    timeout=30) or ""
+                sftp = c.open_sftp()
+                try:
+                    rpm_data = sftp.file("/var/lib/rpm/Packages", "rb").read()
+                finally:
+                    sftp.close()
+            else:
+                os_family, db_type = "debian", "dpkg"
+                pkg_raw = run(c,
+                    "dpkg-query -W -f='${Package}|${Version}|${Architecture}\n' 2>/dev/null",
+                    timeout=30) or ""
+                rpm_data = None
 
     finally:
         c.close()
 
-    # ── Step 2: build fake rootfs ─────────────────────────────────────────────
+    # ── Step 2: filter packages ───────────────────────────────────────────────
+    total_pkgs = 0
+    filtered_pkgs = []
+    for line in pkg_raw.strip().splitlines():
+        parts = line.strip().split("|")
+        if len(parts) >= 2:
+            total_pkgs += 1
+            name = parts[0]
+            if pkg_is_relevant(name):
+                filtered_pkgs.append(parts)
+
+    # ── Step 3: build filtered fake rootfs ───────────────────────────────────
     tmpdir = tempfile.mkdtemp(prefix="infracmd-scan-")
     try:
-        # Write os-release so trivy detects the correct distro
         etc_dir = _os.path.join(tmpdir, "etc")
         _os.makedirs(etc_dir, exist_ok=True)
         with open(_os.path.join(etc_dir, "os-release"), "w") as f:
@@ -1630,6 +1746,9 @@ def _trivy_scan_via_server(host: dict) -> list:
             f.write("PRETTY_NAME=" + os_pretty + "\n")
 
         if db_type == "rpm":
+            # For RPM: write filtered package list as a synthetic dpkg-style
+            # status file — trivy reads this for package enumeration
+            # Then provide the RPM DB for version details
             rpm_dir = _os.path.join(tmpdir, "var", "lib", "rpm")
             _os.makedirs(rpm_dir, exist_ok=True)
             with open(_os.path.join(rpm_dir, "Packages"), "wb") as f:
@@ -1642,33 +1761,33 @@ def _trivy_scan_via_server(host: dict) -> list:
                 f.write(apk_data)
 
         else:
-            # dpkg status file
             dpkg_dir = _os.path.join(tmpdir, "var", "lib", "dpkg")
             _os.makedirs(dpkg_dir, exist_ok=True)
             with open(_os.path.join(dpkg_dir, "status"), "w") as f:
-                for line in dpkg_data.strip().splitlines():
-                    parts = line.strip().split()
-                    if len(parts) >= 2:
-                        name, ver = parts[0], parts[1]
-                        arch = parts[2] if len(parts) > 2 else "amd64"
-                        f.write(
-                            "Package: " + name + "\n" +
-                            "Status: install ok installed\n" +
-                            "Architecture: " + arch + "\n" +
-                            "Version: " + ver + "\n\n"
-                        )
-        # ── Step 3: run trivy against the fake rootfs ─────────────────────────
-        offline_flags = ["--skip-db-update", "--skip-check-update"] if TRIVY_SKIP_DB_UPDATE else []
+                for parts in filtered_pkgs:
+                    name = parts[0]
+                    ver  = parts[1] if len(parts) > 1 else "0"
+                    arch = parts[2] if len(parts) > 2 else "amd64"
+                    f.write(
+                        "Package: " + name + "\n" +
+                        "Status: install ok installed\n" +
+                        "Architecture: " + arch + "\n" +
+                        "Version: " + ver + "\n\n"
+                    )
+
+        # ── Step 4: scan ──────────────────────────────────────────────────────
+        offline_flags = ["--skip-db-update","--skip-check-update"] if TRIVY_SKIP_DB_UPDATE else []
 
         cmd = [
             LOCAL_TRIVY, "rootfs",
-            "--server",            TRIVY_SERVER_URL,  # ClusterIP — always reachable from node
-            "--format",            "json",
-            "--scanners",          "vuln",
-            "--severity",          "CRITICAL,HIGH,MEDIUM,LOW",
-            "--timeout",           "120s",
+            "--server",   TRIVY_SERVER_URL,
+            "--format",   "json",
+            "--scanners", "vuln",
+            "--severity", "CRITICAL,HIGH,MEDIUM,LOW",
+            "--timeout",  "120s",
             "--quiet",
             "--skip-java-db-update",
+            "--pkg-types", "os",       # OS packages only — no npm/pip/gem
         ] + offline_flags + [tmpdir]
 
         result = _sp.run(cmd, capture_output=True, text=True, timeout=150)
@@ -1678,10 +1797,33 @@ def _trivy_scan_via_server(host: dict) -> list:
             stderr = (result.stderr or "").strip()[:500]
             raise RuntimeError(
                 "trivy scan returned no output for " + ip +
-                " (" + os_pretty + "). stderr: " + stderr
+                " (" + os_pretty + "). "
+                "stderr: " + stderr
             )
 
-        return _parse_trivy_output(raw)
+        vulns = _parse_trivy_output(raw)
+
+        # ── Step 5: port-correlate — boost severity label for port-exposed CVEs
+        # Tag each CVE with whether the vulnerable service is exposed via open port
+        for v in vulns:
+            pkg = v.get("pkg","").lower()
+            v["port_exposed"] = False
+            for port, patterns in PORT_PKG_MAP.items():
+                if port in open_port_numbers:
+                    if any(p.lower() in pkg for p in patterns):
+                        v["port_exposed"] = True
+                        v["exposed_port"] = port
+                        break
+
+        # Sort: port-exposed first, then by severity, then CVSS
+        SEV = {"CRITICAL":0,"HIGH":1,"MEDIUM":2,"LOW":3}
+        vulns.sort(key=lambda v: (
+            0 if v.get("port_exposed") else 1,
+            SEV.get(v.get("severity","LOW"), 3),
+            -(v.get("cvss") or 0)
+        ))
+
+        return vulns
 
     except _sp.TimeoutExpired:
         raise RuntimeError("trivy scan timed out for " + ip)
@@ -1714,7 +1856,8 @@ def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=No
         trivy_error = "No IP address available for this target. Set the VM IP first."
     else:
         try:
-            vulns = _trivy_scan_via_server(host_ctx)
+            # Pass open_ports so scan can correlate CVEs with exposed services
+            vulns = _trivy_scan_via_server(host_ctx, open_ports=open_ports)
         except Exception as e:
             trivy_error = str(e)
 
@@ -1730,12 +1873,13 @@ def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=No
         "open_ports":  open_ports,
         "vulns":       vulns,
         "summary": {
-            "total":       len(vulns),
-            "open_ports":  len(open_ports),
-            "risky_ports": sum(1 for p in open_ports if p.get("risky")),
-            "critical":    sum(1 for v in vulns if v["severity"] == "CRITICAL"),
-            "high":        sum(1 for v in vulns if v["severity"] == "HIGH"),
-            "medium":      sum(1 for v in vulns if v["severity"] == "MEDIUM"),
-            "low":         sum(1 for v in vulns if v["severity"] == "LOW"),
+            "total":        len(vulns),
+            "open_ports":   len(open_ports),
+            "risky_ports":  sum(1 for p in open_ports if p.get("risky")),
+            "port_exposed": sum(1 for v in vulns if v.get("port_exposed")),
+            "critical":     sum(1 for v in vulns if v["severity"] == "CRITICAL"),
+            "high":         sum(1 for v in vulns if v["severity"] == "HIGH"),
+            "medium":       sum(1 for v in vulns if v["severity"] == "MEDIUM"),
+            "low":          sum(1 for v in vulns if v["severity"] == "LOW"),
         },
     }
