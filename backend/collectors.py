@@ -1524,126 +1524,170 @@ def _parse_trivy_output(raw: str) -> list:
 
 def _trivy_scan_via_server(host: dict) -> list:
     """
-    Scan a target host using trivy-server's built-in SSH remote scan.
+    Scan a remote host for CVEs with ZERO dependencies on the target.
 
-    trivy supports: trivy rootfs ssh://user@host/
-    This runs ENTIRELY inside the trivy-server pod.
-    The target host needs NOTHING installed — no trivy, no agents, nothing.
+    Approach (confirmed working via manual test 2026-03-22):
+      1. SSH into target → copy /var/lib/rpm/Packages (RPM) or read dpkg status (DEB)
+      2. Write a minimal fake rootfs on the backend with just the package DB
+      3. Run: trivy rootfs --server http://<ClusterIP>:4954 /tmp/fake-rootfs
+      4. trivy detects the OS from etc/os-release, reads the package DB, returns CVEs
+      5. Clean up temp dir
 
-    How it works:
-      1. Backend writes a temp SSH password file into the trivy-server pod
-      2. kubectl exec runs: sshpass trivy rootfs ssh://user@ip/ inside the pod
-      3. trivy-server SSHes into target, reads the filesystem, checks CVE DB
-      4. JSON results returned — target is completely passive
+    Target needs: SSH access only. No trivy, no agents, nothing installed.
 
-    Requirements:
-      - trivy-server pod must have sshpass installed (handled by Dockerfile)
-      - trivy-server pod must be able to reach target host via SSH
+    Uses ClusterIP (not NodePort) because the backend pod runs on the k8s node
+    and ClusterIP is always reachable from the node directly.
     """
     import subprocess as _sp
-    import tempfile, os
+    import tempfile, os as _os, shutil
 
     ip       = host.get("ip", "")
     username = host.get("username", "root")
-    password = host.get("password", "") or ""
     ssh_port = int(host.get("ssh_port") or 22)
 
     if not ip or ip in ("N/A", ""):
         raise RuntimeError("No IP address for this target")
 
-    # Get the trivy-server pod name
-    pod_result = _sp.run(
-        ["kubectl", "get", "pod", "-n", "infracommand",
-         "-l", "app=trivy-server",
-         "--field-selector=status.phase=Running",
-         "-o", "jsonpath={.items[0].metadata.name}"],
-        capture_output=True, text=True, timeout=10
-    )
-    pod_name = pod_result.stdout.strip()
-    if not pod_name:
+    LOCAL_TRIVY = _os.environ.get("TRIVY_BINARY_PATH", "/usr/local/bin/trivy")
+    if not _os.path.exists(LOCAL_TRIVY):
         raise RuntimeError(
-            "No running trivy-server pod found in infracommand namespace."
+            "trivy binary not found on backend. "
+            "Ensure Jenkins Stage 2 (setup.sh) has run to install trivy."
         )
 
-    offline_flags = ["--skip-db-update", "--skip-check-update"] if TRIVY_SKIP_DB_UPDATE else []
-
-    skip_dirs = [
-        "--skip-dirs", "/proc",
-        "--skip-dirs", "/sys",
-        "--skip-dirs", "/dev",
-        "--skip-dirs", "/run",
-        "--skip-dirs", "/snap",
-    ]
-
-    # Build the SSH target URL
-    ssh_target = f"ssh://{username}@{ip}:{ssh_port}/"
-
-    # Build command to execute inside trivy-server pod
-    # sshpass passes the password non-interactively
-    # StrictHostKeyChecking=no avoids host key prompt on first connection
-    if password:
-        trivy_cmd = (
-            ["/tools/sshpass", f"-p{password}",
-             "trivy", "rootfs",
-             "--server", "http://localhost:4954",
-             "--format", "json",
-             "--scanners", "vuln",
-             "--severity", "CRITICAL,HIGH,MEDIUM,LOW",
-             "--timeout", "180s",
-             "--quiet",
-             "--skip-java-db-update",
-             "-o", "/dev/stdout",
-             ] + skip_dirs + offline_flags +
-            [f"ssh://{username}@{ip}:{ssh_port}/"]
-        )
-    else:
-        trivy_cmd = (
-            ["trivy", "rootfs",
-             "--server", "http://localhost:4954",
-             "--format", "json",
-             "--scanners", "vuln",
-             "--severity", "CRITICAL,HIGH,MEDIUM,LOW",
-             "--timeout", "180s",
-             "--quiet",
-             "--skip-java-db-update",
-             "-o", "/dev/stdout",
-             ] + skip_dirs + offline_flags +
-            [f"ssh://{username}@{ip}:{ssh_port}/"]
-        )
-
-    full_cmd = ["kubectl", "exec", "-n", "infracommand", pod_name, "--"] + trivy_cmd
-
+    # ── Step 1: detect OS and fetch package DB via SSH ───────────────────────
+    c = ssh_connect(host)
     try:
-        # Set SSH options to skip host key checking (first connection to new hosts)
-        scan_env = {
-            **os.environ,
-            "TRIVY_INSECURE": "true",
-            "SSH_OPTIONS": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
-        }
-        result = _sp.run(
-            full_cmd,
-            capture_output=True, text=True, timeout=210,
-            env=scan_env
-        )
+        os_id = (run(c,
+            "cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | xargs"
+        ) or "").strip().lower()
+
+        os_version = (run(c,
+            "cat /etc/os-release 2>/dev/null | grep ^VERSION_ID= | cut -d= -f2 | xargs"
+        ) or "").strip()
+
+        os_pretty = (run(c,
+            "cat /etc/os-release 2>/dev/null | grep ^PRETTY_NAME= | cut -d= -f2 | xargs"
+        ) or os_id).strip()
+
+        # Determine OS family and package DB path
+        if os_id in ("rhel", "centos", "fedora", "rocky", "almalinux", "ol", "amzn"):
+            os_family  = "redhat"
+            db_type    = "rpm"
+            remote_db  = "/var/lib/rpm/Packages"
+        elif os_id in ("ubuntu", "debian", "linuxmint", "pop"):
+            os_family  = "debian"
+            db_type    = "dpkg"
+            remote_db  = None  # will use dpkg-query text output
+        elif os_id == "alpine":
+            os_family  = "alpine"
+            db_type    = "apk"
+            remote_db  = "/lib/apk/db/installed"
+        elif os_id in ("sles", "opensuse", "opensuse-leap", "opensuse-tumbleweed"):
+            os_family  = "redhat"
+            db_type    = "rpm"
+            remote_db  = "/var/lib/rpm/Packages"
+        else:
+            # Auto-detect: try rpm first, then dpkg
+            has_rpm = (run(c, "test -f /var/lib/rpm/Packages && echo yes || echo no") or "no").strip()
+            if has_rpm == "yes":
+                os_family, db_type, remote_db = "redhat", "rpm", "/var/lib/rpm/Packages"
+            else:
+                os_family, db_type, remote_db = "debian", "dpkg", None
+
+        # Fetch the package database
+        if db_type == "rpm":
+            # Read binary RPM DB via SFTP
+            sftp = c.open_sftp()
+            try:
+                rpm_data = sftp.file(remote_db, "rb").read()
+            finally:
+                sftp.close()
+        elif db_type == "apk":
+            sftp = c.open_sftp()
+            try:
+                apk_data = sftp.file(remote_db, "rb").read()
+            finally:
+                sftp.close()
+        else:
+            # dpkg: dump text status
+            dpkg_data = run(c,
+                "dpkg-query -W -f='${Package} ${Version} ${Architecture}\n' 2>/dev/null",
+                timeout=30) or ""
+
+    finally:
+        c.close()
+
+    # ── Step 2: build fake rootfs ─────────────────────────────────────────────
+    tmpdir = tempfile.mkdtemp(prefix="infracmd-scan-")
+    try:
+        # Write os-release so trivy detects the correct distro
+        etc_dir = _os.path.join(tmpdir, "etc")
+        _os.makedirs(etc_dir, exist_ok=True)
+        with open(_os.path.join(etc_dir, "os-release"), "w") as f:
+            f.write("ID=" + os_id + "\n")
+            f.write("VERSION_ID=" + os_version + "\n")
+            f.write("PRETTY_NAME=" + os_pretty + "\n")
+
+        if db_type == "rpm":
+            rpm_dir = _os.path.join(tmpdir, "var", "lib", "rpm")
+            _os.makedirs(rpm_dir, exist_ok=True)
+            with open(_os.path.join(rpm_dir, "Packages"), "wb") as f:
+                f.write(rpm_data)
+
+        elif db_type == "apk":
+            apk_dir = _os.path.join(tmpdir, "lib", "apk", "db")
+            _os.makedirs(apk_dir, exist_ok=True)
+            with open(_os.path.join(apk_dir, "installed"), "wb") as f:
+                f.write(apk_data)
+
+        else:
+            # dpkg status file
+            dpkg_dir = _os.path.join(tmpdir, "var", "lib", "dpkg")
+            _os.makedirs(dpkg_dir, exist_ok=True)
+            with open(_os.path.join(dpkg_dir, "status"), "w") as f:
+                for line in dpkg_data.strip().splitlines():
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        name, ver = parts[0], parts[1]
+                        arch = parts[2] if len(parts) > 2 else "amd64"
+                        f.write(
+                            "Package: " + name + "\n" +
+                            "Status: install ok installed\n" +
+                            "Architecture: " + arch + "\n" +
+                            "Version: " + ver + "\n\n"
+                        )
+        # ── Step 3: run trivy against the fake rootfs ─────────────────────────
+        offline_flags = ["--skip-db-update", "--skip-check-update"] if TRIVY_SKIP_DB_UPDATE else []
+
+        cmd = [
+            LOCAL_TRIVY, "rootfs",
+            "--server",            TRIVY_SERVER_URL,  # ClusterIP — always reachable from node
+            "--format",            "json",
+            "--scanners",          "vuln",
+            "--severity",          "CRITICAL,HIGH,MEDIUM,LOW",
+            "--timeout",           "120s",
+            "--quiet",
+            "--skip-java-db-update",
+        ] + offline_flags + [tmpdir]
+
+        result = _sp.run(cmd, capture_output=True, text=True, timeout=150)
         raw = result.stdout.strip()
 
         if not raw or not raw.startswith("{"):
-            stderr = (result.stderr or "").strip()[:600]
-            # Check if sshpass is missing in the pod
-            if "sshpass" in stderr and "not found" in stderr:
-                raise RuntimeError(
-                    "sshpass is not installed in the trivy-server pod. "
-                    "Rebuild the trivy-server image with sshpass installed, "
-                    "or use SSH key authentication."
-                )
+            stderr = (result.stderr or "").strip()[:500]
             raise RuntimeError(
-                f"trivy remote scan returned no output. "
-                f"stderr: {stderr}"
+                "trivy scan returned no output for " + ip +
+                " (" + os_pretty + "). stderr: " + stderr
             )
+
         return _parse_trivy_output(raw)
 
     except _sp.TimeoutExpired:
-        raise RuntimeError(f"trivy remote scan timed out after 210s for {ip}")
+        raise RuntimeError("trivy scan timed out for " + ip)
+
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=None):
