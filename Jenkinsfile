@@ -422,8 +422,41 @@ pipeline {
                         """
                     }
 
+                    // Auth + SMTP secrets — injected from Jenkins credential store
+                    withCredentials([
+                        string(credentialsId: 'smtp-host',  variable: 'SMTP_HOST'),
+                        string(credentialsId: 'smtp-port',  variable: 'SMTP_PORT'),
+                        string(credentialsId: 'smtp-user',  variable: 'SMTP_USER'),
+                        string(credentialsId: 'smtp-pass',  variable: 'SMTP_PASS'),
+                        string(credentialsId: 'smtp-from',  variable: 'SMTP_FROM'),
+                    ]) {
+                        sh """
+                            # JWT secret — generate once, never overwrite
+                            if ! kubectl get secret infracommand-auth-secret \
+                                    -n ${K8S_NAMESPACE} >/dev/null 2>&1; then
+                                JWT_KEY=\$(openssl rand -hex 32)
+                                kubectl create secret generic infracommand-auth-secret \
+                                    --from-literal=jwt-secret=\$JWT_KEY \
+                                    -n ${K8S_NAMESPACE}
+                                echo "JWT secret created ✔"
+                            else
+                                echo "JWT secret already exists — not overwriting ✔"
+                            fi
+
+                            # SMTP secret — update on every run from Jenkins credentials
+                            kubectl create secret generic infracommand-smtp-secret \
+                                --from-literal=smtp-host=\$SMTP_HOST \
+                                --from-literal=smtp-port=\$SMTP_PORT \
+                                --from-literal=smtp-user=\$SMTP_USER \
+                                --from-literal=smtp-pass=\$SMTP_PASS \
+                                --from-literal=smtp-from=\$SMTP_FROM \
+                                -n ${K8S_NAMESPACE} \
+                                --dry-run=client -o yaml | kubectl apply -f -
+                            echo "SMTP secret applied ✔"
+                        """
+                    }
+
                     sh """
-                        sudo crictl pull ${NEXUS_BACKEND}:${IMAGE_TAG}
                         sudo crictl pull ${NEXUS_FRONTEND}:${IMAGE_TAG}
                         sudo crictl pull docker.io/aquasec/trivy:latest || true
                         echo "Images pre-pulled via CRI-O ✔"

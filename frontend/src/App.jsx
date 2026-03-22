@@ -1,9 +1,50 @@
 import React, { useState, useEffect, useCallback, useRef, Fragment } from "react";
+
+// ── Auth helpers ─────────────────────────────────────────────────────────────
+const TOKEN_KEY = "infracommand_token";
+const USER_KEY  = "infracommand_user";
+
+function saveAuth(token, user) {
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+function clearAuth() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+function loadAuth() {
+  try {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const user  = JSON.parse(localStorage.getItem(USER_KEY) || "null");
+    return { token, user };
+  } catch { return { token: null, user: null }; }
+}
+function hasPerm(user, perm) {
+  return user?.perms?.includes(perm) ?? false;
+}
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import axios from "axios";
 
 const API = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || "/api";
 const api = axios.create({ baseURL: API });
+
+// Inject JWT token into every request
+api.interceptors.request.use(cfg => {
+  const { token } = loadAuth();
+  if (token) cfg.headers["Authorization"] = "Bearer " + token;
+  return cfg;
+});
+// On 401 → clear auth and force re-login
+api.interceptors.response.use(
+  r => r,
+  err => {
+    if (err.response?.status === 401) {
+      clearAuth();
+      window.location.reload();
+    }
+    return Promise.reject(err);
+  }
+);
 
 const T = {
   bg:"#f1f5f9",card:"#ffffff",sidebar:"#0f1f2e",border:"#e2e8f0",
@@ -2450,9 +2491,669 @@ function DebugConsole() {
 // ── App Shell ─────────────────────────────────────────────────────────────────
 const VIEWS=[{id:"overview",icon:"📊",label:"Overview"},{id:"infra",icon:"🖧",label:"Infrastructure"},
              {id:"logs",icon:"📋",label:"Logs"},{id:"alerts",icon:"🔔",label:"Alerts"},
-             {id:"patches",icon:"🔧",label:"Patches"},{id:"capacity",icon:"📊",label:"Capacity"},{id:"vmip",icon:"🔬",label:"VM IP Debug"},{id:"debug",icon:"🛠",label:"Debug"}];
+             {id:"patches",icon:"🔧",label:"Patches"},{id:"capacity",icon:"📊",label:"Capacity"},{id:"scans",icon:"🔐",label:"Vuln Scans"},{id:"users",icon:"👥",label:"Users"},{id:"vmip",icon:"🔬",label:"VM IP Debug"},{id:"debug",icon:"🛠",label:"Debug"}];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOGIN PAGE
+// ═══════════════════════════════════════════════════════════════════════════
+function LoginPage({ onLogin }) {
+  const [form, setForm]     = useState({ username: "", password: "" });
+  const [error, setError]   = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async e => {
+    e.preventDefault();
+    setError(""); setLoading(true);
+    try {
+      const r = await axios.post(API + "/auth/login", form);
+      saveAuth(r.data.access_token, r.data.user);
+      // Inject token immediately
+      api.defaults.headers.common["Authorization"] = "Bearer " + r.data.access_token;
+      onLogin(r.data.user, r.data.must_change_pw);
+    } catch (e) {
+      setError(e.response?.data?.detail || "Login failed");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{
+      minHeight:"100vh", background:"#0f1f2e",
+      display:"flex", alignItems:"center", justifyContent:"center",
+    }}>
+      <div style={{
+        background:"#fff", borderRadius:16, padding:40,
+        width:380, boxShadow:"0 20px 60px rgba(0,0,0,.4)",
+      }}>
+        {/* Logo */}
+        <div style={{textAlign:"center", marginBottom:32}}>
+          <div style={{
+            width:56, height:56, borderRadius:14, background:"#0f1f2e",
+            display:"inline-flex", alignItems:"center", justifyContent:"center",
+            fontSize:28, marginBottom:12,
+          }}>🖥️</div>
+          <div style={{fontWeight:800, fontSize:22, color:"#0f172a"}}>InfraCommand</div>
+          <div style={{color:"#64748b", fontSize:13, marginTop:4}}>Infrastructure Monitoring Platform</div>
+        </div>
+
+        <form onSubmit={submit}>
+          <div style={{marginBottom:16}}>
+            <label style={{display:"block", fontSize:12, fontWeight:600,
+              color:"#374151", marginBottom:6}}>Username</label>
+            <input
+              type="text" required autoFocus
+              value={form.username}
+              onChange={e => setForm(f => ({...f, username: e.target.value}))}
+              style={{
+                width:"100%", padding:"10px 14px", borderRadius:8,
+                border:"1.5px solid #e2e8f0", fontSize:14, outline:"none",
+                boxSizing:"border-box",
+              }}
+              onFocus={e => e.target.style.borderColor="#0369a1"}
+              onBlur={e => e.target.style.borderColor="#e2e8f0"}
+            />
+          </div>
+          <div style={{marginBottom:20}}>
+            <label style={{display:"block", fontSize:12, fontWeight:600,
+              color:"#374151", marginBottom:6}}>Password</label>
+            <input
+              type="password" required
+              value={form.password}
+              onChange={e => setForm(f => ({...f, password: e.target.value}))}
+              style={{
+                width:"100%", padding:"10px 14px", borderRadius:8,
+                border:"1.5px solid #e2e8f0", fontSize:14, outline:"none",
+                boxSizing:"border-box",
+              }}
+              onFocus={e => e.target.style.borderColor="#0369a1"}
+              onBlur={e => e.target.style.borderColor="#e2e8f0"}
+            />
+          </div>
+          {error && (
+            <div style={{
+              padding:"10px 14px", borderRadius:8, marginBottom:16,
+              background:"#fee2e2", color:"#991b1b", fontSize:13,
+            }}>{error}</div>
+          )}
+          <button type="submit" disabled={loading} style={{
+            width:"100%", padding:"12px", borderRadius:8, border:"none",
+            background: loading ? "#94a3b8" : "#0f1f2e",
+            color:"#fff", fontWeight:700, fontSize:15, cursor: loading ? "not-allowed" : "pointer",
+          }}>
+            {loading ? "Signing in…" : "Sign In"}
+          </button>
+        </form>
+
+        <div style={{textAlign:"center", marginTop:24, fontSize:11, color:"#94a3b8"}}>
+          InfraCommand v3.0 · Secured by JWT
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CHANGE PASSWORD PAGE (forced on first login)
+// ═══════════════════════════════════════════════════════════════════════════
+function ChangePasswordPage({ user, onDone }) {
+  const [form, setForm]   = useState({ current_password: "", new_password: "", confirm: "" });
+  const [error, setError] = useState("");
+  const [ok, setOk]       = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const submit = async e => {
+    e.preventDefault();
+    setError("");
+    if (form.new_password !== form.confirm) {
+      setError("Passwords do not match"); return;
+    }
+    setLoading(true);
+    try {
+      const r = await api.post("/auth/change-password", {
+        current_password: form.current_password,
+        new_password:     form.new_password,
+      });
+      // Update stored token if returned
+      if (r.data.access_token) {
+        const { user: storedUser } = loadAuth();
+        saveAuth(r.data.access_token, {...storedUser, must_change_pw: false});
+        api.defaults.headers.common["Authorization"] = "Bearer " + r.data.access_token;
+      }
+      setOk(true);
+      setTimeout(() => onDone(), 1500);
+    } catch (e) {
+      setError(e.response?.data?.detail || "Failed to change password");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{
+      minHeight:"100vh", background:"#0f1f2e",
+      display:"flex", alignItems:"center", justifyContent:"center",
+    }}>
+      <div style={{
+        background:"#fff", borderRadius:16, padding:40,
+        width:400, boxShadow:"0 20px 60px rgba(0,0,0,.4)",
+      }}>
+        <div style={{textAlign:"center", marginBottom:28}}>
+          <div style={{fontSize:36, marginBottom:8}}>🔐</div>
+          <div style={{fontWeight:800, fontSize:20, color:"#0f172a"}}>Change Your Password</div>
+          <div style={{
+            marginTop:10, padding:"8px 14px", background:"#fffbeb",
+            border:"1px solid #fde68a", borderRadius:8, fontSize:13, color:"#92400e",
+          }}>
+            Welcome, <strong>{user?.full_name || user?.username}</strong>!
+            You must set a new password before continuing.
+          </div>
+        </div>
+
+        {ok ? (
+          <div style={{
+            padding:20, textAlign:"center", background:"#f0fdf4",
+            borderRadius:10, color:"#059669", fontWeight:600,
+          }}>
+            ✅ Password changed successfully! Redirecting…
+          </div>
+        ) : (
+          <form onSubmit={submit}>
+            {[
+              ["Current Password (from welcome email)", "current_password", "password"],
+              ["New Password (min 8 characters)", "new_password", "password"],
+              ["Confirm New Password", "confirm", "password"],
+            ].map(([label, key, type]) => (
+              <div key={key} style={{marginBottom:16}}>
+                <label style={{display:"block", fontSize:12, fontWeight:600,
+                  color:"#374151", marginBottom:6}}>{label}</label>
+                <input
+                  type={type} required
+                  value={form[key]}
+                  onChange={e => setForm(f => ({...f, [key]: e.target.value}))}
+                  style={{
+                    width:"100%", padding:"10px 14px", borderRadius:8,
+                    border:"1.5px solid #e2e8f0", fontSize:14, outline:"none",
+                    boxSizing:"border-box",
+                  }}
+                />
+              </div>
+            ))}
+            {error && (
+              <div style={{
+                padding:"10px 14px", borderRadius:8, marginBottom:16,
+                background:"#fee2e2", color:"#991b1b", fontSize:13,
+              }}>{error}</div>
+            )}
+            <button type="submit" disabled={loading} style={{
+              width:"100%", padding:"12px", borderRadius:8, border:"none",
+              background: loading ? "#94a3b8" : "#059669",
+              color:"#fff", fontWeight:700, fontSize:15,
+              cursor: loading ? "not-allowed" : "pointer",
+            }}>
+              {loading ? "Saving…" : "Set New Password"}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// USER MANAGEMENT PAGE (admin only)
+// ═══════════════════════════════════════════════════════════════════════════
+const PERM_LABELS = {
+  view:"View Dashboard", scan:"Run Scans", refresh:"Refresh Hosts",
+  patch:"Patch Management", logs:"View Logs",
+  add_host:"Add Hosts", delete_host:"Delete Hosts", manage_users:"Manage Users",
+};
+const ROLE_COLORS = {
+  admin:"#dc2626", operator:"#d97706", viewer:"#0369a1", custom:"#7c3aed",
+};
+
+function UserManagementPage({ currentUser }) {
+  const [users, setUsers]         = useState([]);
+  const [roles, setRoles]         = useState([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [editUser, setEditUser]   = useState(null);
+  const [resetResult, setResetResult] = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState("");
+
+  const load = async () => {
+    try {
+      const [u, r] = await Promise.all([api.get("/users"), api.get("/roles")]);
+      setUsers(u.data); setRoles(r.data);
+    } catch(e) { setError("Failed to load users"); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const resetPw = async uid => {
+    if (!window.confirm("Reset this user\'s password? They will receive a new hex password.")) return;
+    try {
+      const r = await api.post(`/users/${uid}/reset-password`);
+      setResetResult(r.data);
+    } catch(e) { alert(e.response?.data?.detail || "Reset failed"); }
+  };
+
+  const toggleActive = async (uid, current) => {
+    try {
+      await api.patch(`/users/${uid}`, { is_active: !current });
+      load();
+    } catch(e) { alert(e.response?.data?.detail || "Failed"); }
+  };
+
+  const deleteUser = async (uid, username) => {
+    if (!window.confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/users/${uid}`);
+      load();
+    } catch(e) { alert(e.response?.data?.detail || "Delete failed"); }
+  };
+
+  if (loading) return <div style={{padding:40, color:"#64748b"}}>Loading users…</div>;
+
+  return (
+    <div style={{padding:24, maxWidth:1100}}>
+      {/* Header */}
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24}}>
+        <div>
+          <div style={{fontWeight:800, fontSize:20, color:"#0f172a"}}>User Management</div>
+          <div style={{color:"#64748b", fontSize:13, marginTop:2}}>
+            {users.length} user{users.length!==1?"s":""} · Manage access and permissions
+          </div>
+        </div>
+        <button onClick={() => setShowCreate(true)} style={{
+          padding:"9px 18px", borderRadius:8, border:"none",
+          background:"#0f1f2e", color:"#fff", fontWeight:600,
+          fontSize:13, cursor:"pointer",
+        }}>+ Create User</button>
+      </div>
+
+      {error && <div style={{padding:12, background:"#fee2e2", borderRadius:8,
+        color:"#991b1b", marginBottom:16, fontSize:13}}>{error}</div>}
+
+      {/* Reset password result banner */}
+      {resetResult && (
+        <div style={{padding:14, background:"#f0fdf4", border:"1px solid #bbf7d0",
+          borderRadius:8, marginBottom:16, fontSize:13}}>
+          <strong>Password Reset.</strong>{" "}
+          {resetResult.email_sent
+            ? `Email sent to user.`
+            : <>Share this password manually: <code style={{
+                background:"#1e293b", color:"#e2e8f0", padding:"3px 10px",
+                borderRadius:5, fontFamily:"monospace", letterSpacing:2,
+              }}>{resetResult.temp_password}</code></>
+          }
+          <button onClick={() => setResetResult(null)}
+            style={{float:"right", background:"none", border:"none",
+              cursor:"pointer", color:"#64748b"}}>✕</button>
+        </div>
+      )}
+
+      {/* Users table */}
+      <div style={{background:"#fff", borderRadius:12, border:"1px solid #e2e8f0", overflow:"hidden"}}>
+        <table style={{width:"100%", borderCollapse:"collapse", fontSize:13}}>
+          <thead>
+            <tr style={{background:"#f8fafc", borderBottom:"1px solid #e2e8f0"}}>
+              {["User","Email","Role","Permissions","Status","Last Login","Actions"].map(h => (
+                <th key={h} style={{padding:"12px 16px", textAlign:"left",
+                  fontWeight:600, color:"#374151", fontSize:12}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u, i) => (
+              <tr key={u.id} style={{
+                borderBottom: i < users.length-1 ? "1px solid #f1f5f9" : "none",
+                background: !u.is_active ? "#fafafa" : "#fff",
+              }}>
+                <td style={{padding:"14px 16px"}}>
+                  <div style={{fontWeight:600, color:"#0f172a"}}>{u.full_name||u.username}</div>
+                  <div style={{color:"#64748b", fontSize:11, fontFamily:"monospace"}}>@{u.username}</div>
+                  {u.must_change_pw && (
+                    <span style={{fontSize:10, background:"#fef3c7", color:"#92400e",
+                      borderRadius:3, padding:"1px 5px", marginTop:3, display:"inline-block"}}>
+                      pw change pending
+                    </span>
+                  )}
+                </td>
+                <td style={{padding:"14px 16px", color:"#475569", fontSize:12}}>{u.email}</td>
+                <td style={{padding:"14px 16px"}}>
+                  <span style={{
+                    padding:"3px 10px", borderRadius:5, fontSize:11, fontWeight:700,
+                    background:(ROLE_COLORS[u.role]||"#64748b")+"18",
+                    color: ROLE_COLORS[u.role]||"#64748b",
+                  }}>{u.role.toUpperCase()}</span>
+                </td>
+                <td style={{padding:"14px 16px", maxWidth:200}}>
+                  <div style={{display:"flex", flexWrap:"wrap", gap:3}}>
+                    {u.perms?.map(p => (
+                      <span key={p} style={{
+                        fontSize:10, background:"#f1f5f9", color:"#475569",
+                        borderRadius:3, padding:"1px 5px",
+                      }}>{p}</span>
+                    ))}
+                  </div>
+                </td>
+                <td style={{padding:"14px 16px"}}>
+                  <span style={{
+                    padding:"3px 10px", borderRadius:5, fontSize:11, fontWeight:600,
+                    background: u.is_active ? "#f0fdf4" : "#f1f5f9",
+                    color: u.is_active ? "#059669" : "#94a3b8",
+                  }}>{u.is_active ? "Active" : "Disabled"}</span>
+                </td>
+                <td style={{padding:"14px 16px", color:"#64748b", fontSize:11}}>
+                  {u.last_login ? new Date(u.last_login).toLocaleDateString() : "Never"}
+                </td>
+                <td style={{padding:"14px 16px"}}>
+                  <div style={{display:"flex", gap:6}}>
+                    <button onClick={() => setEditUser(u)}
+                      title="Edit" style={{
+                        padding:"5px 10px", borderRadius:6, border:"1px solid #e2e8f0",
+                        background:"#fff", cursor:"pointer", fontSize:12,
+                      }}>✏️</button>
+                    <button onClick={() => resetPw(u.id)}
+                      title="Reset Password" style={{
+                        padding:"5px 10px", borderRadius:6, border:"1px solid #e2e8f0",
+                        background:"#fff", cursor:"pointer", fontSize:12,
+                      }}>🔑</button>
+                    {u.id !== currentUser?.id && (
+                      <>
+                        <button onClick={() => toggleActive(u.id, u.is_active)}
+                          title={u.is_active?"Disable":"Enable"} style={{
+                            padding:"5px 10px", borderRadius:6,
+                            border:"1px solid #e2e8f0",
+                            background:"#fff", cursor:"pointer", fontSize:12,
+                          }}>{u.is_active ? "🚫" : "✅"}</button>
+                        <button onClick={() => deleteUser(u.id, u.username)}
+                          title="Delete" style={{
+                            padding:"5px 10px", borderRadius:6,
+                            border:"1px solid #fee2e2",
+                            background:"#fff", color:"#dc2626",
+                            cursor:"pointer", fontSize:12,
+                          }}>🗑</button>
+                      </>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Create / Edit modal */}
+      {(showCreate || editUser) && (
+        <UserFormModal
+          user={editUser}
+          roles={roles}
+          onClose={() => { setShowCreate(false); setEditUser(null); }}
+          onSaved={result => {
+            setShowCreate(false); setEditUser(null);
+            if (result?.temp_password) setResetResult(result);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function UserFormModal({ user, roles, onClose, onSaved }) {
+  const isEdit = !!user;
+  const [form, setForm] = useState({
+    username:     user?.username || "",
+    email:        user?.email || "",
+    full_name:    user?.full_name || "",
+    role:         user?.role || "viewer",
+    custom_perms: user?.custom_perms || [],
+    is_active:    user?.is_active ?? true,
+  });
+  const [error, setError]   = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const allPerms = Object.keys(PERM_LABELS);
+
+  const submit = async e => {
+    e.preventDefault(); setError(""); setLoading(true);
+    try {
+      let r;
+      if (isEdit) {
+        r = await api.patch(`/users/${user.id}`, {
+          full_name:    form.full_name,
+          role:         form.role,
+          custom_perms: form.role === "custom" ? form.custom_perms : undefined,
+          is_active:    form.is_active,
+        });
+        onSaved({ user: r.data });
+      } else {
+        r = await api.post("/users", {
+          username:     form.username,
+          email:        form.email,
+          full_name:    form.full_name,
+          role:         form.role,
+          custom_perms: form.role === "custom" ? form.custom_perms : [],
+        });
+        onSaved(r.data);
+      }
+    } catch(e) { setError(e.response?.data?.detail || "Failed"); }
+    setLoading(false);
+  };
+
+  const togglePerm = perm => {
+    setForm(f => ({
+      ...f,
+      custom_perms: f.custom_perms.includes(perm)
+        ? f.custom_perms.filter(p => p !== perm)
+        : [...f.custom_perms, perm],
+    }));
+  };
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target===e.currentTarget&&onClose()}>
+      <div className="modal" style={{width:480, maxWidth:"95vw"}}>
+        <div style={{display:"flex", justifyContent:"space-between", marginBottom:20}}>
+          <div style={{fontWeight:700, fontSize:16}}>
+            {isEdit ? `Edit User — ${user.username}` : "Create New User"}
+          </div>
+          <button onClick={onClose} style={{background:"none", border:"none",
+            cursor:"pointer", fontSize:18, color:"#64748b"}}>✕</button>
+        </div>
+
+        <form onSubmit={submit}>
+          {!isEdit && (
+            <>
+              {[["Username","username","text"],["Email","email","email"]].map(([l,k,t])=>(
+                <div key={k} style={{marginBottom:14}}>
+                  <label style={{display:"block",fontSize:12,fontWeight:600,
+                    color:"#374151",marginBottom:5}}>{l}</label>
+                  <input type={t} required value={form[k]}
+                    onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}
+                    style={{width:"100%",padding:"9px 12px",borderRadius:7,
+                      border:"1px solid #e2e8f0",fontSize:13,boxSizing:"border-box"}}/>
+                </div>
+              ))}
+            </>
+          )}
+
+          <div style={{marginBottom:14}}>
+            <label style={{display:"block",fontSize:12,fontWeight:600,
+              color:"#374151",marginBottom:5}}>Full Name</label>
+            <input value={form.full_name}
+              onChange={e=>setForm(f=>({...f,full_name:e.target.value}))}
+              style={{width:"100%",padding:"9px 12px",borderRadius:7,
+                border:"1px solid #e2e8f0",fontSize:13,boxSizing:"border-box"}}/>
+          </div>
+
+          <div style={{marginBottom:14}}>
+            <label style={{display:"block",fontSize:12,fontWeight:600,
+              color:"#374151",marginBottom:5}}>Role</label>
+            <select value={form.role}
+              onChange={e=>setForm(f=>({...f,role:e.target.value}))}
+              style={{width:"100%",padding:"9px 12px",borderRadius:7,
+                border:"1px solid #e2e8f0",fontSize:13}}>
+              {roles.map(r=>(
+                <option key={r.role} value={r.role}>
+                  {r.role.charAt(0).toUpperCase()+r.role.slice(1)} — {r.description}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Custom permissions grid */}
+          {form.role === "custom" && (
+            <div style={{marginBottom:14}}>
+              <label style={{display:"block",fontSize:12,fontWeight:600,
+                color:"#374151",marginBottom:8}}>Permissions</label>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                {allPerms.map(p=>(
+                  <label key={p} style={{
+                    display:"flex",alignItems:"center",gap:8,padding:"8px 10px",
+                    borderRadius:7,border:"1.5px solid",cursor:"pointer",
+                    borderColor: form.custom_perms.includes(p)?"#0369a1":"#e2e8f0",
+                    background: form.custom_perms.includes(p)?"#eff6ff":"#fff",
+                    fontSize:12,
+                  }}>
+                    <input type="checkbox" checked={form.custom_perms.includes(p)}
+                      onChange={()=>togglePerm(p)}
+                      style={{accentColor:"#0369a1"}}/>
+                    {PERM_LABELS[p]||p}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isEdit && (
+            <div style={{marginBottom:14}}>
+              <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
+                <input type="checkbox" checked={form.is_active}
+                  onChange={e=>setForm(f=>({...f,is_active:e.target.checked}))}
+                  style={{accentColor:"#059669",width:16,height:16}}/>
+                <span style={{fontSize:13,fontWeight:500}}>Account Active</span>
+              </label>
+            </div>
+          )}
+
+          {error && <div style={{padding:"9px 12px",background:"#fee2e2",borderRadius:7,
+            color:"#991b1b",fontSize:13,marginBottom:12}}>{error}</div>}
+
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <button type="button" onClick={onClose}
+              style={{padding:"9px 18px",borderRadius:7,border:"1px solid #e2e8f0",
+                background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button>
+            <button type="submit" disabled={loading}
+              style={{padding:"9px 18px",borderRadius:7,border:"none",
+                background:loading?"#94a3b8":"#0f1f2e",color:"#fff",
+                fontWeight:600,fontSize:13,cursor:loading?"not-allowed":"pointer"}}>
+              {loading?"Saving…":(isEdit?"Save Changes":"Create User")}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+
+function AllScans() {
+  const [scans, setScans] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    api.get("/scans").then(r => setScans(r.data||[])).finally(() => setLoading(false));
+  }, []);
+  const SEV_COLORS = {"CRITICAL":T.red,"HIGH":T.amber,"MEDIUM":T.purple,"LOW":T.muted};
+  if (loading) return <div style={{padding:40,color:T.muted}}>Loading scans…</div>;
+  return (
+    <div>
+      <div style={{fontWeight:700,fontSize:18,marginBottom:16}}>Vulnerability Scan Results</div>
+      {scans.length === 0 && (
+        <div style={{padding:40,textAlign:"center",color:T.muted}}>
+          No scan results yet. Click the scan icon on any host.
+        </div>
+      )}
+      {scans.map(s => (
+        <div key={s.target_id} style={{
+          background:T.card,borderRadius:10,padding:16,
+          marginBottom:12,border:`1px solid ${T.border}`
+        }}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div>
+              <span style={{fontWeight:700}}>{s.target}</span>
+              <span style={{color:T.muted,fontSize:12,marginLeft:8}}>{s.ip}</span>
+              <span style={{
+                marginLeft:8,fontSize:10,padding:"2px 7px",borderRadius:4,
+                background:s.target_type==="host"?"#dbeafe":"#f3e8ff",
+                color:s.target_type==="host"?"#1d4ed8":"#7c3aed",fontWeight:600
+              }}>{s.target_type}</span>
+            </div>
+            <span style={{fontSize:11,color:T.muted}}>
+              {s.scanned_at ? new Date(s.scanned_at).toLocaleString() : "—"}
+            </span>
+          </div>
+          {s.scan_error && (
+            <div style={{padding:"6px 10px",background:"#fffbeb",borderRadius:6,
+              fontSize:12,color:"#92400e",marginBottom:8}}>⚠️ {s.scan_error}</div>
+          )}
+          <div style={{display:"flex",gap:10}}>
+            {[["CRITICAL",s.summary?.critical],["HIGH",s.summary?.high],
+              ["MEDIUM",s.summary?.medium],["LOW",s.summary?.low]].map(([sev,count])=>(
+              <span key={sev} style={{
+                padding:"3px 10px",borderRadius:5,fontSize:11,fontWeight:700,
+                background:(SEV_COLORS[sev]||T.muted)+"18",
+                color:SEV_COLORS[sev]||T.muted,
+              }}>{sev}: {count||0}</span>
+            ))}
+            {s.summary?.port_exposed > 0 && (
+              <span style={{padding:"3px 10px",borderRadius:5,fontSize:11,fontWeight:700,
+                background:"#fee2e2",color:T.red}}>
+                ⚡ {s.summary.port_exposed} Port Exposed
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 
 export default function App() {
+  // ── Auth state ────────────────────────────────────────────────────────────
+  const { token: storedToken, user: storedUser } = loadAuth();
+  const [authUser,    setAuthUser]    = useState(storedUser);
+  const [mustChangePw, setMustChangePw] = useState(storedUser?.must_change_pw ?? false);
+
+  // Restore token into axios on mount
+  useEffect(() => {
+    if (storedToken) {
+      api.defaults.headers.common["Authorization"] = "Bearer " + storedToken;
+    }
+  }, []); // eslint-disable-line
+
+  const handleLogin = (user, mustChange) => {
+    setAuthUser(user);
+    setMustChangePw(mustChange);
+  };
+  const handleLogout = () => {
+    clearAuth();
+    delete api.defaults.headers.common["Authorization"];
+    setAuthUser(null);
+    setMustChangePw(false);
+  };
+  const handlePasswordChanged = () => {
+    const { user } = loadAuth();
+    setAuthUser({ ...user, must_change_pw: false });
+    setMustChangePw(false);
+  };
+
+  // Auth gate
+  if (!authUser) return <LoginPage onLogin={handleLogin} />;
+  if (mustChangePw) return (
+    <ChangePasswordPage user={authUser} onDone={handlePasswordChanged} />
+  );
+
   const [view,setView]=useState("overview");
   const [hosts,setHosts]=useState([]);
   const [summary,setSummary]=useState({});
@@ -2479,7 +3180,7 @@ export default function App() {
             <div style={{color:"#5b8fad",fontSize:11,marginTop:2}}>Infrastructure Monitor</div>
           </div>
           <div style={{padding:"0 8px",flex:1}}>
-            {VIEWS.map(v=>(
+            {VIEWS.filter(v => v.id !== "users" || hasPerm(authUser,"manage_users")).map(v=>(
               <button key={v.id} onClick={()=>setView(v.id)} style={{
                 width:"100%",display:"flex",alignItems:"center",gap:9,padding:"9px 12px",
                 borderRadius:7,border:"none",cursor:"pointer",fontFamily:"IBM Plex Sans",
@@ -2504,7 +3205,7 @@ export default function App() {
               <div style={{fontWeight:700,fontSize:15}}>{VIEWS.find(v=>v.id===view)?.label}</div>
               <div style={{color:T.muted,fontSize:11}}>Data persisted in DB · use ↻ Refresh per host to update</div>
             </div>
-            <button className="btn btn-refresh" onClick={loadData}>↻ Reload DB</button>
+              <div style={{color:T.muted,fontSize:11}}>Data persisted in DB · use ↻ Refresh per host</div>
           </div>
           <div style={{flex:1,overflowY:"auto",padding:view==="infra"?"14px":"22px"}}>
             {view==="overview" && <Overview hosts={hosts} summary={summary} history={history}/>}
@@ -2515,6 +3216,13 @@ export default function App() {
             {view==="capacity"  && <CapacityPlanning/>}
             {view==="vmip"     && <VMIPDebug hosts={hosts}/>}
             {view==="debug"    && <DebugConsole/>}
+            {view==="scans"    && <AllScans/>}
+            {view==="users"    && hasPerm(authUser,"manage_users") && <UserManagementPage currentUser={authUser}/>}
+            {view==="users"    && !hasPerm(authUser,"manage_users") && (
+              <div style={{padding:40,textAlign:"center",color:T.muted}}>
+                🚫 You do not have permission to manage users.
+              </div>
+            )}
           </div>
         </div>
       </div>

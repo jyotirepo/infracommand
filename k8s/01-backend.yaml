@@ -29,6 +29,47 @@ spec:
               value: "http://trivy-server.infracommand.svc.cluster.local:4954"
             - name: TRIVY_SERVER_EXTERNAL_URL
               value: "http://192.168.101.80:4954"
+            # ── Auth ─────────────────────────────────────────────────────
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: infracommand-auth-secret
+                  key: jwt-secret
+            - name: JWT_EXPIRE_HOURS
+              value: "8"
+            - name: APP_URL
+              value: "http://192.168.101.80:32302"
+            # ── SMTP (optional) ───────────────────────────────────────────────
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: infracommand-smtp-secret
+                  key: smtp-host
+                  optional: true
+            - name: SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: infracommand-smtp-secret
+                  key: smtp-port
+                  optional: true
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: infracommand-smtp-secret
+                  key: smtp-user
+                  optional: true
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: infracommand-smtp-secret
+                  key: smtp-pass
+                  optional: true
+            - name: SMTP_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: infracommand-smtp-secret
+                  key: smtp-from
+                  optional: true
           volumeMounts:
             - name: db-storage
               mountPath: /data

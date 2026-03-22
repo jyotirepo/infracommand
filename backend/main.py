@@ -19,9 +19,22 @@ from collectors import (collect_linux_metrics, collect_windows_metrics,
                         collect_patch_cross, collect_windows_patch,
                         collect_kvm_vms, collect_hyperv_vms,
                         vuln_scan, port_scan)
+from auth import get_current_user, require_perm, bootstrap_admin
+from auth_routes import router as auth_router
 
 app = FastAPI(title="InfraCommand API", version="3.0.0", docs_url="/api/docs")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# Mount auth routes
+app.include_router(auth_router, prefix="/api")
+
+@app.on_event("startup")
+def on_startup():
+    """Bootstrap default admin on first run"""
+    from database import engine
+    from sqlalchemy.orm import Session
+    with Session(engine) as db:
+        bootstrap_admin(db)
 
 
 class HostCreate(BaseModel):
@@ -102,7 +115,7 @@ def _auto_log_metrics(db, host_id: str, host_name: str, m: dict):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.post("/api/test-connection")
-def test_connection(data: HostCreate):
+def test_connection(data: HostCreate, _u=Depends(require_perm("view"))):
     """Test SSH/WinRM connectivity before saving. Returns detailed error info."""
     host = data.model_dump()
     host["id"] = "test"
@@ -186,7 +199,7 @@ def test_connection(data: HostCreate):
     return {"status":"ok","ts":datetime.now(timezone.utc).isoformat()}
 
 @app.get("/api/summary")
-def summary(db: Session = Depends(get_db)):
+def summary(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     hosts = db_get_hosts(db)
     metrics = [db_get_metrics(db, h["id"]) or {} for h in hosts]
     cpus = [m.get("cpu",0) for m in metrics if m]
@@ -199,7 +212,7 @@ def summary(db: Session = Depends(get_db)):
     }
 
 @app.get("/api/capacity")
-def get_capacity(db: Session = Depends(get_db)):
+def get_capacity(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     """Capacity planning: host hardware totals vs VM allocations vs free."""
     def _num(v, default=0.0):
         try:
@@ -319,7 +332,7 @@ def get_capacity(db: Session = Depends(get_db)):
     return sorted(report, key=lambda x: (x.get("host_name") or "").lower())
 
 @app.get("/api/overview")
-def get_overview(db: Session = Depends(get_db)):
+def get_overview(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     """Aggregate resource summary across all live hosts."""
     hosts = db_get_hosts(db)
     total  = len(hosts)
@@ -364,7 +377,7 @@ def get_overview(db: Session = Depends(get_db)):
     }
 
 @app.get("/api/hosts")
-def get_hosts(db: Session = Depends(get_db)):
+def get_hosts(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     hosts = db_get_hosts(db)
     result = []
     for h in hosts:
@@ -376,7 +389,7 @@ def get_hosts(db: Session = Depends(get_db)):
     return result
 
 @app.get("/api/hosts/{hid}")
-def get_host(hid: str, db: Session = Depends(get_db)):
+def get_host(hid: str, db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     h = db_get_host(db, hid)
     if not h: raise HTTPException(404,"Host not found")
     m     = db_get_metrics(db, hid) or {}
@@ -386,7 +399,7 @@ def get_host(hid: str, db: Session = Depends(get_db)):
             "password":"***", "ssh_key":"***" if h.get("ssh_key") else None}
 
 @app.post("/api/hosts", status_code=201)
-def add_host(data: HostCreate, db: Session = Depends(get_db)):
+def add_host(data: HostCreate, db: Session = Depends(get_db), _u=Depends(require_perm("add_host"))):
     hid  = f"h{uuid.uuid4().hex[:8]}"
     host = {**data.model_dump(), "id": hid, "status": "online",
             "created_at": datetime.now(timezone.utc).isoformat()}
@@ -445,14 +458,14 @@ def update_host(hid: str, data: HostUpdate, db: Session = Depends(get_db)):
     return {"id":hid,"message":"Updated"}
 
 @app.delete("/api/hosts/{hid}")
-def delete_host(hid: str, db: Session = Depends(get_db)):
+def delete_host(hid: str, db: Session = Depends(get_db), _=Depends(require_perm("delete_host"))):
     if not db_get_host(db, hid): raise HTTPException(404,"Host not found")
     db_delete_host(db, hid)
     return {"message":"Deleted"}
 
 # ── User-triggered refresh (explicit only) ────────────────────────────────────
 @app.post("/api/hosts/{hid}/refresh")
-def refresh_host(hid: str, db: Session = Depends(get_db)):
+def refresh_host(hid: str, db: Session = Depends(get_db), _u=Depends(require_perm("refresh"))):
     """Collect fresh metrics + patch + VMs. Each step independent — never fails whole request."""
     h = db_get_host(db, hid)
     if not h: raise HTTPException(404, "Host not found")
@@ -518,19 +531,19 @@ def refresh_host(hid: str, db: Session = Depends(get_db)):
                        else f"Connection error: {m.get('reason','check host')}"}
 
 @app.get("/api/hosts/{hid}/metrics")
-def get_metrics(hid: str, db: Session = Depends(get_db)):
+def get_metrics(hid: str, db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     h = db_get_host(db, hid)
     if not h: raise HTTPException(404,"Host not found")
     return db_get_metrics(db, hid) or {"source":"no_data"}
 
 @app.get("/api/hosts/{hid}/vms")
-def get_vms(hid: str, db: Session = Depends(get_db)):
+def get_vms(hid: str, db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     h = db_get_host(db, hid)
     if not h: raise HTTPException(404,"Host not found")
     return db_get_vms(db, hid)
 
 @app.post("/api/hosts/{hid}/vms/refresh")
-def refresh_vms(hid: str, db: Session = Depends(get_db)):
+def refresh_vms(hid: str, db: Session = Depends(get_db), _u=Depends(require_perm("refresh"))):
     """Discover VMs — only on user request."""
     h = db_get_host(db, hid)
     if not h: raise HTTPException(404,"Host not found")
@@ -539,13 +552,13 @@ def refresh_vms(hid: str, db: Session = Depends(get_db)):
     return {"count": len(vms), "vms": vms}
 
 @app.get("/api/hosts/{hid}/patch")
-def get_patch(hid: str, db: Session = Depends(get_db)):
+def get_patch(hid: str, db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     h = db_get_host(db, hid)
     if not h: raise HTTPException(404,"Host not found")
     return db_get_patch(db, hid) or {"status":"No data — click Refresh"}
 
 @app.post("/api/hosts/{hid}/patch/refresh")
-def refresh_patch(hid: str, db: Session = Depends(get_db)):
+def refresh_patch(hid: str, db: Session = Depends(get_db), _u=Depends(require_perm("refresh"))):
     h = db_get_host(db, hid)
     if not h: raise HTTPException(404,"Host not found")
     p = _collect_patch(h)
@@ -553,7 +566,7 @@ def refresh_patch(hid: str, db: Session = Depends(get_db)):
     return p
 
 @app.get("/api/metrics/history")
-def metrics_history():
+def metrics_history(_u=Depends(require_perm("view"))):
     import random
     return [{"hour":f"{i:02d}:00","cpu":round(random.uniform(20,90),1),
              "ram":round(random.uniform(30,85),1)} for i in range(24)]
@@ -568,11 +581,11 @@ def get_all_logs(level: Optional[str]=None, limit: int=200, db: Session = Depend
     return all_logs[:limit]
 
 @app.get("/api/hosts/{hid}/logs")
-def get_host_logs(hid: str, db: Session = Depends(get_db)):
+def get_host_logs(hid: str, db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     return db_get_logs(db, hid)
 
 @app.get("/api/hosts/{hid}/vms/{vid}/logs")
-def get_vm_logs(hid: str, vid: str, db: Session = Depends(get_db)):
+def get_vm_logs(hid: str, vid: str, db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     """Return logs from the VM's own log store (vid-based),
     falling back to host logs filtered by VM name."""
     # Try VM-specific log store first
@@ -621,7 +634,7 @@ def promote_vm_to_host(hid: str, vid: str, data: dict, db: Session = Depends(get
     return {"status": "ok", "host_id": new_hid, "message": f"{vm['name']} added as standalone host"}
 
 @app.post("/api/hosts/{hid}/logs/refresh")
-def refresh_logs(hid: str, db: Session = Depends(get_db)):
+def refresh_logs(hid: str, db: Session = Depends(get_db), _u=Depends(require_perm("refresh"))):
     from collectors import ssh_connect, run
     h = db_get_host(db, hid)
     if not h: raise HTTPException(404,"Host not found")
@@ -640,12 +653,12 @@ def refresh_logs(hid: str, db: Session = Depends(get_db)):
         raise HTTPException(500, str(e))
 
 @app.get("/api/patches")
-def get_all_patches(db: Session = Depends(get_db)):
+def get_all_patches(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     hosts = db_get_hosts(db)
     return [db_get_patch(db, h["id"]) or {"host":h["name"],"status":"No data"} for h in hosts]
 
 @app.get("/api/alerts")
-def get_alerts(db: Session = Depends(get_db)):
+def get_alerts(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     hosts  = db_get_hosts(db)
     alerts = []
     for h in hosts:
@@ -703,7 +716,7 @@ def get_alerts(db: Session = Depends(get_db)):
 
 # ── Scan endpoints (on-demand, target-specific) ────────────────────────────────
 @app.post("/api/hosts/{hid}/scan")
-def scan_host(hid: str, db: Session = Depends(get_db), force: bool = False):
+def scan_host(hid: str, db: Session = Depends(get_db), force: bool = False, _=Depends(require_perm("scan"))):
     h = db_get_host(db, hid)
     if not h: raise HTTPException(404, "Host not found")
     # Return cached DB result unless the user explicitly requests a rescan
@@ -717,13 +730,13 @@ def scan_host(hid: str, db: Session = Depends(get_db), force: bool = False):
     return result
 
 @app.get("/api/hosts/{hid}/scan")
-def get_host_scan(hid: str, db: Session = Depends(get_db)):
+def get_host_scan(hid: str, db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     r = db_get_scan(db, hid)
     if not r: raise HTTPException(404,"No scan — run a scan first")
     return r
 
 @app.post("/api/hosts/{hid}/vms/{vid}/scan")
-def scan_vm(hid: str, vid: str, db: Session = Depends(get_db), force: bool = False):
+def scan_vm(hid: str, vid: str, db: Session = Depends(get_db), force: bool = False, _u=Depends(require_perm("scan"))):
     h = db_get_host(db, hid)
     if not h: raise HTTPException(404, "Host not found")
     vms = db_get_vms(db, hid)
@@ -747,20 +760,20 @@ def get_vm_scan(vid: str, hid: str, db: Session = Depends(get_db)):
     return r
 
 @app.post("/api/hosts/{hid}/portscan")
-def portscan_host(hid: str, db: Session = Depends(get_db)):
+def portscan_host(hid: str, db: Session = Depends(get_db), _u=Depends(require_perm("scan"))):
     h = db_get_host(db, hid)
     if not h: raise HTTPException(404,"Host not found")
     return {"ip": h["ip"], "ports": port_scan(h["ip"]), "scanned_at": datetime.now(timezone.utc).isoformat()}
 
 @app.post("/api/hosts/{hid}/vms/{vid}/portscan")
-def portscan_vm(hid: str, vid: str, db: Session = Depends(get_db)):
+def portscan_vm(hid: str, vid: str, db: Session = Depends(get_db), _u=Depends(require_perm("scan"))):
     vms = db_get_vms(db, hid)
     vm  = next((v for v in vms if v["id"]==vid), None)
     if not vm: raise HTTPException(404,"VM not found")
     return {"ip": vm.get("ip"), "ports": port_scan(vm["ip"]), "scanned_at": datetime.now(timezone.utc).isoformat()}
 
 @app.get("/api/scans")
-def get_all_scans(db: Session = Depends(get_db)):
+def get_all_scans(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     hosts = db_get_hosts(db)
     results=[]
     for h in hosts:
@@ -774,7 +787,7 @@ def get_all_scans(db: Session = Depends(get_db)):
 # ── Debug endpoint — shows raw exception for any host operation ───────────────
 
 @app.get("/api/winrm-setup")
-def winrm_setup():
+def winrm_setup(_u=Depends(require_perm("view"))):
     cmd1 = 'winrm set winrm/config/service/auth @{Basic="true"}'
     cmd2 = 'winrm set winrm/config/service @{AllowUnencrypted="true"}'
     cmd3 = 'winrm set winrm/config/winrs @{MaxMemoryPerShellMB="512"}'
@@ -808,7 +821,7 @@ def set_vm_ip(hid: str, vid: str, data: dict, db: Session = Depends(get_db)):
     return {"status":"ok","ip":new_ip}
 
 @app.get("/api/hosts/{hid}/debug/vm-ips")
-def debug_vm_ips(hid: str, db: Session = Depends(get_db)):
+def debug_vm_ips(hid: str, db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     """Debug endpoint: run VM IP detection commands and return raw output."""
     from collectors import ssh_connect, run
     h = db_get_host(db, hid)
@@ -850,7 +863,7 @@ def debug_vm_ips(hid: str, db: Session = Depends(get_db)):
     return results
 
 @app.post("/api/debug/connect")
-def debug_connect(data: HostCreate):
+def debug_connect(data: HostCreate, _u=Depends(require_perm("view"))):
     """Full debug: returns every exception with full traceback"""
     import traceback, socket, time
     host = {**data.model_dump(), "id": "debug"}

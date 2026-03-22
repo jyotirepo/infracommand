@@ -6,3 +6,5 @@ pywinrm==0.4.3
 requests==2.31.0
 sqlalchemy==2.0.25
 aiosqlite==0.19.0
+pyjwt==2.8.0
+bcrypt==4.1.2
