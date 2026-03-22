@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Fragment } from "react";
+import React, { useState, useEffect, useCallback, useRef, Fragment } from "react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import axios from "axios";
 
@@ -430,7 +430,7 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
   const [filterPkg,setFilterPkg]=useState("");
   const [page,setPage]=useState(0);
   const PAGE=20;
-  const timerRef=React.useRef(null);
+  const timerRef=useRef(null);
 
   const startTimer=()=>{
     setElapsed(0);
