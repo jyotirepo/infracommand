@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, Fragment } from "react";
 
-// ── Auth helpers ─────────────────────────────────────────────────────────────
+// \u2500\u2500 Auth helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 const TOKEN_KEY = "infracommand_token";
 const USER_KEY  = "infracommand_user";
 
@@ -23,9 +23,9 @@ function hasPerm(user, perm) {
   return user?.perms?.includes(perm) ?? false;
 }
 
-// ── IST Date/Time Helper ─────────────────────────────────────────────────────
+// \u2500\u2500 IST Date/Time Helper \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 // Converts any timestamp to Indian Standard Time (IST = UTC+5:30)
-// Uses the browser's Intl API — no NTP call needed client-side.
+// Uses the browser's Intl API \u2014 no NTP call needed client-side.
 // The NTP server (ntp.tpcentralodisha.com) should be configured on the
 // backend hosts so that log timestamps they emit are already accurate.
 const IST = new Intl.DateTimeFormat("en-IN", {
@@ -56,7 +56,7 @@ const IST_SHORT = new Intl.DateTimeFormat("en-IN", {
 });
 
 function toIST(ts) {
-  if (!ts) return "—";
+  if (!ts) return "\u2014";
   try {
     const d = typeof ts === "string" ? new Date(ts) : ts;
     if (isNaN(d)) return ts;
@@ -64,7 +64,7 @@ function toIST(ts) {
   } catch { return ts; }
 }
 function toISTTime(ts) {
-  if (!ts) return "—";
+  if (!ts) return "\u2014";
   try {
     const d = typeof ts === "string" ? new Date(ts) : ts;
     if (isNaN(d)) return String(ts).slice(11, 19);
@@ -72,7 +72,7 @@ function toISTTime(ts) {
   } catch { return String(ts).slice(11, 19); }
 }
 function toISTShort(ts) {
-  if (!ts) return "—";
+  if (!ts) return "\u2014";
   try {
     const d = typeof ts === "string" ? new Date(ts) : ts;
     if (isNaN(d)) return ts;
@@ -80,7 +80,7 @@ function toISTShort(ts) {
   } catch { return ts; }
 }
 
-// D&IT Logo — embedded as base64 (no external file needed)
+// D&IT Logo \u2014 embedded as base64 (no external file needed)
 const DIT_LOGO_B64 = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCABQAFADASIAAhEBAxEB/8QAHAAAAgMAAwEAAAAAAAAAAAAABgcABQgBAwQC/8QAOBAAAgIBAwIDBgQEBQUAAAAAAQIDBAUABhESIQcTMRQiQVFhcQgWYoEVIzNCFzJSgpElcpKTof/EABgBAQEBAQEAAAAAAAAAAAAAAAUDBAYC/8QAMBEAAQIDBQYFBQEBAAAAAAAAAQIDABEhBBMxQfAFElFxgaEiQmGRwSMyUtHh8bH/2gAMAwEAAhEDEQA/ANl6mppf+LniBBtTHy1qsyC+UDPKV6xWVuek9P8AfI3B6E+hZuFU80aaU6sIQKmJuupaSVKNIv8Adu8MNttClyVprZjMi1YODIUH955ICJ+tyF+uk1ufxxyE4m/hCOsUXeQ4+DzvLH655B0D/bGw+THQhj8RmN7x1s3kHM+CuW5IZqtS6HuiVV/rSKRzO68h+kd+kcKqjjXtxSQYijJsvekVOjSxU7pbmGclpmzDKevzlrqp9oPHHST9FIHB10DNgYZ+/wAahiP+8/7jAT1ufd+3wpOBjmbcfiRlJMGyQW/Lz7MMe82Ym6JOn16hEyBOB37qOw14W3nvnDrkZZhZEWLvijaeDL2OBMerhVV3cNz0N36SP+dduC3Rf/KVfHYnbebyAqY6WCpaFU9MM5kmCShh24MMxVvqB8uddOdyElo2nv4TcOBrX9zfxea4aBlFdBF0x/RiHJJHyPbk9tbUtp3ilSBL+8Jzw7xiUtW6FBZn/OMpY9oMcT4xbhwtiGtuapcqvIA6x5ioYutfms0ajgfVoj9SNN7Z++MLuTy4YJDWuSIXWvKykyKPVo3UlZV+qk8fEDWc85Lh9w5fGWrOTOTxdeRshuYYuSU1YuuQJ58aSAOhbkGQICF9RqvyMF7Bbms0tvYmyi0YDdylBbJkrQhe62IJiQ6hkKMr9nBPHvDtrI7s5l4eEbqu2v2K1jW1tB5k1O8nvr9GlI2HqaWPg74jw7jrQUL9kyzvytaw4CtKyjlopAOwmUd+3Z195eOGVWdrnnmVsrKFisPMvIeQFoNIqt2ZiPA4Gzknj810AWGLngyysQqJ9OWIHPwHJ+GsmLnsPuTxIWHckgvY6V5YxK0zRJJZcdIsP0+8ELBVHH+VAnyILd/E7nZquPhxtYt5iwmRQPUyzExR8fMhPPP3A0CvPtG1sGetVSjm6OPgrtHimdcdcrsisbEzyEFpOtiOVQntwO3GndmNBpm8IM1UmMtcxnAm0nS47dgiSa1z11inzFXG4W5ktpbdF2e5bVUyOPusrV6M0a9fnx2R0nmE8guVA46u5Hqw/D3wstZZos5mrtmVpFXi/dTzbUwA4BiSUEQp8mcNIR34T015vAvazZ69JmsyHn84R27YmYuXX1rVyW7lVVVlYH1/k8+h1oMcantC3KbN0g1zOtS7UsNiS4LxYpkNa+RitsHacfS1jERZCQD+pfdrLH95CeP24GpY2DtGRi8GFgoycdpKLNWcfvGV0T6mhr5z8j7wxct/iPaEjvnwwt4uc57A3LYsQgkXKcYW9COO5ZUAWynzHAk49C/+XS5qWLN2PJYncMVixBWpvmsnJUsl5twMrKISJeO0KqwPAHuhWPAI4GtO2kP47bZs4mzHmtvyS05+qW1SkrsUaCyFLzRqR6LKgZ+PTrjb/WdL2C2lxQacxyOtDHGCbdYw2LxvDMa1lhCymno4CHBbmx9K3haWYaVLFHz2laLyHXotQs3DHgt1Lz8VYclWOtTbBz35g27FalMYuRMYLQjPueYoHvL+lgVdf0uNZ7p4qrubbtrcE2B3LunJW65r0beRs9PMnHDSKqcJFBGSffdu57AevBR+GTMypKcVZcdflvTkHUD/ADK5BjPI7HmORl5HqIRrRtJsPMlXmSa6xphM1pENnuFp0J8qtcq4yHGK3xrzFTH+LWOu5LzDUo5OtJIEXqYrDAsgAH/dL/8AdKnP5TbebgcVNpy4vK2ZgRNFk5JYeXb3iY5ATyeTwQ2mD+JuhPLvB1hheSWezD0Ki8ljJAEUAfEkwkaovEPG75ytAbt3HjsVjFw1eCua8ciRzEdXucxAkhieTweOwPA7aQsN2llokyJEsZcqZznGG276nXABQHhPnXKHjhzLh/BjP5PGzNXs9F6aGRQOY/LLRR8fZYk4+2hbBw+JzeG9XfeP39LcmNI3JMddpxmNlUEsoYd+eAfl+2irBiTN+DGexmOjNmyUvQxIhHLmUtLGBz27rKn/ADoVxH+Ki+G9XYdDYvsD+yexyZK1fj6FQ8hmCjuDwT8/sdCt+b7Z71d6WHX4hZzy4y3aSnj0+YO8X4mYmXZeDz9uta83K15JhWrRGVk8oczN8PdXj1Pf09Tqs8X9z5Cl+SLeBycsNXJ5iBJGjA4nhcA8HkehB+h0P7s2BlKOC29tyCnkMrjMbjnWFqSxEjIFueuVZGXqhYFgV544J5HprncOB3xncPtF8jirDZGnuT2m7CpiEVWEMOBGQ3eILwB/d6868ttWcLC0kSmcTlWWuMe1u2goKCDOQwGdJx0+JdTfO3dwYKGv4j5R4s7ljVCCrGorKzcjp9ergHjvx6aLNzYPJ4bwzu/xjcFncFupbivRWbEKxsoSROUAXtxwHH+46+/GDA5fM53ZNjGUZLMWPzaWLTKyjyoxxyx5I7fbnVz4syJ+SbNQuEe9NDVTn9cqhj+y9TfYHUy9vpaAlPOQE8fQcIoGd0umsspk8PX1jKd3D71uY27jKa5S7gsVdmqxVkm6kBWQ8hIueX46gSQDx1d+NE34fHs4vevsdmCavYhyFdXhkQqyFkniYMp7g++P+NUdLxDahSupTxyNdlvWbUF9mVmjWaRWaLpKn+W6rwwBDHnsQOQSTwNms5/xAOTsrGs01+qOIl6UVYopm6VHJPAWNB8fvro7XeizOBxIA/yOfst2bQ2UKJMHv4oMDNaoV8rWVvMMJi5HqJIiZY+Puvnj7kaXVe1h9x7YWjhdtVamNxsQWW/nMsYasdmRfel6U48yZu/BYtwAOwHbWnd2YePPYC1jHfynkUNDLxyYpVIZH/ZgDx8fT46ylnIaG2vbdt7mw+QfEy3/AGuJaM6xy1LSp0SRcsCrIVYFT69BRh6kaL2W9etXfmSaamJ0hHaTV07eZKFdSMH3gjuKfa2TlwO4GSAwpFXtt5gZFTt7NZDDsYyrCIsOw/knsCeNCDjWQN4CerkaF8QyUdyWUr1sbg4QJRUohPLSOz1Dl3kBHufIksO4GmD4feK02Inbb+Wh9+pIYHoz2VE1dlPBSGZz0TIODwjsrj0DOONTt9gU99ZvE4jWXrh80sNuS19FeAwOs+/w/tTgaFq3iBtSQKLOUGOkI5KX4nrEf+YAP7EjX1Pv7aidq+WTIPxyI6Eb2WP/AKweP340LcOfifaGL5v8hBOePU6z/wDiF3sk0MlTHSmRIVmr1infrmKlJ5h+iJC0Yb0LyN/oOu7xK8XTNBYx9GOaCNUJlr1peq06/HzJI+VrJ378FpPh7nroOw+JylmDB7hxWUoVMzkVRa9ua9HFUhBZkXHRVgGZzwAG6h0jn7sWLBYi0Q8901/vU4E222B0FprrrX79GdwWFlrWmvbXqw7Wp45ZMZuLHziOSULEOhH9VmkeTkFSAy8nvwNE34X9vvEsWQmTgxwNZf6ST8LGPuIoy32mGlVFQo7r3NH7LgZMZFC3/VatSXqhknL9Kx11/saUjpC8kDlmHuqda02LgzgNvxVZvLNuVjPbaMcIZWA5C/pUBUX9KDV9pPFli6nU9u5xz6UiGzmg89eyoNcBhl1rF9oB8WfD+tuzHy2K8EbX/LCujN0Cwq8lR1cHodSSVfg8ckEFWI0famufadU0sLQaiHnWkupKVCkZExhj2ZcvPmMfMmRRZkp57y3knpTunAWxCW4DAdlbnt1dSlx6dex6WLWHa2IOHxGYyW4rTy32uKZTWqBukKCGHltwskhb17DWod1bTw+4k6rsJjtLGY0tQ8LIqn1U8gh1/QwK/TSd3B4IXqVp7mAkKSlWUS46YV5CGBDAxOeg8gkHpdAfkNdExtNp1JCzuqPtgZdJmcu0APbOdaIKBvAe+XfL5gX8Pdrw5SvE+Jze54qV3LWKkPsmQjgStAhBR2R+83KkE9A7cd++q7FYh8/+WqeQzu4bcOfhuoW9tJStLBIwEhQ9nQIoLL6nk8H0GrfGbY8QNsV4KtAu0NOR5Kwu7eeZqzuOHaN0WTo5+PS3Gq3G7D3vJTxVavayMceMlkmpNVxNhJInkILEO6x/FR6nt++td6kqUq8EsjXgfTl7e+W6VIJuzPMdR68/eJ7HQ21uLZ2XwstE4jKY9qeQewklWtaCEx2eoSDqAdCrDt3PBA9BqnxuOSDcM58P8rkFx8gapLlbFQKzdTHiOAAGRnK8DheHbufdUnhmYzwez+auLd3Pbt3JQf6uYtmYgfpgiYj9ml4+h029pbLw23eiaCM2biJ0LZmVQY1+KxqoCxr9EA5+PJ76yPbTbaHhO8ZS9MTLnLQjUzs1xwzUN0Y+uU+U9GBjwf8ADqHblWC7drGGaME1qzkM0RYcNLIR2aZh27e6i+6vPLMzM1NTXPPPLeWVrNYfaaS0kJThH//Z";
 function DitLogo({ size = 40 }) {
   return (
@@ -108,7 +108,7 @@ api.interceptors.request.use(cfg => {
   if (token) cfg.headers["Authorization"] = "Bearer " + token;
   return cfg;
 });
-// On 401 → clear auth and force re-login
+// On 401 \u2192 clear auth and force re-login
 api.interceptors.response.use(
   r => r,
   err => {
@@ -186,7 +186,7 @@ tr:last-child td{border-bottom:none}tr:hover td{background:#fafbff}
 .stor-fill{height:10px;border-radius:5px;transition:width .4s}
 `;
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// \u2500\u2500 Helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 const Bar = ({val,max=100}) => {
   const p=Math.min(100,(val||0)/max*100);
   return <div className="bar-bg"><div className="bar-fill" style={{width:`${p}%`,background:p>85?T.red:p>65?T.amber:T.green}}/></div>;
@@ -203,9 +203,9 @@ const KPI = ({label,value,color,sub}) => (
   </div>
 );
 const SrcBadge = ({src}) =>
-  src==="live"?<span className="badge b-ok">● LIVE</span>
+  src==="live"?<span className="badge b-ok">\u25cf LIVE</span>
   :src==="stopped"?<span className="badge b-stop">◼ STOPPED</span>
-  :src==="error"?<span className="badge b-error">✕ ERROR</span>
+  :src==="error"?<span className="badge b-error">\u2715 ERROR</span>
   :<span className="badge b-sim">◌ CACHED</span>;
 const SevBadge = ({sev}) => {
   const m={CRITICAL:"b-crit",HIGH:"b-warn",MEDIUM:"b-info",LOW:"b-stop"};
@@ -217,7 +217,7 @@ const StatusDot = ({s}) => (
 );
 const fmtRAM = mb => mb>=1024?`${(mb/1024).toFixed(1)} GB`:`${mb} MB`;
 
-// ── Promote VM to Host Modal ──────────────────────────────────────────────────
+// \u2500\u2500 Promote VM to Host Modal \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function PromoteVMModal({vm, hostId, onClose, onAdded}) {
   const [form,setForm]=useState({
     username: "root", password: "", ssh_key: "", auth_type: "password",
@@ -251,15 +251,15 @@ function PromoteVMModal({vm, hostId, onClose, onAdded}) {
           <div>
             <div style={{fontWeight:700,fontSize:15}}>Add VM as Standalone Host</div>
             <div style={{color:T.muted,fontSize:12,marginTop:2}}>
-              {vm?.name} · {vm?.ip!=="N/A"?vm?.ip:"IP not detected"} · {vm?.os||"Linux"}
+              {vm?.name} \u00b7 {vm?.ip!=="N/A"?vm?.ip:"IP not detected"} \u00b7 {vm?.os||"Linux"}
             </div>
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>\u2715</button>
         </div>
         <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,
           padding:"10px 14px",marginBottom:14,fontSize:12,color:"#166534"}}>
           ℹ This will add <strong>{vm?.name}</strong> as an independently monitored host
-          with its own metrics, logs, and patch data — separate from the parent hypervisor.
+          with its own metrics, logs, and patch data \u2014 separate from the parent hypervisor.
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <div style={{gridColumn:"1/-1"}}>
@@ -295,7 +295,7 @@ function PromoteVMModal({vm, hostId, onClose, onAdded}) {
         <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16}}>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn btn-ok" onClick={submit} disabled={busy}>
-            {busy?<><span className="spinner"/>Adding...</>:"➕ Add as Host"}
+            {busy?<><span className="spinner"/>Adding...</>:"\u2795 Add as Host"}
           </button>
         </div>
       </div>
@@ -303,7 +303,7 @@ function PromoteVMModal({vm, hostId, onClose, onAdded}) {
   );
 }
 
-// ── Add Host Modal ─────────────────────────────────────────────────────────────
+// \u2500\u2500 Add Host Modal \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function AddHostModal({onClose,onAdded}) {
   const [form,setForm]=useState({name:"",ip:"",os_type:"linux",auth_type:"password",
     username:"root",password:"",ssh_key:"",ssh_port:22,winrm_port:5985});
@@ -335,7 +335,7 @@ function AddHostModal({onClose,onAdded}) {
       const detail=e.response?.data?.detail;
       const errText=Array.isArray(detail)
         ? detail.map(d=>`${d.loc?.join(".")}: ${d.msg}`).join(", ")
-        : (typeof detail==="string" ? detail : e.message || "Save failed — check browser console");
+        : (typeof detail==="string" ? detail : e.message || "Save failed \u2014 check browser console");
       setMsg({t:"e",text:errText});
     }
     setBusy(false);
@@ -346,7 +346,7 @@ function AddHostModal({onClose,onAdded}) {
         <div style={{display:"flex",justifyContent:"space-between",marginBottom:20}}>
           <div><div style={{fontWeight:700,fontSize:16}}>Add Host</div>
             <div style={{color:T.muted,fontSize:12,marginTop:2}}>SSH (Linux/KVM) or WinRM (Windows/Hyper-V)</div></div>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>\u2715</button>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           {[["Host Name *","name","text","prod-server-01"],["IP Address *","ip","text","192.168.1.100"]].map(([l,k,t,p])=>(
@@ -355,8 +355,8 @@ function AddHostModal({onClose,onAdded}) {
           ))}
           <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>OS / Hypervisor</label>
             <select value={form.os_type} onChange={e=>{set("os_type",e.target.value);set("username",e.target.value==="windows"?"Administrator":"root");}}>
-              <option value="linux">🐧 Linux — KVM</option>
-              <option value="windows">🪟 Windows — Hyper-V</option>
+              <option value="linux">🐧 Linux \u2014 KVM</option>
+              <option value="windows">🪟 Windows \u2014 Hyper-V</option>
             </select></div>
           <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>Auth Type</label>
             <select value={form.auth_type} onChange={e=>set("auth_type",e.target.value)}>
@@ -380,11 +380,11 @@ function AddHostModal({onClose,onAdded}) {
             background:testResult.status==="ok"?"#f0fdf4":"#fff7ed",
             border:`1px solid ${testResult.status==="ok"?"#bbf7d0":"#fed7aa"}`}}>
             <div style={{fontWeight:700,marginBottom:8,color:testResult.status==="ok"?T.green:T.amber}}>
-              {testResult.status==="ok"?"✅ Connection Successful":"⚠ Connection Diagnostics"}
+              {testResult.status==="ok"?"\u2705 Connection Successful":"\u26a0 Connection Diagnostics"}
             </div>
             {testResult.steps?.map((s,i)=>(
               <div key={i} style={{display:"flex",gap:8,marginBottom:4,alignItems:"flex-start"}}>
-                <span style={{color:s.status==="ok"?T.green:T.red,flexShrink:0}}>{s.status==="ok"?"✔":"✗"}</span>
+                <span style={{color:s.status==="ok"?T.green:T.red,flexShrink:0}}>{s.status==="ok"?"\u2714":"\u2717"}</span>
                 <span style={{color:T.sub,minWidth:120,flexShrink:0}}>{s.step}</span>
                 <span style={{color:s.status==="ok"?T.text:T.red}}>{s.msg}</span>
               </div>
@@ -409,9 +409,9 @@ function AddHostModal({onClose,onAdded}) {
   );
 }
 
-// ── Storage Table ─────────────────────────────────────────────────────────────
+// \u2500\u2500 Storage Table \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function StorageTable({storage}) {
-  if(!storage?.length) return <div style={{color:T.muted,padding:"16px 0",textAlign:"center",fontSize:12}}>No storage data — click ↻ Refresh</div>;
+  if(!storage?.length) return <div style={{color:T.muted,padding:"16px 0",textAlign:"center",fontSize:12}}>No storage data \u2014 click \u21bb Refresh</div>;
   const typeColor=t=>{
     if(t?.includes("SAN")||t?.includes("iSCSI")||t?.includes("FC")) return {bg:"#fdf2f8",col:"#86198f"};
     if(t?.includes("NFS")||t?.includes("CIFS")) return {bg:"#eff6ff",col:"#1d4ed8"};
@@ -447,11 +447,11 @@ function StorageTable({storage}) {
   );
 }
 
-// ── Active Ports Table ────────────────────────────────────────────────────────
+// \u2500\u2500 Active Ports Table \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function ActivePortsTable({ports, onExternalScan, scanBusy}) {
   if(!ports?.length) return (
     <div style={{padding:"16px 0"}}>
-      <div style={{color:T.muted,textAlign:"center",fontSize:12,marginBottom:12}}>No active port data — click ↻ Refresh to collect from host</div>
+      <div style={{color:T.muted,textAlign:"center",fontSize:12,marginBottom:12}}>No active port data \u2014 click \u21bb Refresh to collect from host</div>
       <div style={{textAlign:"center"}}>
         <button className="btn btn-port btn-sm" onClick={onExternalScan} disabled={scanBusy}>
           {scanBusy?<><span className="spinner"/>Scanning...</>:"🔌 External Port Scan"}
@@ -471,27 +471,27 @@ function ActivePortsTable({ports, onExternalScan, scanBusy}) {
       <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:12}}>
         {ports.map(p=>(
           <span key={p.port} className={`port-chip ${RISKY[p.port]?"port-risky":"port-active"}`}>
-            <strong>:{p.port}</strong> {p.process}{RISKY[p.port]?" ⚠":""}
+            <strong>:{p.port}</strong> {p.process}{RISKY[p.port]?" \u26a0":""}
           </span>
         ))}
       </div>
       {ports.some(p=>RISKY[p.port])&&(
         <div style={{padding:"8px 12px",background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:7,fontSize:12,color:"#9a3412"}}>
-          ⚠ Risky ports active: {ports.filter(p=>RISKY[p.port]).map(p=>`${RISKY[p.port]}(:${p.port})`).join(", ")} — review firewall rules
+          \u26a0 Risky ports active: {ports.filter(p=>RISKY[p.port]).map(p=>`${RISKY[p.port]}(:${p.port})`).join(", ")} \u2014 review firewall rules
         </div>
       )}
     </div>
   );
 }
 
-// ── External Port Scan Modal ──────────────────────────────────────────────────
+// \u2500\u2500 External Port Scan Modal \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function PortScanModal({target,hostId,vmId,ip,onClose}) {
   const [result,setResult]=useState(null);
   const [busy,setBusy]=useState(false);
 
   const scan=async()=>{
     if(!hostId || hostId==="undefined") {
-      setResult({error:"Host ID not available — try closing and reopening."});
+      setResult({error:"Host ID not available \u2014 try closing and reopening."});
       return;
     }
     setBusy(true);setResult(null);
@@ -508,11 +508,11 @@ function PortScanModal({target,hostId,vmId,ip,onClose}) {
     <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="modal" style={{width:580}}>
         <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
-          <div><div style={{fontWeight:700,fontSize:15}}>External Port Scan — {target}</div>
+          <div><div style={{fontWeight:700,fontSize:15}}>External Port Scan \u2014 {target}</div>
             <div style={{color:T.muted,fontSize:12}}>Scanning {ip} from InfraCommand server</div></div>
           <div style={{display:"flex",gap:8}}>
-            <button className="btn btn-port btn-sm" onClick={scan} disabled={busy}>{busy?<><span className="spinner"/>Scanning...</>:"↻ Rescan"}</button>
-            <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+            <button className="btn btn-port btn-sm" onClick={scan} disabled={busy}>{busy?<><span className="spinner"/>Scanning...</>:"\u21bb Rescan"}</button>
+            <button className="btn btn-ghost btn-sm" onClick={onClose}>\u2715</button>
           </div>
         </div>
         {busy&&<div className="scan-bar" style={{marginBottom:12}}/>}
@@ -526,7 +526,7 @@ function PortScanModal({target,hostId,vmId,ip,onClose}) {
             <div className="section-hd">Open Ports Found</div>
             <div>
               {result.ports?.length>0
-                ?result.ports.map(p=><span key={p.port} className={`port-chip ${p.risky?"port-risky":"port-open"}`}>:{p.port} {p.service}{p.risky?" ⚠":""}</span>)
+                ?result.ports.map(p=><span key={p.port} className={`port-chip ${p.risky?"port-risky":"port-open"}`}>:{p.port} {p.service}{p.risky?" \u26a0":""}</span>)
                 :<div style={{color:T.muted,fontSize:12}}>No open ports detected</div>}
             </div>
           </>
@@ -536,7 +536,7 @@ function PortScanModal({target,hostId,vmId,ip,onClose}) {
   );
 }
 
-// ── Vuln Scan Modal ───────────────────────────────────────────────────────────
+// \u2500\u2500 Vuln Scan Modal \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function VulnScanModal({target,hostId,vmId,ip,onClose}) {
   const [result,setResult]=useState(null);
   const [busy,setBusy]=useState(false);
@@ -558,7 +558,7 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
 
   const scan=async(force=false)=>{
     if(!hostId||hostId==="undefined"){
-      setResult({error:"Host ID not available — try closing and reopening."});
+      setResult({error:"Host ID not available \u2014 try closing and reopening."});
       return;
     }
     setBusy(true);
@@ -572,7 +572,7 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
       setResult(r.data);
     }catch(e){
       const msg=e.code==="ECONNABORTED"
-        ?"Scan timed out — the RPM/dpkg database transfer takes 2-3 min. Try again."
+        ?"Scan timed out \u2014 the RPM/dpkg database transfer takes 2-3 min. Try again."
         :(e.response?.data?.detail||"Scan failed");
       setResult({error:msg});
     }
@@ -615,49 +615,49 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
     <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="modal" style={{width:860,maxWidth:"98vw",maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
 
-        {/* ── Header ── */}
+        {/* \u2500\u2500 Header \u2500\u2500 */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12,flexShrink:0}}>
           <div>
-            <div style={{fontWeight:700,fontSize:15}}>Vulnerability Scan — {target}</div>
+            <div style={{fontWeight:700,fontSize:15}}>Vulnerability Scan \u2014 {target}</div>
             <div style={{color:T.muted,fontSize:12}}>IP: {ip}</div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            {result&&!result.error&&<button className="btn btn-ghost btn-sm" onClick={dl}>↓ Export</button>}
+            {result&&!result.error&&<button className="btn btn-ghost btn-sm" onClick={dl}>\u2193 Export</button>}
             <button className="btn btn-scan btn-sm" onClick={()=>scan(true)} disabled={busy}>
-              {busy?<><span className="spinner"/>Scanning…</>:"↻ Rescan"}
+              {busy?<><span className="spinner"/>Scanning\u2026</>:"\u21bb Rescan"}
             </button>
-            <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+            <button className="btn btn-ghost btn-sm" onClick={onClose}>\u2715</button>
           </div>
         </div>
 
-        {/* ── Loading state ── */}
+        {/* \u2500\u2500 Loading state \u2500\u2500 */}
         {busy&&(
           <div style={{flexShrink:0,marginBottom:12}}>
             <div className="scan-bar"/>
             <div style={{marginTop:8,padding:"12px 16px",background:"#f8fafc",borderRadius:8,
               border:"1px solid #e2e8f0",fontSize:13,color:T.sub}}>
               <div style={{fontWeight:600,marginBottom:4}}>
-                🔍 Scanning {target}… {elapsed>0&&<span style={{color:T.muted,fontWeight:400}}>({fmtTime(elapsed)})</span>}
+                🔍 Scanning {target}\u2026 {elapsed>0&&<span style={{color:T.muted,fontWeight:400}}>({fmtTime(elapsed)})</span>}
               </div>
               <div style={{fontSize:12,color:T.muted}}>
-                {elapsed<10&&"Connecting via SSH…"}
-                {elapsed>=10&&elapsed<30&&"Fetching package database from host…"}
-                {elapsed>=30&&elapsed<60&&"Transferring RPM/dpkg database (may take 1-2 min)…"}
-                {elapsed>=60&&elapsed<120&&"Analysing packages against CVE database…"}
-                {elapsed>=120&&"Almost done — large package database detected…"}
+                {elapsed<10&&"Connecting via SSH\u2026"}
+                {elapsed>=10&&elapsed<30&&"Fetching package database from host\u2026"}
+                {elapsed>=30&&elapsed<60&&"Transferring RPM/dpkg database (may take 1-2 min)\u2026"}
+                {elapsed>=60&&elapsed<120&&"Analysing packages against CVE database\u2026"}
+                {elapsed>=120&&"Almost done \u2014 large package database detected\u2026"}
               </div>
             </div>
           </div>
         )}
 
-        {/* ── Error ── */}
+        {/* \u2500\u2500 Error \u2500\u2500 */}
         {result?.error&&(
           <div style={{color:T.red,padding:"10px 14px",background:"#fee2e2",borderRadius:7,fontSize:13}}>
             {result.error}
           </div>
         )}
 
-        {/* ── Results ── */}
+        {/* \u2500\u2500 Results \u2500\u2500 */}
         {result&&!result.error&&(
           <div style={{display:"flex",flexDirection:"column",minHeight:0,flex:1}}>
 
@@ -665,25 +665,25 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:11,color:T.muted,flexShrink:0}}>
               <span style={{background:"#f0fdf4",color:T.green,border:"1px solid #bbf7d0",
                 borderRadius:5,padding:"2px 8px",fontWeight:700}}>🔍 Trivy</span>
-              <span>Scanned: {result.scanned_at?toIST(result.scanned_at):"—"}</span>
+              <span>Scanned: {result.scanned_at?toIST(result.scanned_at):"\u2014"}</span>
             </div>
 
             {/* Scan error banner */}
             {result.scan_error&&(
               <div style={{padding:"10px 14px",marginBottom:10,background:"#fffbeb",
                 border:"1px solid #fde68a",borderRadius:7,fontSize:12,color:"#92400e",flexShrink:0}}>
-                ⚠️ <strong>Scan warning:</strong> {result.scan_error}
+                \u26a0 <strong>Scan warning:</strong> {result.scan_error}
               </div>
             )}
 
-            {/* KPI row — clickable to filter */}
+            {/* KPI row \u2014 clickable to filter */}
             <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:6,marginBottom:12,flexShrink:0}}>
               {[["Total",result.summary?.total,"ALL",T.blue],
                 ["🔴 Critical",result.summary?.critical,"CRITICAL",T.red],
                 ["🟠 High",result.summary?.high,"HIGH",T.amber],
                 ["🟡 Medium",result.summary?.medium,"MEDIUM",T.purple],
-                ["⚪ Low",result.summary?.low,"LOW",T.muted],
-                ["⚡ Port Exposed",result.summary?.port_exposed,"PORT",T.red]].map(([l,v,sev,c])=>(
+                ["\u26aa Low",result.summary?.low,"LOW",T.muted],
+                ["\u26a1 Port Exposed",result.summary?.port_exposed,"PORT",T.red]].map(([l,v,sev,c])=>(
                 <div key={l} onClick={()=>{setFilterSev(filterSev===sev?"ALL":sev);setPage(0);}}
                   style={{padding:"8px 6px",borderRadius:8,textAlign:"center",cursor:"pointer",
                     border:`2px solid ${filterSev===sev?c:"transparent"}`,
@@ -709,7 +709,7 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
             {/* No vulns */}
             {allVulns.length===0&&!result.scan_error&&(
               <div style={{padding:24,textAlign:"center",color:T.green,fontWeight:600,fontSize:13}}>
-                ✅ No vulnerabilities found.
+                \u2705 No vulnerabilities found.
               </div>
             )}
 
@@ -717,7 +717,7 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
             {allVulns.length>0&&(
               <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center",flexShrink:0}}>
                 <input
-                  placeholder="Filter by package…"
+                  placeholder="Filter by package\u2026"
                   value={filterPkg}
                   onChange={e=>{setFilterPkg(e.target.value);setPage(0);}}
                   style={{flex:1,padding:"5px 10px",borderRadius:6,border:"1px solid #e2e8f0",
@@ -735,7 +735,7 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
               </div>
             )}
 
-            {/* Vuln table — scrollable */}
+            {/* Vuln table \u2014 scrollable */}
             {shown.length>0&&(
               <div style={{overflowY:"auto",flex:1,minHeight:0}}>
                 <table style={{fontSize:12}}>
@@ -755,7 +755,7 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
                       <tr key={`${v.id}-${i}`}>
                         <td style={{fontFamily:"IBM Plex Mono",fontSize:11}}>
                           <a href={v.url} target="_blank" rel="noreferrer"
-                            style={{color:T.blue,textDecoration:"none"}}>{v.id||"—"}</a>
+                            style={{color:T.blue,textDecoration:"none"}}>{v.id||"\u2014"}</a>
                         </td>
                         <td>
                           <span style={{padding:"2px 7px",borderRadius:4,fontSize:10,fontWeight:700,
@@ -765,7 +765,7 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
                         </td>
                         <td style={{fontFamily:"IBM Plex Mono",fontWeight:700,
                           color:v.cvss>=9?T.red:v.cvss>=7?T.amber:T.muted}}>
-                          {v.cvss||"—"}
+                          {v.cvss||"\u2014"}
                         </td>
                         <td>
                           <code style={{background:"#f1f5f9",padding:"1px 5px",
@@ -779,7 +779,7 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
                           )}
                         </td>
                         <td style={{fontFamily:"IBM Plex Mono",fontSize:11,color:T.muted}}>
-                          {v.version||"—"}
+                          {v.version||"\u2014"}
                         </td>
                         <td style={{fontFamily:"IBM Plex Mono",fontSize:11,
                           color:v.fixed_in?T.green:T.muted,fontWeight:v.fixed_in?700:400}}>
@@ -801,12 +801,12 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
               <div style={{display:"flex",gap:6,justifyContent:"center",
                 alignItems:"center",paddingTop:10,flexShrink:0}}>
                 <button className="btn btn-ghost btn-sm"
-                  onClick={()=>setPage(p=>Math.max(0,p-1))} disabled={page===0}>← Prev</button>
+                  onClick={()=>setPage(p=>Math.max(0,p-1))} disabled={page===0}>\u2190 Prev</button>
                 <span style={{fontSize:12,color:T.muted}}>
                   Page {page+1} of {pages} ({filtered.length} results)
                 </span>
                 <button className="btn btn-ghost btn-sm"
-                  onClick={()=>setPage(p=>Math.min(pages-1,p+1))} disabled={page===pages-1}>Next →</button>
+                  onClick={()=>setPage(p=>Math.min(pages-1,p+1))} disabled={page===pages-1}>Next \u2192</button>
               </div>
             )}
 
@@ -843,7 +843,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
   } : {});
   const hostId  = sel?.hostId;
 
-  // Safe clamped display values — guard against stale DB values > 100
+  // Safe clamped display values \u2014 guard against stale DB values > 100
   const dispCpu  = Math.min(100, Math.max(0, Number(m.cpu)  || 0));
   const dispRam  = Math.min(100, Math.max(0, Number(m.ram)  || 0));
   // Disk: prefer the root-volume use_pct from storage array if available
@@ -913,7 +913,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
   const tabLabel={metrics:"📊 Metrics",hardware:"🖥 Hardware",nics:"🌐 NICs",storage:"💾 Storage",
                   ports:"🔌 Ports",patch:"🔧 Patches",os:"💻 OS Info",logs:"📋 Logs"};
 
-  // ── NIC sparkline mini-bar ───────────────────────────────────────────────
+  // \u2500\u2500 NIC sparkline mini-bar \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const NicBar=({val,max,color})=>{
     const pct=max>0?Math.min(100,val/max*100):0;
     return <div style={{height:4,background:"#f1f5f9",borderRadius:2,marginTop:3}}>
@@ -921,7 +921,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
     </div>;
   };
 
-  // ── NIC table row ────────────────────────────────────────────────────────
+  // \u2500\u2500 NIC table row \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const NicRow=({n})=>{
     const maxMB=Math.max(...nics.map(x=>Math.max(x.rx_mb||0,x.tx_mb||0)),1);
     return (
@@ -937,20 +937,20 @@ function DetailPanel({sel,hostData,onDbReload}) {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:11}}>
           <div>
             <div style={{color:T.muted}}>IPv4</div>
-            <div style={{fontWeight:600,color:T.blue}}>{n.ipv4||"—"}</div>
+            <div style={{fontWeight:600,color:T.blue}}>{n.ipv4||"\u2014"}</div>
             {n.ipv6&&<div style={{color:T.muted,fontSize:10}}>{n.ipv6.slice(0,30)}</div>}
           </div>
           <div>
             <div style={{color:T.muted}}>RX</div>
             <div style={{fontWeight:600,color:T.green}}>{n.rx_mb?.toFixed?.(1)||0} MB</div>
             <NicBar val={n.rx_mb||0} max={maxMB} color={T.green}/>
-            {(n.rx_err>0)&&<div style={{color:T.red,fontSize:10}}>⚠ {n.rx_err} errors</div>}
+            {(n.rx_err>0)&&<div style={{color:T.red,fontSize:10}}>\u26a0 {n.rx_err} errors</div>}
           </div>
           <div>
             <div style={{color:T.muted}}>TX</div>
             <div style={{fontWeight:600,color:T.amber}}>{n.tx_mb?.toFixed?.(1)||0} MB</div>
             <NicBar val={n.tx_mb||0} max={maxMB} color={T.amber}/>
-            {(n.tx_err>0)&&<div style={{color:T.red,fontSize:10}}>⚠ {n.tx_err} errors</div>}
+            {(n.tx_err>0)&&<div style={{color:T.red,fontSize:10}}>\u26a0 {n.tx_err} errors</div>}
           </div>
         </div>
         {(n.gateway||n.subnet)&&(
@@ -977,7 +977,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
               <div style={{fontWeight:700,fontSize:15}}>{target.name}</div>
               <div style={{color:T.muted,fontSize:11,marginTop:2,display:"flex",flexWrap:"wrap",gap:8}}>
                 <span style={{fontFamily:"IBM Plex Mono",color:ip!=="N/A"?T.blue:T.muted}}>{ip}</span>
-                {isVM&&<span>{fmtRAM(target.ram_mb)} · {target.vcpu} vCPU · {target.disk_gb}GB</span>}
+                {isVM&&<span>{fmtRAM(target.ram_mb)} \u00b7 {target.vcpu} vCPU \u00b7 {target.disk_gb}GB</span>}
                 {osInfo.os_pretty&&<span style={{color:T.blue,fontWeight:500}}>{osInfo.os_pretty}</span>}
                 {nics.length>0&&<span style={{color:T.muted}}>{nics.length} NIC{nics.length>1?"s":""}</span>}
               </div>
@@ -1009,7 +1009,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
             )}
             <SrcBadge src={m.source}/>
             <button className="btn btn-refresh btn-sm" onClick={doRefresh} disabled={refreshing}>
-              {refreshing?<><span className="spinner"/>...</>:"↻ Refresh"}</button>
+              {refreshing?<><span className="spinner"/>...</>:"\u21bb Refresh"}</button>
             <button className="btn btn-port btn-sm" onClick={()=>setPortModal(true)}>🔌 Port Scan</button>
             <button className="btn btn-scan btn-sm" onClick={()=>setVulnModal(true)}>🔍 Vuln Scan</button>
           </div>
@@ -1017,7 +1017,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
         {msg&&<div style={{marginTop:8,padding:"7px 12px",borderRadius:6,fontSize:12,
           background:msg.t==="ok"?"#dcfce7":"#fee2e2",color:msg.t==="ok"?"#166534":"#991b1b"}}>{msg.text}</div>}
         {m.source==="error"&&<div style={{marginTop:8,padding:"7px 12px",borderRadius:6,fontSize:12,
-          background:"#fff7ed",color:"#9a3412"}}>⚠ Connection error: {m.reason}</div>}
+          background:"#fff7ed",color:"#9a3412"}}>\u26a0 Connection error: {m.reason}</div>}
       </div>
 
       {/* Tabs */}
@@ -1055,21 +1055,21 @@ function DetailPanel({sel,hostData,onDbReload}) {
             <div className="card" style={{padding:14}}>
               <div className="section-hd">System</div>
               {[
-                ["Uptime",   m.uptime && m.uptime!=="N/A" ? m.uptime : (isVM ? "See host" : "—")],
-                ["OS",       osInfo.os_pretty || osInfo.os_name || (isVM ? target?.os : "—") || "—"],
-                ["Kernel",   osInfo.kernel || "—"],
-                ["Arch",     osInfo.arch || "—"],
-                ["Hostname", osInfo.hostname || "—"],
+                ["Uptime",   m.uptime && m.uptime!=="N/A" ? m.uptime : (isVM ? "See host" : "\u2014")],
+                ["OS",       osInfo.os_pretty || osInfo.os_name || (isVM ? target?.os : "\u2014") || "\u2014"],
+                ["Kernel",   osInfo.kernel || "\u2014"],
+                ["Arch",     osInfo.arch || "\u2014"],
+                ["Hostname", osInfo.hostname || "\u2014"],
                 ["Load Avg", !isVM && m.load ? String(m.load) : null],
-              ].filter(([,v])=>v && v!=="—" && v!==null).slice(0,4).map(([l,v])=>(
+              ].filter(([,v])=>v && v!=="\u2014" && v!==null).slice(0,4).map(([l,v])=>(
                 <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
                   <span style={{color:T.muted,fontSize:11}}>{l}</span>
                   <span style={{fontSize:11,fontWeight:600,fontFamily:l==="Kernel"?"IBM Plex Mono":"inherit",
                     maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"right"}}>{v}</span>
                 </div>
               ))}
-              {m.source==="error"&&<div style={{fontSize:10,color:T.red,marginTop:4}}>⚠ Last collection failed</div>}
-              {(!m.cpu && !m.ram)&&<div style={{fontSize:10,color:T.amber,marginTop:4}}>Click ↻ Refresh to collect live data</div>}
+              {m.source==="error"&&<div style={{fontSize:10,color:T.red,marginTop:4}}>\u26a0 Last collection failed</div>}
+              {(!m.cpu && !m.ram)&&<div style={{fontSize:10,color:T.amber,marginTop:4}}>Click \u21bb Refresh to collect live data</div>}
             </div>
           </div>
         </div>
@@ -1083,7 +1083,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
             padding:"10px 0",borderBottom:"1px solid #f1f5f9"}}>
             <div style={{color:T.muted,fontSize:12,fontWeight:500,minWidth:180}}>{label}</div>
             <div style={{textAlign:"right"}}>
-              <div style={{fontSize:13,fontWeight:700,color:color||T.text}}>{value||"—"}</div>
+              <div style={{fontSize:13,fontWeight:700,color:color||T.text}}>{value||"\u2014"}</div>
               {sub&&<div style={{fontSize:10,color:T.muted,marginTop:2}}>{sub}</div>}
             </div>
           </div>
@@ -1105,22 +1105,22 @@ function DetailPanel({sel,hostData,onDbReload}) {
             {noData&&(
               <div style={{background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:8,
                 padding:"12px 16px",fontSize:12,color:"#9a3412"}}>
-                ⚠ Hardware data not yet collected. Click <strong>↻ Refresh</strong> to collect hardware inventory.
+                \u26a0 Hardware data not yet collected. Click <strong>\u21bb Refresh</strong> to collect hardware inventory.
               </div>
             )}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
 
               {/* CPU Card */}
-              <HwCard title="CPU / Processor" icon="⚡">
+              <HwCard title="CPU / Processor" icon="\u26a1">
                 <HwRow label="Model" value={hw.cpu_model} />
                 <HwRow label="Architecture" value={hw.cpu_arch} />
                 <HwRow label="Sockets" value={hw.cpu_sockets} />
                 <HwRow label="Physical Cores" value={hw.cpu_physical_cores}
-                  sub={hw.cpu_sockets&&hw.cpu_cores_per_socket ? `${hw.cpu_sockets} socket × ${hw.cpu_cores_per_socket} cores` : null} color={T.blue}/>
+                  sub={hw.cpu_sockets&&hw.cpu_cores_per_socket ? `${hw.cpu_sockets} socket \u00d7 ${hw.cpu_cores_per_socket} cores` : null} color={T.blue}/>
                 <HwRow label="Threads per Core" value={hw.cpu_threads_per_core}
                   sub="Hyper-Threading multiplier"/>
                 <HwRow label="Total vCPU Capacity" value={hw.cpu_vcpu_capacity}
-                  sub={`Physical cores × threads = ${hw.cpu_physical_cores||0} × ${hw.cpu_threads_per_core||1}`}
+                  sub={`Physical cores \u00d7 threads = ${hw.cpu_physical_cores||0} \u00d7 ${hw.cpu_threads_per_core||1}`}
                   color={T.blue}/>
                 {hw.cpu_logical&&<HwRow label="Logical CPUs (OS)" value={hw.cpu_logical}
                   sub="As seen by OS (/proc/cpuinfo)"/>}
@@ -1163,13 +1163,13 @@ function DetailPanel({sel,hostData,onDbReload}) {
               {/* Memory Card */}
               <HwCard title="Memory / RAM" icon="🧠">
                 <HwRow label="Total Physical RAM"
-                  value={hw.ram_total_gb ? `${hw.ram_total_gb} GB` : "—"}
+                  value={hw.ram_total_gb ? `${hw.ram_total_gb} GB` : "\u2014"}
                   color={T.blue}/>
                 <HwRow label="RAM In Use"
-                  value={hw.ram_total_gb ? `${(hw.ram_total_gb * (m.ram||0) / 100).toFixed(1)} GB` : "—"}
+                  value={hw.ram_total_gb ? `${(hw.ram_total_gb * (m.ram||0) / 100).toFixed(1)} GB` : "\u2014"}
                   sub={`${m.ram||0}% utilization`} color={m.ram>85?T.red:m.ram>65?T.amber:T.text}/>
                 <HwRow label="RAM Free"
-                  value={hw.ram_total_gb ? `${(hw.ram_total_gb * (1-(m.ram||0)/100)).toFixed(1)} GB` : "—"}
+                  value={hw.ram_total_gb ? `${(hw.ram_total_gb * (1-(m.ram||0)/100)).toFixed(1)} GB` : "\u2014"}
                   color={T.green}/>
                 <div style={{marginTop:10}}>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:T.muted,marginBottom:4}}>
@@ -1186,14 +1186,14 @@ function DetailPanel({sel,hostData,onDbReload}) {
               {/* Storage Card */}
               <HwCard title="Local Storage" icon="💾">
                 <HwRow label="Total Local Storage"
-                  value={hw.local_storage_total_gb ? `${hw.local_storage_total_gb} GB` : "—"}
+                  value={hw.local_storage_total_gb ? `${hw.local_storage_total_gb} GB` : "\u2014"}
                   color={T.blue}/>
                 <HwRow label="Used"
-                  value={hw.local_storage_used_gb != null ? `${hw.local_storage_used_gb} GB` : "—"}
+                  value={hw.local_storage_used_gb != null ? `${hw.local_storage_used_gb} GB` : "\u2014"}
                   sub={hw.local_storage_total_gb ? `${Math.round(hw.local_storage_used_gb/hw.local_storage_total_gb*100)}% of total` : null}
                   color={T.amber}/>
                 <HwRow label="Free"
-                  value={hw.local_storage_total_gb ? `${(hw.local_storage_total_gb - (hw.local_storage_used_gb||0)).toFixed(1)} GB` : "—"}
+                  value={hw.local_storage_total_gb ? `${(hw.local_storage_total_gb - (hw.local_storage_used_gb||0)).toFixed(1)} GB` : "\u2014"}
                   color={T.green}/>
                 <div style={{marginTop:10}}>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:T.muted,marginBottom:4}}>
@@ -1233,7 +1233,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
           </div>
           {nics.length===0
             ?<div style={{textAlign:"center",color:T.muted,padding:"30px 0"}}>
-               No NIC data — click ↻ Refresh to collect
+               No NIC data \u2014 click \u21bb Refresh to collect
              </div>
             :nics.map(n=><NicRow key={n.name} n={n}/>)}
         </div>
@@ -1243,7 +1243,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
       {tab==="storage"&&(
         <div className="card shadow" style={{padding:18}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-            <div className="section-hd" style={{margin:0}}>Storage — Local, SAN, NFS, LVM</div>
+            <div className="section-hd" style={{margin:0}}>Storage \u2014 Local, SAN, NFS, LVM</div>
             <div style={{display:"flex",gap:6,fontSize:11,color:T.muted}}>
               {["local","LVM","NFS/CIFS","iSCSI/SAN","SAN (FC/SAS)","VHD"].map(t=>{
                 const has=storage.some(s=>s.type===t||s.type?.includes(t.split(" ")[0]));
@@ -1270,14 +1270,14 @@ function DetailPanel({sel,hostData,onDbReload}) {
             <div className="section-hd" style={{margin:0}}>Patch Status</div>
             <button className="btn btn-refresh btn-sm" onClick={async()=>{
               try{await api.post(`/hosts/${hostId}/patch/refresh`);await onDbReload(hostId);}catch(e){}
-            }}>↻ Check Now</button>
+            }}>\u21bb Check Now</button>
           </div>
           {patch.status?(
             <>
               <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:16,
                 padding:"8px 14px",borderRadius:8,background:patchColor(patch.status)+"18",
                 border:`1px solid ${patchColor(patch.status)}44`}}>
-                <span style={{fontSize:16}}>{patch.status==="UP TO DATE"?"✅":patch.status==="CRITICAL UPDATE"?"🚨":"⚠️"}</span>
+                <span style={{fontSize:16}}>{patch.status==="UP TO DATE"?"\u2705":patch.status==="CRITICAL UPDATE"?"🚨":"\u26a0"}</span>
                 <span style={{fontWeight:700,color:patchColor(patch.status)}}>{patch.status}</span>
               </div>
               <table><tbody>
@@ -1315,7 +1315,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
                 </tr>:null
               ))}
             </tbody></table>
-          ):<div style={{color:T.muted,textAlign:"center",padding:"20px 0"}}>Click ↻ Refresh to detect OS info</div>}
+          ):<div style={{color:T.muted,textAlign:"center",padding:"20px 0"}}>Click \u21bb Refresh to detect OS info</div>}
         </div>
       )}
 
@@ -1323,8 +1323,8 @@ function DetailPanel({sel,hostData,onDbReload}) {
       {tab==="logs"&&(
         <div className="card shadow" style={{padding:18}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-            <div className="section-hd" style={{margin:0}}>Event Logs — {target.name}</div>
-            <button className="btn btn-ghost btn-sm" onClick={loadLogs}>↻ Refresh</button>
+            <div className="section-hd" style={{margin:0}}>Event Logs \u2014 {target.name}</div>
+            <button className="btn btn-ghost btn-sm" onClick={loadLogs}>\u21bb Refresh</button>
           </div>
           <div style={{maxHeight:"55vh",overflowY:"auto"}}>
             {!logs&&<div style={{textAlign:"center",color:T.muted,padding:30}}>Loading...</div>}
@@ -1335,7 +1335,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
                 <div key={i} style={{display:"flex",gap:10,padding:"7px 0",borderBottom:"1px solid #f1f5f9",fontSize:11}}>
                   <span style={{color:T.muted,minWidth:60,fontFamily:"IBM Plex Mono"}}>{toISTTime(l.ts)}</span>
                   <span style={{minWidth:14,color:lc,fontWeight:700}}>
-                    {l.level==="ERROR"?"✕":l.level==="WARN"?"⚠":"✓"}
+                    {l.level==="ERROR"?"\u2715":l.level==="WARN"?"\u26a0":"\u2713"}
                   </span>
                   <span className={`badge`} style={{background:lc+"22",color:lc,minWidth:42,textAlign:"center",height:16,lineHeight:"16px"}}>{l.level}</span>
                   <span style={{minWidth:60,color:T.muted}}>{l.source}</span>
@@ -1373,7 +1373,7 @@ function InfraView({rawHosts,onGlobalReload}) {
   const [treeTab,setTreeTab]     = useState("physical"); // "physical" | "vms"
   const [expanded,setExpanded]   = useState({});
 
-  // ── Data helpers ────────────────────────────────────────────────────────────
+  // \u2500\u2500 Data helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const loadHost=async(hid,force=false)=>{
     if(hostCache[hid]&&!force) return hostCache[hid];
     setLoading(hid);
@@ -1426,7 +1426,7 @@ function InfraView({rawHosts,onGlobalReload}) {
   };
 
 
-  // ── Derived data ─────────────────────────────────────────────────────────
+  // \u2500\u2500 Derived data \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const currentHostData = sel ? (hostCache[sel.hostId]||null) : null;
   const enrichedSel = sel?.type==="vm"&&sel.vm
     ? {...sel, vm:{...sel.vm, metrics:{...(sel.vm.metrics||{})}, storage:sel.vm.storage||[]}}
@@ -1441,7 +1441,7 @@ function InfraView({rawHosts,onGlobalReload}) {
   // VMs that have been "promoted" (IP matches a rawHost)
   const promotedIPs = new Set(rawHosts.map(h=>h.ip).filter(Boolean));
 
-  // ── Resource summary (total across all hosts with live metrics) ──────────
+  // \u2500\u2500 Resource summary (total across all hosts with live metrics) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const liveHosts = rawHosts.filter(h=>{
     const m=(hostCache[h.id]||h).metrics||{};
     return m.source==="live";
@@ -1449,7 +1449,7 @@ function InfraView({rawHosts,onGlobalReload}) {
   const summary = liveHosts.reduce((acc,h)=>{
     const m=(hostCache[h.id]||h).metrics||{};
     const det=hostCache[h.id]||h;
-    // CPU cores — try to derive from vCPU count or default to 1
+    // CPU cores \u2014 try to derive from vCPU count or default to 1
     const cpuCores = det.cpu_cores||1;
     acc.hosts++;
     acc.cpuPct  += Number(m.cpu)||0;
@@ -1469,13 +1469,13 @@ function InfraView({rawHosts,onGlobalReload}) {
   },{hosts:0,cpuPct:0,ramPct:0,diskPct:0,ramTotalGB:0,ramUsedGB:0,diskTotalGB:0,diskUsedGB:0});
   if(summary.hosts>0){summary.cpuPct=Math.round(summary.cpuPct/summary.hosts);summary.ramPct=Math.round(summary.ramPct/summary.hosts);summary.diskPct=Math.round(summary.diskPct/summary.hosts);}
 
-  // ── Resource summary from overview endpoint ──────────────────────────────
+  // \u2500\u2500 Resource summary from overview endpoint \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const [resSummary,setResSummary]=useState(null);
   useEffect(()=>{
     api.get("/overview").then(r=>setResSummary(r.data)).catch(()=>{});
   },[rawHosts.length]);
 
-  // ── UI helpers ─────────────────────────────────────────────────────────────
+  // \u2500\u2500 UI helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const SummaryBar=({pct,color})=>(
     <div style={{height:6,background:"#f1f5f9",borderRadius:3,marginTop:4}}>
       <div style={{height:6,width:`${Math.min(100,pct||0)}%`,background:color,borderRadius:3,transition:"width .4s"}}/>
@@ -1485,12 +1485,12 @@ function InfraView({rawHosts,onGlobalReload}) {
   return (
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
 
-      {/* ── Resource Summary Bar ─────────────────────────────────────────── */}
+      {/* \u2500\u2500 Resource Summary Bar \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */}
       {resSummary&&(
         <div className="card shadow" style={{padding:"12px 18px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <div style={{fontWeight:700,fontSize:13}}>Cluster Resource Summary</div>
-            <div style={{fontSize:11,color:T.muted}}>{resSummary.total_hosts} hosts · {allVMs.length} VMs</div>
+            <div style={{fontSize:11,color:T.muted}}>{resSummary.total_hosts} hosts \u00b7 {allVMs.length} VMs</div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14}}>
             {[
@@ -1514,7 +1514,7 @@ function InfraView({rawHosts,onGlobalReload}) {
         </div>
       )}
 
-      {/* ── Main layout: tree + detail ───────────────────────────────────── */}
+      {/* \u2500\u2500 Main layout: tree + detail \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */}
       <div style={{display:"grid",gridTemplateColumns:"290px 1fr",gap:12,height:"calc(100vh - 180px)"}}>
 
         {/* Tree Panel */}
@@ -1543,7 +1543,7 @@ function InfraView({rawHosts,onGlobalReload}) {
 
           <div style={{overflowY:"auto",flex:1,padding:6}}>
 
-            {/* ── PHYSICAL HOSTS TAB ─────────────────────────────────── */}
+            {/* \u2500\u2500 PHYSICAL HOSTS TAB \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */}
             {treeTab==="physical"&&(
               <>
                 {rawHosts.map(h=>{
@@ -1568,11 +1568,11 @@ function InfraView({rawHosts,onGlobalReload}) {
                         <div style={{display:"flex",gap:3,flexShrink:0,alignItems:"center"}}>
                           {(loading===h.id||loading===h.id+"_vms")&&<span className="spinner" style={{width:10,height:10}}/>}
                           {isExp&&<button className="btn btn-ghost btn-sm" style={{padding:"2px 5px",fontSize:9}}
-                            onClick={e=>refreshVMs(h.id,e)} title="Discover VMs">⟳</button>}
+                            onClick={e=>refreshVMs(h.id,e)} title="Discover VMs">\u27f3</button>}
                           <span style={{fontSize:10,color:T.muted,cursor:"pointer",padding:"0 2px"}}
-                            onClick={e=>{e.stopPropagation();setExpanded(ex=>({...ex,[h.id]:!ex[h.id]}));}}>{isExp?"▾":"▸"}</span>
+                            onClick={e=>{e.stopPropagation();setExpanded(ex=>({...ex,[h.id]:!ex[h.id]}));}}>{isExp?"\u25be":"\u25b8"}</span>
                           <button className="btn btn-ghost btn-sm" style={{padding:"2px 4px",fontSize:9,color:T.red}}
-                            onClick={e=>deleteHost(h.id,e)}>✕</button>
+                            onClick={e=>deleteHost(h.id,e)}>\u2715</button>
                         </div>
                       </div>
 
@@ -1581,7 +1581,7 @@ function InfraView({rawHosts,onGlobalReload}) {
                         <div style={{marginLeft:14,borderLeft:`2px solid ${T.border}`,paddingLeft:8,marginBottom:2}}>
                           {vms.length===0
                             ?<div style={{padding:"5px 8px",color:T.muted,fontSize:10}}>
-                                {loading===h.id+"_vms"?"Discovering...":"No VMs — click ⟳ to discover"}
+                                {loading===h.id+"_vms"?"Discovering...":"No VMs \u2014 click \u27f3 to discover"}
                               </div>
                             :vms.map(vm=>{
                                 const isSelVM=sel?.type==="vm"&&sel.vmId===vm.id;
@@ -1604,7 +1604,7 @@ function InfraView({rawHosts,onGlobalReload}) {
                                           borderRadius:3,background:"transparent",color:T.muted,cursor:"pointer"}}>✎</button>
                                       {alreadyAdded
                                         ?<span title="Already in Physical Hosts" style={{fontSize:9,color:T.green,
-                                            padding:"1px 4px",border:`1px solid ${T.green}44`,borderRadius:3}}>✓</span>
+                                            padding:"1px 4px",border:`1px solid ${T.green}44`,borderRadius:3}}>\u2713</span>
                                         :vm.ip&&vm.ip!=="N/A"
                                           ?<button title="Add as standalone host" onClick={()=>setPromoteVM({vm,hostId:h.id})}
                                               style={{fontSize:9,padding:"1px 5px",border:`1px solid ${T.blue}55`,
@@ -1629,7 +1629,7 @@ function InfraView({rawHosts,onGlobalReload}) {
               </>
             )}
 
-            {/* ── VM GROUPS TAB ──────────────────────────────────────── */}
+            {/* \u2500\u2500 VM GROUPS TAB \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */}
             {treeTab==="vms"&&(
               <>
                 {rawHosts.filter(h=>{
@@ -1646,7 +1646,7 @@ function InfraView({rawHosts,onGlobalReload}) {
                         background:"#f1f5f9",borderRadius:6,cursor:"pointer",
                         fontSize:11,fontWeight:700,color:T.sub}}
                         onClick={()=>setExpanded(e=>({...e,["vg_"+h.id]:!isExp}))}>
-                        <span>{isExp?"▾":"▸"}</span>
+                        <span>{isExp?"\u25be":"\u25b8"}</span>
                         <span>{h.os_type==="linux"?"🐧":"🪟"}</span>
                         <span style={{flex:1}}>{h.name}</span>
                         <span style={{fontSize:10,background:T.border,borderRadius:8,
@@ -1679,7 +1679,7 @@ function InfraView({rawHosts,onGlobalReload}) {
                                       borderRadius:3,background:"transparent",color:T.muted,cursor:"pointer"}}>✎</button>
                                   {alreadyAdded
                                     ?<span title="Already in Physical Hosts" style={{fontSize:9,color:T.green,
-                                        padding:"1px 4px",border:`1px solid ${T.green}44`,borderRadius:3}}>✓</span>
+                                        padding:"1px 4px",border:`1px solid ${T.green}44`,borderRadius:3}}>\u2713</span>
                                     :vm.ip&&vm.ip!=="N/A"
                                       ?<button title="Add as standalone monitored host"
                                           onClick={()=>setPromoteVM({vm,hostId:h.id})}
@@ -1700,7 +1700,7 @@ function InfraView({rawHosts,onGlobalReload}) {
                   <div style={{padding:"30px 10px",textAlign:"center",color:T.muted}}>
                     <div style={{fontSize:28,marginBottom:8}}>🖥</div>
                     <div style={{fontSize:12}}>No VMs discovered yet</div>
-                    <div style={{fontSize:11,marginTop:4}}>Click ⟳ on a physical host to discover</div>
+                    <div style={{fontSize:11,marginTop:4}}>Click \u27f3 on a physical host to discover</div>
                   </div>
                 )}
               </>
@@ -1785,7 +1785,7 @@ function Overview({hosts,summary,history}) {
                 return <tr key={h.id} style={{cursor:"pointer"}} onClick={()=>setSelHost(h.id)}>
                   <td style={{fontWeight:600}}>{h.os_type==="linux"?"🐧":"🪟"} {h.name}</td>
                   <td><code style={{fontSize:11}}>{h.ip}</code></td>
-                  <td style={{fontSize:11}}>{o.os_pretty||"—"}</td>
+                  <td style={{fontSize:11}}>{o.os_pretty||"\u2014"}</td>
                   <td><div style={{minWidth:80}}><div style={{fontSize:11,marginBottom:2}}>{h.metrics?.cpu}%</div><Bar val={h.metrics?.cpu}/></div></td>
                   <td><div style={{minWidth:80}}><div style={{fontSize:11,marginBottom:2}}>{h.metrics?.ram}%</div><Bar val={h.metrics?.ram}/></div></td>
                   <td><div style={{minWidth:80}}><div style={{fontSize:11,marginBottom:2}}>{h.metrics?.disk}%</div><Bar val={h.metrics?.disk}/></div></td>
@@ -1835,7 +1835,7 @@ function Overview({hosts,summary,history}) {
                     <td style={{fontWeight:600}}>🖥 {vm.name}</td>
                     <td><span className={`badge ${vm.hypervisor==="KVM"?"b-kvm":"b-hv"}`}>{vm.hypervisor}</span></td>
                     <td><StatusDot s={vm.status}/>{vm.status}</td>
-                    <td style={{fontSize:11,color:T.sub}}>{vm.os||"—"}</td>
+                    <td style={{fontSize:11,color:T.sub}}>{vm.os||"\u2014"}</td>
                     <td><code style={{fontSize:11}}>{vm.ip}</code></td>
                     <td>{vm.vcpu}</td>
                     <td>{fmtRAM(vm.ram_mb)}</td>
@@ -1852,12 +1852,12 @@ function Overview({hosts,summary,history}) {
   );
 }
 
-// ── Patches ───────────────────────────────────────────────────────────────────
-// ── Capacity Planning ─────────────────────────────────────────────────────────
+// \u2500\u2500 Patches \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// \u2500\u2500 Capacity Planning \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function CapacityPlanning() {
   const [data,setData]         = useState([]);
   const [busy,setBusy]         = useState(false);
-  const [err,setErr]           = useState("");           // FIX 1: was missing — caused crash on load
+  const [err,setErr]           = useState("");           // FIX 1: was missing \u2014 caused crash on load
   const [sel,setSel]           = useState(null);         // selected host_id for drill-down
   const [hostFilter,setHostFilter] = useState("all");
 
@@ -1865,8 +1865,8 @@ function CapacityPlanning() {
   const selectedHost = sel ? data.find(h=>h.host_id===sel) || null : null;
 
   // FIX 3: helper functions missing from this scope
-  const gb = v => { const x=Number(v); return Number.isFinite(x)&&x>0?`${x} GB`:"—"; };
-  const txt = v => (v==null||v===""||v===undefined) ? "—" : String(v);
+  const gb = v => { const x=Number(v); return Number.isFinite(x)&&x>0?`${x} GB`:"\u2014"; };
+  const txt = v => (v==null||v===""||v===undefined) ? "\u2014" : String(v);
 
   // FIX 4: StatCard was used but never defined anywhere in the file
   const StatCard = ({label,value,sub,color}) => (
@@ -1922,12 +1922,12 @@ function CapacityPlanning() {
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
-      {/* ── Header ── */}
+      {/* \u2500\u2500 Header \u2500\u2500 */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
         <div>
           <div style={{fontWeight:700,fontSize:16}}>Capacity Planning</div>
           <div style={{fontSize:12,color:T.muted,marginTop:2}}>
-            Snapshot data from last Refresh on each host. Run ↻ Refresh per host to update.
+            Snapshot data from last Refresh on each host. Run \u21bb Refresh per host to update.
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1936,19 +1936,19 @@ function CapacityPlanning() {
             {hostOptions.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}
           </select>
           <button className="btn btn-ghost" onClick={load} disabled={busy}>
-            {busy?<><span className="spinner"/>Loading...</>:"↻ Refresh"}
+            {busy?<><span className="spinner"/>Loading...</>:"\u21bb Refresh"}
           </button>
         </div>
       </div>
 
-      {/* ── Error banner ── */}
+      {/* \u2500\u2500 Error banner \u2500\u2500 */}
       {err&&(
         <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:6,padding:"10px 14px",color:"#b91c1c",fontSize:13}}>
-          ⚠️ {err}
+          \u26a0 {err}
         </div>
       )}
 
-      {/* ── Summary cards ── */}
+      {/* \u2500\u2500 Summary cards \u2500\u2500 */}
       {filteredData.length>0&&(
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
           {[
@@ -1956,7 +1956,7 @@ function CapacityPlanning() {
             ["Free vCPUs",        `${totals.vcpus-totals.vcpu_alloc}`,                                 `${totals.vcpus?Math.round((totals.vcpus-totals.vcpu_alloc)/totals.vcpus*100):0}% available`, T.green],
             ["Total RAM",         `${totals.ram.toFixed(0)} GB`,                                        `${totals.ram_alloc.toFixed(1)} GB allocated`,                                      T.blue],
             ["Free RAM",          `${(totals.ram-totals.ram_alloc).toFixed(1)} GB`,                    `${totals.ram?Math.round((totals.ram-totals.ram_alloc)/totals.ram*100):0}% available`,T.green],
-            ["Local Storage",     `${totals.disk.toFixed(0)} GB`,                                       `${totals.disk_used.toFixed(1)} GB used · ${totals.disk_free.toFixed(1)} GB free`,  T.blue],
+            ["Local Storage",     `${totals.disk.toFixed(0)} GB`,                                       `${totals.disk_used.toFixed(1)} GB used \u00b7 ${totals.disk_free.toFixed(1)} GB free`,  T.blue],
             ["Total VMs",         `${totals.vms}`,                                                      `across ${filteredData.length} host(s)`,                                            T.purple],
           ].map(([l,v,s,c])=>(
             <div key={l} className="card" style={{padding:12}}>
@@ -1968,12 +1968,12 @@ function CapacityPlanning() {
         </div>
       )}
 
-      {/* ── Main table ── */}
+      {/* \u2500\u2500 Main table \u2500\u2500 */}
       <div className="card shadow" style={{padding:0,overflow:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
           <thead>
             <tr style={{background:"#f8fafc",borderBottom:`2px solid ${T.border}`}}>
-              {/* FIX 5: table had 12 headers but only 11 data cells — "Storage Used" cell was missing */}
+              {/* FIX 5: table had 12 headers but only 11 data cells \u2014 "Storage Used" cell was missing */}
               {["Host","CPU Model","vCPU Total","vCPU Used","vCPU Free","RAM Total","RAM Used","RAM Free","Disk Total","Disk Used","Disk Free","VMs"].map(col=>(
                 <th key={col} style={{padding:"10px 12px",fontSize:10,fontWeight:700,color:T.muted,
                   textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{col}</th>
@@ -1993,13 +1993,13 @@ function CapacityPlanning() {
                   {missing&&(
                     <tr style={{background:"#fffbeb"}}>
                       <td colSpan={12} style={{padding:"6px 14px",fontSize:11,color:"#92400e"}}>
-                        ⚠️ <strong>{h.host_name}</strong> — hardware inventory not yet collected.
-                        Go to <strong>Infrastructure</strong> tab → select this host → click <strong>↻ Refresh</strong>.
+                        \u26a0 <strong>{h.host_name}</strong> \u2014 hardware inventory not yet collected.
+                        Go to <strong>Infrastructure</strong> tab \u2192 select this host \u2192 click <strong>\u21bb Refresh</strong>.
                       </td>
                     </tr>
                   )}
 
-                  {/* Main data row — click to expand VM drill-down */}
+                  {/* Main data row \u2014 click to expand VM drill-down */}
                   <tr style={{borderBottom:`1px solid ${T.border}`,cursor:"pointer",
                     background:isSel?"#eff6ff":missing?"#fffbeb":i%2===0?"#fff":"#fafbfc"}}
                     onClick={()=>setSel(isSel?null:h.host_id)}>
@@ -2013,13 +2013,13 @@ function CapacityPlanning() {
                     {/* CPU Model */}
                     <td style={{padding:"10px 12px",fontSize:11,color:T.sub,maxWidth:160,
                       overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={h.cpu_model}>
-                      {h.cpu_model||<span style={{color:T.amber,fontSize:10}}>↻ Refresh needed</span>}
-                      {h.cpu_model&&<div style={{fontSize:9,color:T.muted}}>{h.cpu_sockets} socket{h.cpu_sockets!==1?"s":""} · {h.cpu_pcores} cores · {h.threads_per_core}t</div>}
+                      {h.cpu_model||<span style={{color:T.amber,fontSize:10}}>\u21bb Refresh needed</span>}
+                      {h.cpu_model&&<div style={{fontSize:9,color:T.muted}}>{h.cpu_sockets} socket{h.cpu_sockets!==1?"s":""} \u00b7 {h.cpu_pcores} cores \u00b7 {h.threads_per_core}t</div>}
                     </td>
 
                     {/* vCPU Total */}
                     <td style={{padding:"10px 12px"}}>
-                      <div style={{fontWeight:700,color:T.blue}}>{h.cpu_vcpus||"—"}</div>
+                      <div style={{fontWeight:700,color:T.blue}}>{h.cpu_vcpus||"\u2014"}</div>
                     </td>
 
                     {/* vCPU Used */}
@@ -2032,13 +2032,13 @@ function CapacityPlanning() {
                     {/* vCPU Free */}
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,color:n(h.free_vcpus)>0?T.green:T.red}}>
-                        {h.free_vcpus!=null?h.free_vcpus:"—"}
+                        {h.free_vcpus!=null?h.free_vcpus:"\u2014"}
                       </div>
                     </td>
 
                     {/* RAM Total */}
                     <td style={{padding:"10px 12px",fontWeight:700,color:T.blue}}>
-                      {h.ram_total_gb?`${h.ram_total_gb} GB`:"—"}
+                      {h.ram_total_gb?`${h.ram_total_gb} GB`:"\u2014"}
                     </td>
 
                     {/* RAM Used (VM alloc) */}
@@ -2051,19 +2051,19 @@ function CapacityPlanning() {
                     {/* RAM Free */}
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,color:n(h.free_ram_gb)>0?T.green:T.red}}>
-                        {h.free_ram_gb!=null?`${h.free_ram_gb} GB`:"—"}
+                        {h.free_ram_gb!=null?`${h.free_ram_gb} GB`:"\u2014"}
                       </div>
                     </td>
 
                     {/* Disk Total */}
                     <td style={{padding:"10px 12px",fontWeight:700}}>
-                      {h.disk_total_gb?`${h.disk_total_gb} GB`:"—"}
+                      {h.disk_total_gb?`${h.disk_total_gb} GB`:"\u2014"}
                     </td>
 
-                    {/* FIX 5: Disk Used — this cell existed in header but was MISSING in the row */}
+                    {/* FIX 5: Disk Used \u2014 this cell existed in header but was MISSING in the row */}
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,color:diskPct>80?T.amber:T.text}}>
-                        {h.disk_used_gb!=null?`${h.disk_used_gb} GB`:"—"}
+                        {h.disk_used_gb!=null?`${h.disk_used_gb} GB`:"\u2014"}
                       </div>
                       {h.disk_total_gb&&<CommitBar pct={diskPct} warn={80} crit={95}/>}
                       {h.disk_total_gb&&<div style={{fontSize:9,color:T.muted,marginTop:2}}>{diskPct}%</div>}
@@ -2072,7 +2072,7 @@ function CapacityPlanning() {
                     {/* Disk Free */}
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,color:n(h.free_disk_gb)>0?T.green:T.red}}>
-                        {h.free_disk_gb!=null?`${h.free_disk_gb} GB`:"—"}
+                        {h.free_disk_gb!=null?`${h.free_disk_gb} GB`:"\u2014"}
                       </div>
                     </td>
 
@@ -2084,17 +2084,17 @@ function CapacityPlanning() {
                     </td>
                   </tr>
 
-                  {/* ── VM drill-down (expand on row click) ── */}
+                  {/* \u2500\u2500 VM drill-down (expand on row click) \u2500\u2500 */}
                   {isSel&&(
                     <tr style={{background:"#f0f7ff"}}>
                       <td colSpan={12} style={{padding:"0 16px 16px 32px"}}>
                         <div style={{paddingTop:12}}>
                           <div style={{fontWeight:700,fontSize:12,marginBottom:8,color:T.blue}}>
-                            VMs on {h.host_name} — {h.vm_running} running / {h.vm_count} total
+                            VMs on {h.host_name} \u2014 {h.vm_running} running / {h.vm_count} total
                           </div>
                           {(!Array.isArray(h.vms)||h.vms.length===0)?(
                             <div style={{color:T.muted,fontSize:12,padding:"8px 0"}}>
-                              No VMs found for this host. Run ↻ Refresh on the host to discover VMs.
+                              No VMs found for this host. Run \u21bb Refresh on the host to discover VMs.
                             </div>
                           ):(
                             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
@@ -2109,14 +2109,14 @@ function CapacityPlanning() {
                               <tbody>
                                 {h.vms.map((vm,vi)=>(
                                   <tr key={`${vm.name||"vm"}-${vi}`} style={{borderBottom:`1px solid #e2e8f0`}}>
-                                    <td style={{padding:"7px 10px",fontWeight:600}}>{vm.name||"—"}</td>
+                                    <td style={{padding:"7px 10px",fontWeight:600}}>{vm.name||"\u2014"}</td>
                                     <td style={{padding:"7px 10px"}}>
                                       <span className={`badge ${vm.status==="running"?"b-ok":"b-stop"}`}>{vm.status||"unknown"}</span>
                                     </td>
                                     <td style={{padding:"7px 10px",fontFamily:"IBM Plex Mono",fontSize:11,color:T.blue}}>{vm.ip||"N/A"}</td>
-                                    <td style={{padding:"7px 10px",fontWeight:600,color:T.amber}}>{vm.ram_gb>0?`${vm.ram_gb} GB`:"—"}</td>
-                                    <td style={{padding:"7px 10px",fontWeight:600,color:T.blue}}>{vm.vcpus||"—"}</td>
-                                    <td style={{padding:"7px 10px",color:T.sub}}>{vm.disk_gb>0?`${vm.disk_gb} GB`:"—"}</td>
+                                    <td style={{padding:"7px 10px",fontWeight:600,color:T.amber}}>{vm.ram_gb>0?`${vm.ram_gb} GB`:"\u2014"}</td>
+                                    <td style={{padding:"7px 10px",fontWeight:600,color:T.blue}}>{vm.vcpus||"\u2014"}</td>
+                                    <td style={{padding:"7px 10px",color:T.sub}}>{vm.disk_gb>0?`${vm.disk_gb} GB`:"\u2014"}</td>
                                   </tr>
                                 ))}
                                 <tr style={{background:"#e0f2fe",fontWeight:700}}>
@@ -2129,9 +2129,9 @@ function CapacityPlanning() {
                                 <tr style={{background:"#dcfce7",fontWeight:700}}>
                                   <td style={{padding:"7px 10px",color:T.green}}>REMAINING (host free)</td>
                                   <td/><td/>
-                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_ram_gb!=null?`${h.free_ram_gb} GB`:"—"}</td>
-                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_vcpus!=null?`${h.free_vcpus} vCPUs`:"—"}</td>
-                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_disk_gb!=null?`${h.free_disk_gb} GB`:"—"}</td>
+                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_ram_gb!=null?`${h.free_ram_gb} GB`:"\u2014"}</td>
+                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_vcpus!=null?`${h.free_vcpus} vCPUs`:"\u2014"}</td>
+                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_disk_gb!=null?`${h.free_disk_gb} GB`:"\u2014"}</td>
                                 </tr>
                               </tbody>
                             </table>
@@ -2155,7 +2155,7 @@ function CapacityPlanning() {
             </div>
             <div style={{fontSize:12}}>
               {data.length===0?(
-                <>Go to <strong>Infrastructure</strong> tab → select each host → click <strong>↻ Refresh</strong> to collect hardware inventory.</>
+                <>Go to <strong>Infrastructure</strong> tab \u2192 select each host \u2192 click <strong>\u21bb Refresh</strong> to collect hardware inventory.</>
               ):(
                 <>Change the host filter to <strong>All Hosts</strong> or choose a different host.</>
               )}
@@ -2164,25 +2164,25 @@ function CapacityPlanning() {
         )}
       </div>
 
-      {/* ── Selected host detail panel (shown when a row is expanded) ── */}
+      {/* \u2500\u2500 Selected host detail panel (shown when a row is expanded) \u2500\u2500 */}
       {selectedHost&&(
         <div className="card shadow" style={{padding:16}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:10,flexWrap:"wrap"}}>
             <div>
               <div style={{fontWeight:700,fontSize:15}}>{selectedHost.host_name}</div>
-              <div style={{fontSize:12,color:T.muted}}>{selectedHost.host_ip} · {selectedHost.cpu_model||"CPU model unknown"}</div>
+              <div style={{fontSize:12,color:T.muted}}>{selectedHost.host_ip} \u00b7 {selectedHost.cpu_model||"CPU model unknown"}</div>
             </div>
             <div style={{fontSize:11,color:T.muted}}>
               {selectedHost.hw_missing
-                ? "⚠️ Hardware snapshot incomplete — refresh host for full totals."
+                ? "\u26a0 Hardware snapshot incomplete \u2014 refresh host for full totals."
                 : `${n(selectedHost.vm_running)} running VM(s) of ${n(selectedHost.vm_count)} total`}
             </div>
           </div>
 
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:10,marginBottom:16}}>
-            <StatCard label="CPU Capacity"     value={`${n(selectedHost.cpu_vcpus)} vCPU`}      sub={`${n(selectedHost.vm_vcpu_alloc)} used · ${n(selectedHost.free_vcpus)} free`}        color={T.blue}/>
-            <StatCard label="Memory Capacity"  value={gb(selectedHost.ram_total_gb)}             sub={`${gb(selectedHost.vm_ram_alloc_gb)} used · ${gb(selectedHost.free_ram_gb)} free`}   color={T.amber}/>
-            <StatCard label="Storage Capacity" value={gb(selectedHost.disk_total_gb)}            sub={`${gb(selectedHost.disk_used_gb)} host used · ${gb(selectedHost.free_disk_gb)} free`} color={T.green}/>
+            <StatCard label="CPU Capacity"     value={`${n(selectedHost.cpu_vcpus)} vCPU`}      sub={`${n(selectedHost.vm_vcpu_alloc)} used \u00b7 ${n(selectedHost.free_vcpus)} free`}        color={T.blue}/>
+            <StatCard label="Memory Capacity"  value={gb(selectedHost.ram_total_gb)}             sub={`${gb(selectedHost.vm_ram_alloc_gb)} used \u00b7 ${gb(selectedHost.free_ram_gb)} free`}   color={T.amber}/>
+            <StatCard label="Storage Capacity" value={gb(selectedHost.disk_total_gb)}            sub={`${gb(selectedHost.disk_used_gb)} host used \u00b7 ${gb(selectedHost.free_disk_gb)} free`} color={T.green}/>
           </div>
 
           <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:T.blue}}>VM Allocation Details</div>
@@ -2198,17 +2198,17 @@ function CapacityPlanning() {
             <tbody>
               {(Array.isArray(selectedHost.vms)&&selectedHost.vms.length>0)?selectedHost.vms.map((vm,idx)=>(
                 <tr key={`${vm.name||"vm"}-${idx}`} style={{borderBottom:`1px solid #e2e8f0`}}>
-                  <td style={{padding:"8px 10px",fontWeight:600}}>{vm.name||"—"}</td>
+                  <td style={{padding:"8px 10px",fontWeight:600}}>{vm.name||"\u2014"}</td>
                   <td style={{padding:"8px 10px"}}><span className={`badge ${vm.status==="running"?"b-ok":"b-stop"}`}>{vm.status||"unknown"}</span></td>
                   <td style={{padding:"8px 10px",fontFamily:"IBM Plex Mono",fontSize:11,color:T.blue}}>{vm.ip||"N/A"}</td>
                   <td style={{padding:"8px 10px"}}>{gb(vm.ram_gb)}</td>
-                  <td style={{padding:"8px 10px"}}>{n(vm.vcpus)||"—"}</td>
-                  <td style={{padding:"8px 10px"}}>{vm.disk_gb>0?`${vm.disk_gb} GB`:"—"}</td>
+                  <td style={{padding:"8px 10px"}}>{n(vm.vcpus)||"\u2014"}</td>
+                  <td style={{padding:"8px 10px"}}>{vm.disk_gb>0?`${vm.disk_gb} GB`:"\u2014"}</td>
                 </tr>
               )):(
                 <tr>
                   <td colSpan={6} style={{padding:"14px 10px",color:T.muted,textAlign:"center"}}>
-                    No VMs in DB for this host — run ↻ Refresh on the host to discover VMs.
+                    No VMs in DB for this host \u2014 run \u21bb Refresh on the host to discover VMs.
                   </td>
                 </tr>
               )}
@@ -2233,14 +2233,14 @@ function Patches() {
           <tbody>{patches.map((p,i)=>(
             <tr key={i}>
               <td style={{fontWeight:600}}>{p.host||p.host_id}</td>
-              <td style={{fontSize:11}}>{p.os||"—"}</td>
-              <td><code style={{fontSize:10}}>{p.kernel||"—"}</code></td>
+              <td style={{fontSize:11}}>{p.os||"\u2014"}</td>
+              <td><code style={{fontSize:10}}>{p.kernel||"\u2014"}</code></td>
               <td><code style={{fontSize:10,color:p.latest_kernel&&p.latest_kernel!==p.kernel?T.amber:T.green}}>{p.latest_kernel||"N/A"}</code></td>
-              <td><code style={{fontSize:11}}>{p.pkg_manager||"—"}</code></td>
+              <td><code style={{fontSize:11}}>{p.pkg_manager||"\u2014"}</code></td>
               <td><span style={{fontWeight:700,color:p.updates_available>0?T.red:T.green}}>{p.updates_available??0}</span></td>
               <td><span style={{fontWeight:700,color:p.security_updates>0?T.red:T.green}}>{p.security_updates??0}</span></td>
-              <td style={{fontSize:11,color:T.muted}}>{p.last_patch||"—"}</td>
-              <td><span className="badge" style={{background:pc(p.status)+"22",color:pc(p.status)}}>{p.status||"—"}</span></td>
+              <td style={{fontSize:11,color:T.muted}}>{p.last_patch||"\u2014"}</td>
+              <td><span className="badge" style={{background:pc(p.status)+"22",color:pc(p.status)}}>{p.status||"\u2014"}</span></td>
             </tr>
           ))}</tbody>
         </table>
@@ -2249,7 +2249,7 @@ function Patches() {
   );
 }
 
-// ── Alerts ────────────────────────────────────────────────────────────────────
+// \u2500\u2500 Alerts \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function Alerts() {
   const [alerts,setAlerts]=useState([]);
   const [busy,setBusy]=useState(false);
@@ -2271,7 +2271,7 @@ function Alerts() {
       background:a.severity==="critical"?"#fff8f8":"#fffdf0"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
-          <span style={{fontSize:18}}>{typeIcon[a.type]||"⚠️"}</span>
+          <span style={{fontSize:18}}>{typeIcon[a.type]||"\u26a0"}</span>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
               <span className={`badge ${a.severity==="critical"?"b-crit":"b-warn"}`}>{a.type}</span>
@@ -2293,9 +2293,9 @@ function Alerts() {
           {crit.length>0&&<span style={{marginLeft:8,background:T.red,color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:11}}>{crit.length} critical</span>}
           {warn.length>0&&<span style={{marginLeft:6,background:T.amber,color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:11}}>{warn.length} warning</span>}
         </div>
-        <button className="btn btn-ghost" onClick={load} disabled={busy}>{busy?<span className="spinner"/>:"↻"} Refresh</button>
+        <button className="btn btn-ghost" onClick={load} disabled={busy}>{busy?<span className="spinner"/>:"\u21bb"} Refresh</button>
       </div>
-      {alerts.length===0&&<div className="card shadow" style={{padding:40,textAlign:"center",color:T.green,fontSize:15}}>✅ No active alerts — all systems healthy</div>}
+      {alerts.length===0&&<div className="card shadow" style={{padding:40,textAlign:"center",color:T.green,fontSize:15}}>\u2705 No active alerts \u2014 all systems healthy</div>}
       {crit.length>0&&(
         <div>
           <div style={{fontWeight:700,color:T.red,fontSize:12,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>🚨 Critical ({crit.length})</div>
@@ -2304,7 +2304,7 @@ function Alerts() {
       )}
       {warn.length>0&&(
         <div>
-          <div style={{fontWeight:700,color:T.amber,fontSize:12,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>⚠️ Warnings ({warn.length})</div>
+          <div style={{fontWeight:700,color:T.amber,fontSize:12,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>\u26a0 Warnings ({warn.length})</div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>{warn.map(a=><AlertCard key={a.id} a={a}/>)}</div>
         </div>
       )}
@@ -2312,7 +2312,7 @@ function Alerts() {
   );
 }
 
-// ── Logs ──────────────────────────────────────────────────────────────────────
+// \u2500\u2500 Logs \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function Logs({hosts}) {
   const [logs,setLogs]=useState([]);
   const [hf,setHf]=useState("all");
@@ -2339,7 +2339,7 @@ function Logs({hosts}) {
           <option value="all">All Levels</option>
           <option value="ERROR">ERROR</option><option value="WARN">WARN</option><option value="INFO">INFO</option>
         </select>
-        <button className="btn btn-ghost" onClick={fetch}>{busy?<span className="spinner"/>:"↻"} Refresh</button>
+        <button className="btn btn-ghost" onClick={fetch}>{busy?<span className="spinner"/>:"\u21bb"} Refresh</button>
         <span style={{color:T.muted,fontSize:11}}>{logs.length} entries</span>
       </div>
       <div className="card shadow" style={{padding:0,maxHeight:"68vh",overflowY:"auto"}}>
@@ -2358,8 +2358,8 @@ function Logs({hosts}) {
 }
 
 
-// ── Debug Console ─────────────────────────────────────────────────────────────
-// ── VM IP Debugger ────────────────────────────────────────────────────────────
+// \u2500\u2500 Debug Console \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// \u2500\u2500 VM IP Debugger \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function VMIPDebug({hosts}) {
   const [hid,setHid]=useState("");
   const [result,setResult]=useState(null);
@@ -2378,7 +2378,7 @@ function VMIPDebug({hosts}) {
       <div style={{fontWeight:700,fontSize:15}}>VM IP Debugger</div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         <select value={hid} onChange={e=>setHid(e.target.value)} style={{width:200}}>
-          <option value="">— Select host —</option>
+          <option value="">\u2014 Select host \u2014</option>
           {hosts.map(h=><option key={h.id} value={h.id}>{h.name} ({h.ip})</option>)}
         </select>
         <button className="btn btn-primary btn-sm" onClick={run} disabled={busy||!hid}>
@@ -2451,13 +2451,13 @@ function DebugConsole() {
   };
 
   const stepColor=ok=>ok?T.green:T.red;
-  const stepIcon=ok=>ok?"✔":"✗";
+  const stepIcon=ok=>ok?"\u2714":"\u2717";
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14,maxWidth:900}}>
       <div style={{fontWeight:700,fontSize:15}}>Connection Debug Console</div>
       <div style={{fontSize:12,color:T.muted}}>
-        Tests TCP → Auth → OS detect → Metrics → Patch → VMs step by step and shows exact error at each stage.
+        Tests TCP \u2192 Auth \u2192 OS detect \u2192 Metrics \u2192 Patch \u2192 VMs step by step and shows exact error at each stage.
       </div>
 
       <div className="card shadow" style={{padding:18}}>
@@ -2480,13 +2480,13 @@ function DebugConsole() {
             <input type="password" value={form.password} onChange={e=>set("password",e.target.value)}/></div>
         </div>
         <button className="btn btn-primary" onClick={run} disabled={busy||!form.ip}>
-          {busy?<><span className="spinner"/>Running diagnostics...</>:"▶ Run Full Diagnostics"}</button>
+          {busy?<><span className="spinner"/>Running diagnostics...</>:"\u25b6 Run Full Diagnostics"}</button>
       </div>
 
       {result&&(
         <div className="card shadow" style={{padding:18}}>
           <div style={{fontWeight:700,fontSize:14,marginBottom:14}}>
-            Diagnostic Results — {result.ip}
+            Diagnostic Results \u2014 {result.ip}
             {result.error&&!result.steps?.length&&(
               <span style={{color:T.red,fontWeight:400,fontSize:12,marginLeft:10}}>{result.error}</span>
             )}
@@ -2543,12 +2543,12 @@ function DebugConsole() {
               <div style={{fontWeight:700,marginBottom:8,color:T.amber}}>💡 Remediation hints</div>
               {result.steps.filter(s=>!s.ok).map((s,i)=>{
                 let hint="";
-                if(s.step.startsWith("TCP")) hint=`Port unreachable — check firewall, confirm the IP is correct, and that SSH/WinRM is running. Run: nc -zv ${result.ip} ${form.os_type==="linux"?form.ssh_port:form.winrm_port}`;
-                else if(s.step==="SSH") hint="Auth failed — verify username/password. If key auth, ensure the key is correct. Try: ssh "+form.username+"@"+result.ip;
+                if(s.step.startsWith("TCP")) hint=`Port unreachable \u2014 check firewall, confirm the IP is correct, and that SSH/WinRM is running. Run: nc -zv ${result.ip} ${form.os_type==="linux"?form.ssh_port:form.winrm_port}`;
+                else if(s.step==="SSH") hint="Auth failed \u2014 verify username/password. If key auth, ensure the key is correct. Try: ssh "+form.username+"@"+result.ip;
                 else if(s.step.startsWith("WinRM")) {
                   hint="WinRM failed. On the Windows host run (PowerShell as Admin):\n  winrm quickconfig\n  winrm set winrm/config/service/auth @{Basic=\"true\"}\n  winrm set winrm/config/service @{AllowUnencrypted=\"true\"}\n  netsh advfirewall firewall add rule name=WinRM dir=in action=allow protocol=TCP localport=5985";
                 }
-                else if(s.step==="Metrics") hint="SSH connected but metrics collection failed — likely a missing command. Check if top/free/df are available.";
+                else if(s.step==="Metrics") hint="SSH connected but metrics collection failed \u2014 likely a missing command. Check if top/free/df are available.";
                 return hint?<div key={i} style={{marginBottom:8}}>
                   <span style={{fontWeight:600,color:T.amber}}>{s.step}: </span>
                   <pre style={{display:"inline",fontFamily:"inherit",whiteSpace:"pre-wrap"}}>{hint}</pre>
@@ -2562,14 +2562,14 @@ function DebugConsole() {
   );
 }
 
-// ── App Shell ─────────────────────────────────────────────────────────────────
+// \u2500\u2500 App Shell \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 const VIEWS=[{id:"overview",icon:"📊",label:"Overview"},{id:"infra",icon:"🖧",label:"Infrastructure"},
              {id:"logs",icon:"📋",label:"Logs"},{id:"alerts",icon:"🔔",label:"Alerts"},
              {id:"patches",icon:"🔧",label:"Patches"},{id:"capacity",icon:"📊",label:"Capacity"},{id:"scans",icon:"🔐",label:"Vuln Scans"},{id:"users",icon:"👥",label:"Users"},{id:"vmip",icon:"🔬",label:"VM IP Debug"},{id:"debug",icon:"🛠",label:"Debug"}];
 
-// ═══════════════════════════════════════════════════════════════════════════
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 // LOGIN PAGE
-// ═══════════════════════════════════════════════════════════════════════════
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 function LoginPage({ onLogin }) {
   const [form, setForm]     = useState({ username: "", password: "" });
   const [error, setError]   = useState("");
@@ -2653,21 +2653,21 @@ function LoginPage({ onLogin }) {
             background: loading ? "#94a3b8" : "#0f1f2e",
             color:"#fff", fontWeight:700, fontSize:15, cursor: loading ? "not-allowed" : "pointer",
           }}>
-            {loading ? "Signing in…" : "Sign In"}
+            {loading ? "Signing in\u2026" : "Sign In"}
           </button>
         </form>
 
         <div style={{textAlign:"center", marginTop:24, fontSize:11, color:"#94a3b8"}}>
-          InfraCommand v3.0 · Secured by JWT
+          InfraCommand v3.0 \u00b7 Secured by JWT
         </div>
       </div>
     </div>
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 // CHANGE PASSWORD PAGE (forced on first login)
-// ═══════════════════════════════════════════════════════════════════════════
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 function ChangePasswordPage({ user, onDone }) {
   const [form, setForm]   = useState({ current_password: "", new_password: "", confirm: "" });
   const [error, setError] = useState("");
@@ -2726,7 +2726,7 @@ function ChangePasswordPage({ user, onDone }) {
             padding:20, textAlign:"center", background:"#f0fdf4",
             borderRadius:10, color:"#059669", fontWeight:600,
           }}>
-            ✅ Password changed successfully! Redirecting…
+            \u2705 Password changed successfully! Redirecting\u2026
           </div>
         ) : (
           <form onSubmit={submit}>
@@ -2762,7 +2762,7 @@ function ChangePasswordPage({ user, onDone }) {
               color:"#fff", fontWeight:700, fontSize:15,
               cursor: loading ? "not-allowed" : "pointer",
             }}>
-              {loading ? "Saving…" : "Set New Password"}
+              {loading ? "Saving\u2026" : "Set New Password"}
             </button>
           </form>
         )}
@@ -2771,9 +2771,9 @@ function ChangePasswordPage({ user, onDone }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 // USER MANAGEMENT PAGE (admin only)
-// ═══════════════════════════════════════════════════════════════════════════
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 const PERM_LABELS = {
   view:"View Dashboard", scan:"Run Scans", refresh:"Refresh Hosts",
   patch:"Patch Management", logs:"View Logs",
@@ -2824,7 +2824,7 @@ function UserManagementPage({ currentUser }) {
     } catch(e) { alert(e.response?.data?.detail || "Delete failed"); }
   };
 
-  if (loading) return <div style={{padding:40, color:"#64748b"}}>Loading users…</div>;
+  if (loading) return <div style={{padding:40, color:"#64748b"}}>Loading users\u2026</div>;
 
   return (
     <div style={{padding:24, maxWidth:1100}}>
@@ -2833,7 +2833,7 @@ function UserManagementPage({ currentUser }) {
         <div>
           <div style={{fontWeight:800, fontSize:20, color:"#0f172a"}}>User Management</div>
           <div style={{color:"#64748b", fontSize:13, marginTop:2}}>
-            {users.length} user{users.length!==1?"s":""} · Manage access and permissions
+            {users.length} user{users.length!==1?"s":""} \u00b7 Manage access and permissions
           </div>
         </div>
         <button onClick={() => setShowCreate(true)} style={{
@@ -2860,7 +2860,7 @@ function UserManagementPage({ currentUser }) {
           }
           <button onClick={() => setResetResult(null)}
             style={{float:"right", background:"none", border:"none",
-              cursor:"pointer", color:"#64748b"}}>✕</button>
+              cursor:"pointer", color:"#64748b"}}>\u2715</button>
         </div>
       )}
 
@@ -2925,7 +2925,7 @@ function UserManagementPage({ currentUser }) {
                       title="Edit" style={{
                         padding:"5px 10px", borderRadius:6, border:"1px solid #e2e8f0",
                         background:"#fff", cursor:"pointer", fontSize:12,
-                      }}>✏️</button>
+                      }}>✏</button>
                     <button onClick={() => resetPw(u.id)}
                       title="Reset Password" style={{
                         padding:"5px 10px", borderRadius:6, border:"1px solid #e2e8f0",
@@ -2938,7 +2938,7 @@ function UserManagementPage({ currentUser }) {
                             padding:"5px 10px", borderRadius:6,
                             border:"1px solid #e2e8f0",
                             background:"#fff", cursor:"pointer", fontSize:12,
-                          }}>{u.is_active ? "🚫" : "✅"}</button>
+                          }}>{u.is_active ? "🚫" : "\u2705"}</button>
                         <button onClick={() => deleteUser(u.id, u.username)}
                           title="Delete" style={{
                             padding:"5px 10px", borderRadius:6,
@@ -3028,10 +3028,10 @@ function UserFormModal({ user, roles, onClose, onSaved }) {
       <div className="modal" style={{width:480, maxWidth:"95vw"}}>
         <div style={{display:"flex", justifyContent:"space-between", marginBottom:20}}>
           <div style={{fontWeight:700, fontSize:16}}>
-            {isEdit ? `Edit User — ${user.username}` : "Create New User"}
+            {isEdit ? `Edit User \u2014 ${user.username}` : "Create New User"}
           </div>
           <button onClick={onClose} style={{background:"none", border:"none",
-            cursor:"pointer", fontSize:18, color:"#64748b"}}>✕</button>
+            cursor:"pointer", fontSize:18, color:"#64748b"}}>\u2715</button>
         </div>
 
         <form onSubmit={submit}>
@@ -3068,7 +3068,7 @@ function UserFormModal({ user, roles, onClose, onSaved }) {
                 border:"1px solid #e2e8f0",fontSize:13}}>
               {roles.map(r=>(
                 <option key={r.role} value={r.role}>
-                  {r.role.charAt(0).toUpperCase()+r.role.slice(1)} — {r.description}
+                  {r.role.charAt(0).toUpperCase()+r.role.slice(1)} \u2014 {r.description}
                 </option>
               ))}
             </select>
@@ -3120,7 +3120,7 @@ function UserFormModal({ user, roles, onClose, onSaved }) {
               style={{padding:"9px 18px",borderRadius:7,border:"none",
                 background:loading?"#94a3b8":"#0f1f2e",color:"#fff",
                 fontWeight:600,fontSize:13,cursor:loading?"not-allowed":"pointer"}}>
-              {loading?"Saving…":(isEdit?"Save Changes":"Create User")}
+              {loading?"Saving\u2026":(isEdit?"Save Changes":"Create User")}
             </button>
           </div>
         </form>
@@ -3148,7 +3148,7 @@ function AllScans() {
   const validIds = new Set();
   hosts.forEach(h => {
     validIds.add(h.id);
-    // VMs are stored in metrics — add them from scans that reference a host
+    // VMs are stored in metrics \u2014 add them from scans that reference a host
   });
   // For scans of type "host" check host still exists
   // For scans of type "vm" we keep them (VMs are harder to cross-ref here)
@@ -3156,7 +3156,7 @@ function AllScans() {
     s.target_type !== "host" || validIds.has(s.target_id)
   );
   const SEV_COLORS = {"CRITICAL":T.red,"HIGH":T.amber,"MEDIUM":T.purple,"LOW":T.muted};
-  if (loading) return <div style={{padding:40,color:T.muted}}>Loading scans…</div>;
+  if (loading) return <div style={{padding:40,color:T.muted}}>Loading scans\u2026</div>;
   return (
     <div>
       <div style={{fontWeight:700,fontSize:18,marginBottom:16}}>Vulnerability Scan Results</div>
@@ -3181,12 +3181,12 @@ function AllScans() {
               }}>{s.target_type}</span>
             </div>
             <span style={{fontSize:11,color:T.muted}}>
-              {s.scanned_at ? toIST(s.scanned_at) : "—"}
+              {s.scanned_at ? toIST(s.scanned_at) : "\u2014"}
             </span>
           </div>
           {s.scan_error && (
             <div style={{padding:"6px 10px",background:"#fffbeb",borderRadius:6,
-              fontSize:12,color:"#92400e",marginBottom:8}}>⚠️ {s.scan_error}</div>
+              fontSize:12,color:"#92400e",marginBottom:8}}>\u26a0 {s.scan_error}</div>
           )}
           <div style={{display:"flex",gap:10}}>
             {[["CRITICAL",s.summary?.critical],["HIGH",s.summary?.high],
@@ -3200,7 +3200,7 @@ function AllScans() {
             {s.summary?.port_exposed > 0 && (
               <span style={{padding:"3px 10px",borderRadius:5,fontSize:11,fontWeight:700,
                 background:"#fee2e2",color:T.red}}>
-                ⚡ {s.summary.port_exposed} Port Exposed
+                \u26a1 {s.summary.port_exposed} Port Exposed
               </span>
             )}
           </div>
@@ -3212,7 +3212,7 @@ function AllScans() {
 
 
 export default function App() {
-  // ── ALL hooks must be declared before any conditional returns ─────────────
+  // \u2500\u2500 ALL hooks must be declared before any conditional returns \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const { token: storedToken, user: storedUser } = loadAuth();
   const [authUser,     setAuthUser]    = useState(storedUser);
   const [mustChangePw, setMustChangePw] = useState(storedUser?.must_change_pw ?? false);
@@ -3245,7 +3245,7 @@ export default function App() {
 
   useEffect(() => { if (authUser && !mustChangePw) loadData(); }, [authUser, mustChangePw, loadData]);
 
-  // ── Auth handlers ──────────────────────────────────────────────────────────
+  // \u2500\u2500 Auth handlers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const handleLogin = (user, mustChange) => {
     setAuthUser(user);
     setMustChangePw(mustChange);
@@ -3263,7 +3263,7 @@ export default function App() {
     setMustChangePw(false);
   };
 
-  // ── Auth gate (AFTER all hooks) ────────────────────────────────────────────
+  // \u2500\u2500 Auth gate (AFTER all hooks) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   if (!authUser) return <LoginPage onLogin={handleLogin} />;
   if (mustChangePw) return (
     <ChangePasswordPage user={authUser} onDone={handlePasswordChanged} />
@@ -3320,7 +3320,7 @@ export default function App() {
               </div>
             </div>
             <div style={{fontSize:10,color:"#3d6177",marginBottom:8}}>
-              <div>{hosts.length} hosts · {summary.total_vms||0} VMs</div>
+              <div>{hosts.length} hosts \u00b7 {summary.total_vms||0} VMs</div>
               <div style={{color:"#2d7a4f"}}>
                 {hosts.filter(h=>h.metrics?.source==="live").length} live
               </div>
@@ -3344,7 +3344,7 @@ export default function App() {
                 e.currentTarget.style.color="#5b8fad";
               }}
             >
-              ⎋ Sign Out
+              \u238b Sign Out
             </button>
           </div>
         </div>
@@ -3354,9 +3354,9 @@ export default function App() {
             display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
             <div>
               <div style={{fontWeight:700,fontSize:15}}>{VIEWS.find(v=>v.id===view)?.label}</div>
-              <div style={{color:T.muted,fontSize:11}}>Data persisted in DB · use ↻ Refresh per host to update</div>
+              <div style={{color:T.muted,fontSize:11}}>Data persisted in DB \u00b7 use \u21bb Refresh per host to update</div>
             </div>
-              <div style={{color:T.muted,fontSize:11}}>Data persisted in DB · use ↻ Refresh per host</div>
+              <div style={{color:T.muted,fontSize:11}}>Data persisted in DB \u00b7 use \u21bb Refresh per host</div>
           </div>
           <div style={{flex:1,overflowY:"auto",padding:view==="infra"?"14px":"22px"}}>
             {view==="overview" && <Overview hosts={hosts} summary={summary} history={history}/>}
