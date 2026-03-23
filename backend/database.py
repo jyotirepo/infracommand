@@ -98,13 +98,22 @@ def db_get_host(db: Session, hid: str) -> dict | None:
     return _host_to_dict(h) if h else None
 
 def db_delete_host(db: Session, hid: str):
+    # Delete the host scan
+    scan = db.get(ScanModel, hid)
+    if scan: db.delete(scan); db.commit()
+    # Delete all VM scans for this host
+    vm_rows = db.query(VMModel).filter(VMModel.host_id == hid).all()
+    for vm_row in vm_rows:
+        vm_scan = db.get(ScanModel, vm_row.id)
+        if vm_scan: db.delete(vm_scan); db.commit()
+    # Delete host + related data
     h = db.get(HostModel, hid)
     if h: db.delete(h); db.commit()
-    # Cascade: single-row tables keyed by host_id
-    for m in [MetricsModel, ScanModel, PatchModel, LogModel]:
+    # Cascade delete metrics, vms, patches, logs
+    for m in [MetricsModel, VMModel, PatchModel, LogModel]:
         obj = db.get(m, hid)
         if obj: db.delete(obj); db.commit()
-    # VMs have their own PK — must filter by host_id, not get() by PK
+    # Also delete VM rows directly (in case not caught above)
     db.query(VMModel).filter(VMModel.host_id == hid).delete()
     db.commit()
 
@@ -159,8 +168,6 @@ def db_get_metrics(db: Session, host_id: str) -> dict | None:
 
 def db_save_vms(db: Session, host_id: str, vms: list):
     # Replace host VM inventory with the latest discovery snapshot.
-    # Strip guestfs-* transient libguestfs domains — they are never real VMs.
-    vms = [vm for vm in vms if not str(vm.get("name","")).startswith("guestfs-")]
     # Remove stale rows first so deleted/migrated VMs do not linger after refresh.
     incoming_ids = {vm.get("id") for vm in vms if vm.get("id")}
     existing_rows = db.query(VMModel).filter(VMModel.host_id == host_id).all()

@@ -3058,22 +3058,41 @@ function UserFormModal({ user, roles, onClose, onSaved }) {
 
 
 function AllScans() {
-  const [scans, setScans] = useState([]);
+  const [scans,   setScans]   = useState([]);
+  const [hosts,   setHosts]   = useState([]);
   const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    api.get("/scans").then(r => setScans(r.data||[])).finally(() => setLoading(false));
+    Promise.all([api.get("/scans"), api.get("/hosts")])
+      .then(([s, h]) => {
+        setScans(s.data || []);
+        setHosts(h.data || []);
+      })
+      .finally(() => setLoading(false));
   }, []);
+
+  // Build set of valid IDs (hosts + their VMs) to filter out orphaned scan records
+  const validIds = new Set();
+  hosts.forEach(h => {
+    validIds.add(h.id);
+    // VMs are stored in metrics — add them from scans that reference a host
+  });
+  // For scans of type "host" check host still exists
+  // For scans of type "vm" we keep them (VMs are harder to cross-ref here)
+  const activeScans = scans.filter(s =>
+    s.target_type !== "host" || validIds.has(s.target_id)
+  );
   const SEV_COLORS = {"CRITICAL":T.red,"HIGH":T.amber,"MEDIUM":T.purple,"LOW":T.muted};
   if (loading) return <div style={{padding:40,color:T.muted}}>Loading scans…</div>;
   return (
     <div>
       <div style={{fontWeight:700,fontSize:18,marginBottom:16}}>Vulnerability Scan Results</div>
-      {scans.length === 0 && (
+      {activeScans.length === 0 && (
         <div style={{padding:40,textAlign:"center",color:T.muted}}>
           No scan results yet. Click the scan icon on any host.
         </div>
       )}
-      {scans.map(s => (
+      {activeScans.map(s => (
         <div key={s.target_id} style={{
           background:T.card,borderRadius:10,padding:16,
           marginBottom:12,border:`1px solid ${T.border}`
@@ -3120,18 +3139,40 @@ function AllScans() {
 
 
 export default function App() {
-  // ── Auth state ────────────────────────────────────────────────────────────
+  // ── ALL hooks must be declared before any conditional returns ─────────────
   const { token: storedToken, user: storedUser } = loadAuth();
-  const [authUser,    setAuthUser]    = useState(storedUser);
+  const [authUser,     setAuthUser]    = useState(storedUser);
   const [mustChangePw, setMustChangePw] = useState(storedUser?.must_change_pw ?? false);
+  const [view,         setView]        = useState("overview");
+  const [hosts,        setHosts]       = useState([]);
+  const [summary,      setSummary]     = useState({});
+  const [history,      setHistory]     = useState([]);
+  const [lastUpd,      setLastUpd]     = useState(null);
 
-  // Restore token into axios on mount
+  // Restore token into axios on first mount
   useEffect(() => {
     if (storedToken) {
       api.defaults.headers.common["Authorization"] = "Bearer " + storedToken;
     }
   }, []); // eslint-disable-line
 
+  const loadData = useCallback(async () => {
+    try {
+      const [h,s,hist] = await Promise.all([
+        api.get("/hosts"),
+        api.get("/summary"),
+        api.get("/metrics/history"),
+      ]);
+      setHosts(h.data);
+      setSummary(s.data);
+      setHistory(hist.data);
+      setLastUpd(new Date().toLocaleTimeString());
+    } catch(e) {}
+  }, []); // eslint-disable-line
+
+  useEffect(() => { if (authUser && !mustChangePw) loadData(); }, [authUser, mustChangePw, loadData]);
+
+  // ── Auth handlers ──────────────────────────────────────────────────────────
   const handleLogin = (user, mustChange) => {
     setAuthUser(user);
     setMustChangePw(mustChange);
@@ -3144,31 +3185,16 @@ export default function App() {
   };
   const handlePasswordChanged = () => {
     const { user } = loadAuth();
-    setAuthUser({ ...user, must_change_pw: false });
+    const updated = { ...(user || {}), must_change_pw: false };
+    setAuthUser(updated);
     setMustChangePw(false);
   };
 
-  // Auth gate
+  // ── Auth gate (AFTER all hooks) ────────────────────────────────────────────
   if (!authUser) return <LoginPage onLogin={handleLogin} />;
   if (mustChangePw) return (
     <ChangePasswordPage user={authUser} onDone={handlePasswordChanged} />
   );
-
-  const [view,setView]=useState("overview");
-  const [hosts,setHosts]=useState([]);
-  const [summary,setSummary]=useState({});
-  const [history,setHistory]=useState([]);
-  const [lastUpd,setLastUpd]=useState(null);
-
-  const loadData=useCallback(async()=>{
-    try {
-      const [h,s,hist]=await Promise.all([api.get("/hosts"),api.get("/summary"),api.get("/metrics/history")]);
-      setHosts(h.data);setSummary(s.data);setHistory(hist.data);
-      setLastUpd(new Date().toLocaleTimeString());
-    } catch(e){}
-  },[]);
-
-  useEffect(()=>{loadData();},[loadData]);
 
   return (
     <>
@@ -3191,10 +3217,60 @@ export default function App() {
               }}><span>{v.icon}</span>{v.label}</button>
             ))}
           </div>
-          <div style={{padding:"12px 18px",borderTop:"1px solid #1e3347",fontSize:10,color:"#3d6177"}}>
-            <div>{hosts.length} hosts · {summary.total_vms||0} VMs</div>
-            <div style={{color:"#2d7a4f"}}>{hosts.filter(h=>h.metrics?.source==="live").length} live</div>
-            {lastUpd&&<div style={{marginTop:2}}>Loaded: {lastUpd}</div>}
+          <div style={{padding:"12px 14px",borderTop:"1px solid #1e3347",flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+              <div style={{
+                width:32,height:32,borderRadius:"50%",background:"#1e3347",
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:13,fontWeight:800,color:"#7dd3fc",flexShrink:0,
+              }}>
+                {authUser?.username?.[0]?.toUpperCase()||"U"}
+              </div>
+              <div style={{minWidth:0,flex:1}}>
+                <div style={{
+                  color:"#e2e8f0",fontSize:12,fontWeight:600,
+                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+                }}>
+                  {authUser?.full_name||authUser?.username}
+                </div>
+                <span style={{
+                  fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:3,
+                  background:authUser?.role==="admin"?"#7f1d1d":
+                             authUser?.role==="operator"?"#78350f":"#1e3a5f",
+                  color:authUser?.role==="admin"?"#fca5a5":
+                        authUser?.role==="operator"?"#fcd34d":"#93c5fd",
+                }}>
+                  {authUser?.role?.toUpperCase()}
+                </span>
+              </div>
+            </div>
+            <div style={{fontSize:10,color:"#3d6177",marginBottom:8}}>
+              <div>{hosts.length} hosts · {summary.total_vms||0} VMs</div>
+              <div style={{color:"#2d7a4f"}}>
+                {hosts.filter(h=>h.metrics?.source==="live").length} live
+              </div>
+              {lastUpd&&<div style={{marginTop:1}}>Updated: {lastUpd}</div>}
+            </div>
+            <button
+              onClick={handleLogout}
+              style={{
+                width:"100%",padding:"7px 12px",borderRadius:7,cursor:"pointer",
+                border:"1px solid #1e3347",background:"transparent",
+                color:"#5b8fad",fontSize:11,fontWeight:500,
+                display:"flex",alignItems:"center",justifyContent:"center",gap:6,
+                transition:"all .15s",
+              }}
+              onMouseEnter={e=>{
+                e.currentTarget.style.background="#1e3347";
+                e.currentTarget.style.color="#e2e8f0";
+              }}
+              onMouseLeave={e=>{
+                e.currentTarget.style.background="transparent";
+                e.currentTarget.style.color="#5b8fad";
+              }}
+            >
+              ⎋ Sign Out
+            </button>
           </div>
         </div>
 
