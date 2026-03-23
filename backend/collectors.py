@@ -624,10 +624,53 @@ def collect_patch_cross(host: dict) -> dict:
                 "status": "UNKNOWN", "source": "error", "reason": str(e)[:200]}
 
 
+def _ensure_ntp_sync(c) -> None:
+    """
+    Silently configure NTP on the target host if not already using
+    ntp.tpcentralodisha.com. Runs best-effort — never raises.
+    This ensures all log timestamps from target hosts are in IST.
+    """
+    NTP_SERVER = "ntp.tpcentralodisha.com"
+    try:
+        # Check if already configured
+        existing = (run(c, f"grep -r {NTP_SERVER} /etc/ntp.conf /etc/chrony.conf "
+                         f"/etc/chrony.d/ /etc/systemd/timesyncd.conf 2>/dev/null | head -1") or "").strip()
+        if existing:
+            return  # Already configured
+
+        # Try chrony first (RHEL 7+, Ubuntu 20+)
+        has_chrony = (run(c, "which chronyd 2>/dev/null || which chronyc 2>/dev/null") or "").strip()
+        if has_chrony:
+            run(c, f"grep -q 'ntp.tpcentralodisha.com' /etc/chrony.conf 2>/dev/null || "
+                   f"echo 'server ntp.tpcentralodisha.com iburst' >> /etc/chrony.conf && "
+                   f"systemctl restart chronyd 2>/dev/null || true")
+            return
+
+        # Try ntpd (older systems)
+        has_ntp = (run(c, "which ntpd 2>/dev/null") or "").strip()
+        if has_ntp:
+            run(c, f"grep -q 'ntp.tpcentralodisha.com' /etc/ntp.conf 2>/dev/null || "
+                   f"echo 'server ntp.tpcentralodisha.com iburst' >> /etc/ntp.conf && "
+                   f"systemctl restart ntpd 2>/dev/null || service ntp restart 2>/dev/null || true")
+            return
+
+        # Try systemd-timesyncd (Ubuntu/Debian)
+        run(c, f"sed -i 's/^#*NTP=.*/NTP=ntp.tpcentralodisha.com/' /etc/systemd/timesyncd.conf 2>/dev/null; "
+               f"grep -q '^NTP=' /etc/systemd/timesyncd.conf 2>/dev/null || "
+               f"echo 'NTP=ntp.tpcentralodisha.com' >> /etc/systemd/timesyncd.conf 2>/dev/null; "
+               f"timedatectl set-ntp true 2>/dev/null; "
+               f"systemctl restart systemd-timesyncd 2>/dev/null || true")
+    except Exception:
+        pass  # NTP config is best-effort
+
+
 def collect_linux_metrics(host: dict) -> dict:
     c = None
     try:
         c = ssh_connect(host)
+        # Ensure NTP is configured to use the organisation NTP server
+        # so that log timestamps from this host are accurate IST
+        _ensure_ntp_sync(c)
 
         def safe_run(cmd, timeout=30):
             """Run command, return empty string on any error including closed transport."""
