@@ -5,8 +5,8 @@ import axios from "axios";
 const API = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || "/api";
 // Version injected at build time by Jenkins (REACT_APP_VERSION=BUILD_NUMBER)
 // or from package.json. Shown in login footer - never hardcoded.
-// Version: BUILD_NUMBER from Jenkins at build time, fallback fetched from API
-const _APP_VERSION = process.env.REACT_APP_VERSION ? "v" + process.env.REACT_APP_VERSION : "";
+// Version injected by Jenkins at build time: REACT_APP_VERSION=${IMAGE_TAG} npm run build
+const _APP_VERSION = process.env.REACT_APP_VERSION ? "v" + process.env.REACT_APP_VERSION : "v3.0.0";
 const api = axios.create({ baseURL: API });
 // Inject JWT on every request
 api.interceptors.request.use(function(cfg) {
@@ -2450,32 +2450,7 @@ export default function App() {
 
 // ── LoginPage ─────────────────────────────────────────────────────────────────
 
-// ── AppVersion — shows build number (Jenkins) or API version as fallback ──────
-function AppVersion() {
-  var [ver, setVer] = useState(_APP_VERSION);
 
-  useEffect(function() {
-    // If build version was injected by Jenkins, use it directly
-    if (_APP_VERSION) return;
-    // Otherwise fetch from the FastAPI openapi.json
-    fetch("/openapi.json")
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (d && d.info && d.info.version) setVer("v" + d.info.version);
-      })
-      .catch(function() {
-        // Try the API prefix
-        fetch("/api/openapi.json")
-          .then(function(r) { return r.json(); })
-          .then(function(d) { if (d && d.info && d.info.version) setVer("v" + d.info.version); })
-          .catch(function() {});
-      });
-  }, []);
-
-  return (
-    <span>InfraCommand {ver} - Secured by JWT</span>
-  );
-}
 
 function LoginPage({ onLogin }) {
   var [form, setForm] = useState({ username: "", password: "" });
@@ -2526,7 +2501,7 @@ function LoginPage({ onLogin }) {
           </button>
         </form>
         <div style={{textAlign:"center",marginTop:24,fontSize:11,color:"#94a3b8"}}>
-          <AppVersion/>
+          InfraCommand {_APP_VERSION} - Secured by JWT
         </div>
       </div>
     </div>
