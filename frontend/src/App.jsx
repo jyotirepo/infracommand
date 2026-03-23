@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, Fragment } from "react";
 
-// \u2500\u2500 Auth helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
 const TOKEN_KEY = "infracommand_token";
 const USER_KEY  = "infracommand_user";
 
@@ -23,7 +23,7 @@ function hasPerm(user, perm) {
   return user?.perms?.includes(perm) ?? false;
 }
 
-// \u2500\u2500 IST Date/Time Helper \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
 // Converts any timestamp to Indian Standard Time (IST = UTC+5:30)
 // Uses the browser's Intl API \u2014 no NTP call needed client-side.
 // The NTP server (ntp.tpcentralodisha.com) should be configured on the
@@ -81,11 +81,11 @@ function toISTShort(ts) {
 }
 
 // D&IT Logo \u2014 embedded as base64 (no external file needed)
-const DIT_LOGO_B64 = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCABQAFADASIAAhEBAxEB/8QAHAAAAgMAAwEAAAAAAAAAAAAABgcABQgBAwQC/8QAOBAAAgIBAwIDBgQEBQUAAAAAAQIDBAUABhESIQcTMRQiQVFhcQgWYoEVIzNCFzJSgpElcpKTof/EABgBAQEBAQEAAAAAAAAAAAAAAAUDBAYC/8QAMBEAAQIDBQYFBQEBAAAAAAAAAQIDABEhBBMxQfAFElFxgaEiQmGRwSMyUtHh8bH/2gAMAwEAAhEDEQA/ANl6mppf+LniBBtTHy1qsyC+UDPKV6xWVuek9P8AfI3B6E+hZuFU80aaU6sIQKmJuupaSVKNIv8Adu8MNttClyVprZjMi1YODIUH955ICJ+tyF+uk1ufxxyE4m/hCOsUXeQ4+DzvLH655B0D/bGw+THQhj8RmN7x1s3kHM+CuW5IZqtS6HuiVV/rSKRzO68h+kd+kcKqjjXtxSQYijJsvekVOjSxU7pbmGclpmzDKevzlrqp9oPHHST9FIHB10DNgYZ+/wAahiP+8/7jAT1ufd+3wpOBjmbcfiRlJMGyQW/Lz7MMe82Ym6JOn16hEyBOB37qOw14W3nvnDrkZZhZEWLvijaeDL2OBMerhVV3cNz0N36SP+dduC3Rf/KVfHYnbebyAqY6WCpaFU9MM5kmCShh24MMxVvqB8uddOdyElo2nv4TcOBrX9zfxea4aBlFdBF0x/RiHJJHyPbk9tbUtp3ilSBL+8Jzw7xiUtW6FBZn/OMpY9oMcT4xbhwtiGtuapcqvIA6x5ioYutfms0ajgfVoj9SNN7Z++MLuTy4YJDWuSIXWvKykyKPVo3UlZV+qk8fEDWc85Lh9w5fGWrOTOTxdeRshuYYuSU1YuuQJ58aSAOhbkGQICF9RqvyMF7Bbms0tvYmyi0YDdylBbJkrQhe62IJiQ6hkKMr9nBPHvDtrI7s5l4eEbqu2v2K1jW1tB5k1O8nvr9GlI2HqaWPg74jw7jrQUL9kyzvytaw4CtKyjlopAOwmUd+3Z195eOGVWdrnnmVsrKFisPMvIeQFoNIqt2ZiPA4Gzknj810AWGLngyysQqJ9OWIHPwHJ+GsmLnsPuTxIWHckgvY6V5YxK0zRJJZcdIsP0+8ELBVHH+VAnyILd/E7nZquPhxtYt5iwmRQPUyzExR8fMhPPP3A0CvPtG1sGetVSjm6OPgrtHimdcdcrsisbEzyEFpOtiOVQntwO3GndmNBpm8IM1UmMtcxnAm0nS47dgiSa1z11inzFXG4W5ktpbdF2e5bVUyOPusrV6M0a9fnx2R0nmE8guVA46u5Hqw/D3wstZZos5mrtmVpFXi/dTzbUwA4BiSUEQp8mcNIR34T015vAvazZ69JmsyHn84R27YmYuXX1rVyW7lVVVlYH1/k8+h1oMcantC3KbN0g1zOtS7UsNiS4LxYpkNa+RitsHacfS1jERZCQD+pfdrLH95CeP24GpY2DtGRi8GFgoycdpKLNWcfvGV0T6mhr5z8j7wxct/iPaEjvnwwt4uc57A3LYsQgkXKcYW9COO5ZUAWynzHAk49C/+XS5qWLN2PJYncMVixBWpvmsnJUsl5twMrKISJeO0KqwPAHuhWPAI4GtO2kP47bZs4mzHmtvyS05+qW1SkrsUaCyFLzRqR6LKgZ+PTrjb/WdL2C2lxQacxyOtDHGCbdYw2LxvDMa1lhCymno4CHBbmx9K3haWYaVLFHz2laLyHXotQs3DHgt1Lz8VYclWOtTbBz35g27FalMYuRMYLQjPueYoHvL+lgVdf0uNZ7p4qrubbtrcE2B3LunJW65r0beRs9PMnHDSKqcJFBGSffdu57AevBR+GTMypKcVZcdflvTkHUD/ADK5BjPI7HmORl5HqIRrRtJsPMlXmSa6xphM1pENnuFp0J8qtcq4yHGK3xrzFTH+LWOu5LzDUo5OtJIEXqYrDAsgAH/dL/8AdKnP5TbebgcVNpy4vK2ZgRNFk5JYeXb3iY5ATyeTwQ2mD+JuhPLvB1hheSWezD0Ki8ljJAEUAfEkwkaovEPG75ytAbt3HjsVjFw1eCua8ciRzEdXucxAkhieTweOwPA7aQsN2llokyJEsZcqZznGG276nXABQHhPnXKHjhzLh/BjP5PGzNXs9F6aGRQOY/LLRR8fZYk4+2hbBw+JzeG9XfeP39LcmNI3JMddpxmNlUEsoYd+eAfl+2irBiTN+DGexmOjNmyUvQxIhHLmUtLGBz27rKn/ADoVxH+Ki+G9XYdDYvsD+yexyZK1fj6FQ8hmCjuDwT8/sdCt+b7Z71d6WHX4hZzy4y3aSnj0+YO8X4mYmXZeDz9uta83K15JhWrRGVk8oczN8PdXj1Pf09Tqs8X9z5Cl+SLeBycsNXJ5iBJGjA4nhcA8HkehB+h0P7s2BlKOC29tyCnkMrjMbjnWFqSxEjIFueuVZGXqhYFgV544J5HprncOB3xncPtF8jirDZGnuT2m7CpiEVWEMOBGQ3eILwB/d6868ttWcLC0kSmcTlWWuMe1u2goKCDOQwGdJx0+JdTfO3dwYKGv4j5R4s7ljVCCrGorKzcjp9ergHjvx6aLNzYPJ4bwzu/xjcFncFupbivRWbEKxsoSROUAXtxwHH+46+/GDA5fM53ZNjGUZLMWPzaWLTKyjyoxxyx5I7fbnVz4syJ+SbNQuEe9NDVTn9cqhj+y9TfYHUy9vpaAlPOQE8fQcIoGd0umsspk8PX1jKd3D71uY27jKa5S7gsVdmqxVkm6kBWQ8hIueX46gSQDx1d+NE34fHs4vevsdmCavYhyFdXhkQqyFkniYMp7g++P+NUdLxDahSupTxyNdlvWbUF9mVmjWaRWaLpKn+W6rwwBDHnsQOQSTwNms5/xAOTsrGs01+qOIl6UVYopm6VHJPAWNB8fvro7XeizOBxIA/yOfst2bQ2UKJMHv4oMDNaoV8rWVvMMJi5HqJIiZY+Puvnj7kaXVe1h9x7YWjhdtVamNxsQWW/nMsYasdmRfel6U48yZu/BYtwAOwHbWnd2YePPYC1jHfynkUNDLxyYpVIZH/ZgDx8fT46ylnIaG2vbdt7mw+QfEy3/AGuJaM6xy1LSp0SRcsCrIVYFT69BRh6kaL2W9etXfmSaamJ0hHaTV07eZKFdSMH3gjuKfa2TlwO4GSAwpFXtt5gZFTt7NZDDsYyrCIsOw/knsCeNCDjWQN4CerkaF8QyUdyWUr1sbg4QJRUohPLSOz1Dl3kBHufIksO4GmD4feK02Inbb+Wh9+pIYHoz2VE1dlPBSGZz0TIODwjsrj0DOONTt9gU99ZvE4jWXrh80sNuS19FeAwOs+/w/tTgaFq3iBtSQKLOUGOkI5KX4nrEf+YAP7EjX1Pv7aidq+WTIPxyI6Eb2WP/AKweP340LcOfifaGL5v8hBOePU6z/wDiF3sk0MlTHSmRIVmr1infrmKlJ5h+iJC0Yb0LyN/oOu7xK8XTNBYx9GOaCNUJlr1peq06/HzJI+VrJ378FpPh7nroOw+JylmDB7hxWUoVMzkVRa9ua9HFUhBZkXHRVgGZzwAG6h0jn7sWLBYi0Q8901/vU4E222B0FprrrX79GdwWFlrWmvbXqw7Wp45ZMZuLHziOSULEOhH9VmkeTkFSAy8nvwNE34X9vvEsWQmTgxwNZf6ST8LGPuIoy32mGlVFQo7r3NH7LgZMZFC3/VatSXqhknL9Kx11/saUjpC8kDlmHuqda02LgzgNvxVZvLNuVjPbaMcIZWA5C/pUBUX9KDV9pPFli6nU9u5xz6UiGzmg89eyoNcBhl1rF9oB8WfD+tuzHy2K8EbX/LCujN0Cwq8lR1cHodSSVfg8ckEFWI0famufadU0sLQaiHnWkupKVCkZExhj2ZcvPmMfMmRRZkp57y3knpTunAWxCW4DAdlbnt1dSlx6dex6WLWHa2IOHxGYyW4rTy32uKZTWqBukKCGHltwskhb17DWod1bTw+4k6rsJjtLGY0tQ8LIqn1U8gh1/QwK/TSd3B4IXqVp7mAkKSlWUS46YV5CGBDAxOeg8gkHpdAfkNdExtNp1JCzuqPtgZdJmcu0APbOdaIKBvAe+XfL5gX8Pdrw5SvE+Jze54qV3LWKkPsmQjgStAhBR2R+83KkE9A7cd++q7FYh8/+WqeQzu4bcOfhuoW9tJStLBIwEhQ9nQIoLL6nk8H0GrfGbY8QNsV4KtAu0NOR5Kwu7eeZqzuOHaN0WTo5+PS3Gq3G7D3vJTxVavayMceMlkmpNVxNhJInkILEO6x/FR6nt++td6kqUq8EsjXgfTl7e+W6VIJuzPMdR68/eJ7HQ21uLZ2XwstE4jKY9qeQewklWtaCEx2eoSDqAdCrDt3PBA9BqnxuOSDcM58P8rkFx8gapLlbFQKzdTHiOAAGRnK8DheHbufdUnhmYzwez+auLd3Pbt3JQf6uYtmYgfpgiYj9ml4+h029pbLw23eiaCM2biJ0LZmVQY1+KxqoCxr9EA5+PJ76yPbTbaHhO8ZS9MTLnLQjUzs1xwzUN0Y+uU+U9GBjwf8ADqHblWC7drGGaME1qzkM0RYcNLIR2aZh27e6i+6vPLMzM1NTXPPPLeWVrNYfaaS0kJThH//Z";
+const DIT_LOGO_URL = "/logo.jpg";
 function DitLogo({ size = 40 }) {
   return (
     <img
-      src={DIT_LOGO_B64}
+      src={DIT_LOGO_URL}
       alt="D&IT Transmission & Distribution"
       style={{
         width:size, height:size, borderRadius:"50%",
@@ -186,7 +186,7 @@ tr:last-child td{border-bottom:none}tr:hover td{background:#fafbff}
 .stor-fill{height:10px;border-radius:5px;transition:width .4s}
 `;
 
-// \u2500\u2500 Helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
 const Bar = ({val,max=100}) => {
   const p=Math.min(100,(val||0)/max*100);
   return <div className="bar-bg"><div className="bar-fill" style={{width:`${p}%`,background:p>85?T.red:p>65?T.amber:T.green}}/></div>;
@@ -217,7 +217,7 @@ const StatusDot = ({s}) => (
 );
 const fmtRAM = mb => mb>=1024?`${(mb/1024).toFixed(1)} GB`:`${mb} MB`;
 
-// \u2500\u2500 Promote VM to Host Modal \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
 function PromoteVMModal({vm, hostId, onClose, onAdded}) {
   const [form,setForm]=useState({
     username: "root", password: "", ssh_key: "", auth_type: "password",
@@ -303,7 +303,7 @@ function PromoteVMModal({vm, hostId, onClose, onAdded}) {
   );
 }
 
-// \u2500\u2500 Add Host Modal \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
 function AddHostModal({onClose,onAdded}) {
   const [form,setForm]=useState({name:"",ip:"",os_type:"linux",auth_type:"password",
     username:"root",password:"",ssh_key:"",ssh_port:22,winrm_port:5985});
@@ -409,7 +409,7 @@ function AddHostModal({onClose,onAdded}) {
   );
 }
 
-// \u2500\u2500 Storage Table \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
 function StorageTable({storage}) {
   if(!storage?.length) return <div style={{color:T.muted,padding:"16px 0",textAlign:"center",fontSize:12}}>No storage data \u2014 click \u21bb Refresh</div>;
   const typeColor=t=>{
@@ -447,7 +447,7 @@ function StorageTable({storage}) {
   );
 }
 
-// \u2500\u2500 Active Ports Table \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
 function ActivePortsTable({ports, onExternalScan, scanBusy}) {
   if(!ports?.length) return (
     <div style={{padding:"16px 0"}}>
@@ -484,7 +484,7 @@ function ActivePortsTable({ports, onExternalScan, scanBusy}) {
   );
 }
 
-// \u2500\u2500 External Port Scan Modal \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
 function PortScanModal({target,hostId,vmId,ip,onClose}) {
   const [result,setResult]=useState(null);
   const [busy,setBusy]=useState(false);
@@ -536,7 +536,7 @@ function PortScanModal({target,hostId,vmId,ip,onClose}) {
   );
 }
 
-// \u2500\u2500 Vuln Scan Modal \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
 function VulnScanModal({target,hostId,vmId,ip,onClose}) {
   const [result,setResult]=useState(null);
   const [busy,setBusy]=useState(false);
@@ -913,7 +913,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
   const tabLabel={metrics:"📊 Metrics",hardware:"🖥 Hardware",nics:"🌐 NICs",storage:"💾 Storage",
                   ports:"🔌 Ports",patch:"🔧 Patches",os:"💻 OS Info",logs:"📋 Logs"};
 
-  // \u2500\u2500 NIC sparkline mini-bar \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  //  NIC sparkline mini-bar 
   const NicBar=({val,max,color})=>{
     const pct=max>0?Math.min(100,val/max*100):0;
     return <div style={{height:4,background:"#f1f5f9",borderRadius:2,marginTop:3}}>
@@ -921,7 +921,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
     </div>;
   };
 
-  // \u2500\u2500 NIC table row \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  //  NIC table row 
   const NicRow=({n})=>{
     const maxMB=Math.max(...nics.map(x=>Math.max(x.rx_mb||0,x.tx_mb||0)),1);
     return (
@@ -1373,7 +1373,7 @@ function InfraView({rawHosts,onGlobalReload}) {
   const [treeTab,setTreeTab]     = useState("physical"); // "physical" | "vms"
   const [expanded,setExpanded]   = useState({});
 
-  // \u2500\u2500 Data helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  //  Data helpers 
   const loadHost=async(hid,force=false)=>{
     if(hostCache[hid]&&!force) return hostCache[hid];
     setLoading(hid);
@@ -1426,7 +1426,7 @@ function InfraView({rawHosts,onGlobalReload}) {
   };
 
 
-  // \u2500\u2500 Derived data \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  //  Derived data 
   const currentHostData = sel ? (hostCache[sel.hostId]||null) : null;
   const enrichedSel = sel?.type==="vm"&&sel.vm
     ? {...sel, vm:{...sel.vm, metrics:{...(sel.vm.metrics||{})}, storage:sel.vm.storage||[]}}
@@ -1441,7 +1441,7 @@ function InfraView({rawHosts,onGlobalReload}) {
   // VMs that have been "promoted" (IP matches a rawHost)
   const promotedIPs = new Set(rawHosts.map(h=>h.ip).filter(Boolean));
 
-  // \u2500\u2500 Resource summary (total across all hosts with live metrics) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  //  Resource summary (total across all hosts with live metrics) 
   const liveHosts = rawHosts.filter(h=>{
     const m=(hostCache[h.id]||h).metrics||{};
     return m.source==="live";
@@ -1469,13 +1469,13 @@ function InfraView({rawHosts,onGlobalReload}) {
   },{hosts:0,cpuPct:0,ramPct:0,diskPct:0,ramTotalGB:0,ramUsedGB:0,diskTotalGB:0,diskUsedGB:0});
   if(summary.hosts>0){summary.cpuPct=Math.round(summary.cpuPct/summary.hosts);summary.ramPct=Math.round(summary.ramPct/summary.hosts);summary.diskPct=Math.round(summary.diskPct/summary.hosts);}
 
-  // \u2500\u2500 Resource summary from overview endpoint \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  //  Resource summary from overview endpoint 
   const [resSummary,setResSummary]=useState(null);
   useEffect(()=>{
     api.get("/overview").then(r=>setResSummary(r.data)).catch(()=>{});
   },[rawHosts.length]);
 
-  // \u2500\u2500 UI helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  //  UI helpers 
   const SummaryBar=({pct,color})=>(
     <div style={{height:6,background:"#f1f5f9",borderRadius:3,marginTop:4}}>
       <div style={{height:6,width:`${Math.min(100,pct||0)}%`,background:color,borderRadius:3,transition:"width .4s"}}/>
@@ -1852,8 +1852,8 @@ function Overview({hosts,summary,history}) {
   );
 }
 
-// \u2500\u2500 Patches \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-// \u2500\u2500 Capacity Planning \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
+// ============================================================
 function CapacityPlanning() {
   const [data,setData]         = useState([]);
   const [busy,setBusy]         = useState(false);
@@ -2249,7 +2249,7 @@ function Patches() {
   );
 }
 
-// \u2500\u2500 Alerts \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
 function Alerts() {
   const [alerts,setAlerts]=useState([]);
   const [busy,setBusy]=useState(false);
@@ -2312,7 +2312,7 @@ function Alerts() {
   );
 }
 
-// \u2500\u2500 Logs \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
 function Logs({hosts}) {
   const [logs,setLogs]=useState([]);
   const [hf,setHf]=useState("all");
@@ -2358,8 +2358,8 @@ function Logs({hosts}) {
 }
 
 
-// \u2500\u2500 Debug Console \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-// \u2500\u2500 VM IP Debugger \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
+// ============================================================
 function VMIPDebug({hosts}) {
   const [hid,setHid]=useState("");
   const [result,setResult]=useState(null);
@@ -2562,14 +2562,14 @@ function DebugConsole() {
   );
 }
 
-// \u2500\u2500 App Shell \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ============================================================
 const VIEWS=[{id:"overview",icon:"📊",label:"Overview"},{id:"infra",icon:"🖧",label:"Infrastructure"},
              {id:"logs",icon:"📋",label:"Logs"},{id:"alerts",icon:"🔔",label:"Alerts"},
              {id:"patches",icon:"🔧",label:"Patches"},{id:"capacity",icon:"📊",label:"Capacity"},{id:"scans",icon:"🔐",label:"Vuln Scans"},{id:"users",icon:"👥",label:"Users"},{id:"vmip",icon:"🔬",label:"VM IP Debug"},{id:"debug",icon:"🛠",label:"Debug"}];
 
-// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// ============================================================
 // LOGIN PAGE
-// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// ============================================================
 function LoginPage({ onLogin }) {
   const [form, setForm]     = useState({ username: "", password: "" });
   const [error, setError]   = useState("");
@@ -2665,9 +2665,9 @@ function LoginPage({ onLogin }) {
   );
 }
 
-// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// ============================================================
 // CHANGE PASSWORD PAGE (forced on first login)
-// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// ============================================================
 function ChangePasswordPage({ user, onDone }) {
   const [form, setForm]   = useState({ current_password: "", new_password: "", confirm: "" });
   const [error, setError] = useState("");
@@ -2771,9 +2771,9 @@ function ChangePasswordPage({ user, onDone }) {
   );
 }
 
-// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// ============================================================
 // USER MANAGEMENT PAGE (admin only)
-// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// ============================================================
 const PERM_LABELS = {
   view:"View Dashboard", scan:"Run Scans", refresh:"Refresh Hosts",
   patch:"Patch Management", logs:"View Logs",
@@ -3212,7 +3212,7 @@ function AllScans() {
 
 
 export default function App() {
-  // \u2500\u2500 ALL hooks must be declared before any conditional returns \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  //  ALL hooks must be declared before any conditional returns 
   const { token: storedToken, user: storedUser } = loadAuth();
   const [authUser,     setAuthUser]    = useState(storedUser);
   const [mustChangePw, setMustChangePw] = useState(storedUser?.must_change_pw ?? false);
@@ -3245,7 +3245,7 @@ export default function App() {
 
   useEffect(() => { if (authUser && !mustChangePw) loadData(); }, [authUser, mustChangePw, loadData]);
 
-  // \u2500\u2500 Auth handlers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  //  Auth handlers 
   const handleLogin = (user, mustChange) => {
     setAuthUser(user);
     setMustChangePw(mustChange);
@@ -3263,7 +3263,7 @@ export default function App() {
     setMustChangePw(false);
   };
 
-  // \u2500\u2500 Auth gate (AFTER all hooks) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  //  Auth gate (AFTER all hooks) 
   if (!authUser) return <LoginPage onLogin={handleLogin} />;
   if (mustChangePw) return (
     <ChangePasswordPage user={authUser} onDone={handlePasswordChanged} />

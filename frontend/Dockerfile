@@ -7,8 +7,8 @@ RUN npm run build
 
 FROM nginx:alpine
 COPY --from=build /app/build /usr/share/nginx/html
-# Copy the API reference page so it is served at /api-docs
-COPY infracommand-swagger.html /usr/share/nginx/html/infracommand-swagger.html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Serve D&IT logo as static asset at /logo.jpg
+COPY logo.jpg /usr/share/nginx/html/logo.jpg
 EXPOSE 80
 CMD ["nginx","-g","daemon off;"]
