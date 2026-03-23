@@ -178,7 +178,7 @@ pipeline {
         stage('Build Frontend') {
             steps {
                 dir('frontend') {
-                    sh "npm run build"
+                    sh "REACT_APP_VERSION=${IMAGE_TAG} npm run build"
                 }
             }
         }

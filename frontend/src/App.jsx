@@ -3,6 +3,12 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, 
 import axios from "axios";
 
 const API = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || "/api";
+// Version injected at build time by Jenkins (REACT_APP_VERSION=BUILD_NUMBER)
+// or from package.json. Shown in login footer - never hardcoded.
+const _APP_VERSION = (function() {
+  if (process.env.REACT_APP_VERSION) return "v" + process.env.REACT_APP_VERSION;
+  return "";
+})();
 const api = axios.create({ baseURL: API });
 // Inject JWT on every request
 api.interceptors.request.use(function(cfg) {
@@ -2494,7 +2500,7 @@ function LoginPage({ onLogin }) {
           </button>
         </form>
         <div style={{textAlign:"center",marginTop:24,fontSize:11,color:"#94a3b8"}}>
-          InfraCommand v3.0 - Secured by JWT
+          InfraCommand {_APP_VERSION} - Secured by JWT
         </div>
       </div>
     </div>
