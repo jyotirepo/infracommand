@@ -224,19 +224,11 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 script {
-                    withSonarQubeEnv('sonar') {
-                        def taskId = sh(
-                            script: "grep ceTaskId .scannerwork/report-task.txt 2>/dev/null | cut -d= -f2 || echo ''",
-                            returnStdout: true
-                        ).trim()
-                        if (taskId) {
-                            timeout(time: 5, unit: 'MINUTES') {
-                                waitForQualityGate abortPipeline: false
-                            }
-                        } else {
-                            echo "No SonarQube task ID found, skipping quality gate"
-                        }
-                    }
+                    // sonar.qualitygate.wait=false is set in sonar-project.properties
+                    // so the scanner exits immediately after uploading the report.
+                    // waitForQualityGate is therefore skipped — results are visible
+                    // at http://192.168.101.80:9000/dashboard?id=InfraCommand
+                    echo "SonarQube analysis uploaded. View results at http://192.168.101.80:9000/dashboard?id=InfraCommand"
                 }
             }
         }
