@@ -1065,35 +1065,39 @@ def collect_kvm_vms(host: dict) -> list:
 
 def _winrm_connect(host: dict):
     """
-    Try WinRM transports. Handles username normalization for local vs domain accounts.
-    Returns first working winrm.Session or raises ConnectionError.
+    Connect to Windows via WinRM.
+    Handles domain (DOMAIN\\user), UPN (user@domain), and local accounts.
+    Tries negotiate (NTLM/Kerberos), then basic, over HTTP then HTTPS.
     """
     try:
         import winrm
     except ImportError:
-        raise ConnectionError("pywinrm not installed — add pywinrm[security] to requirements.txt")
+        raise ConnectionError("pywinrm not installed")
 
     ip   = host["ip"]
     port = int(host.get("winrm_port") or 5985)
     user = host["username"]
     pwd  = host.get("password") or ""
 
-    # Try plain username and local-account prefix .\ for local accounts
+    # Build username variants
+    # Domain account: "tpcentralodisha\\user" or "user@tpcentralodisha.com" — use as-is
+    # Plain username: try as-is and with local prefix
     usernames = [user]
     if "\\" not in user and "@" not in user:
-        usernames = [user, f".\\{user}"]
+        usernames = [user, ".\\" + user]
 
     http_url  = f"http://{ip}:{port}/wsman"
     https_url = f"https://{ip}:5986/wsman"
 
+    # negotiate = auto NTLM or Kerberos — correct for domain accounts
     candidates = []
     for u in usernames:
         candidates += [
+            (http_url,  "negotiate", u),
             (http_url,  "ntlm",      u),
             (http_url,  "basic",     u),
-            (http_url,  "plaintext", u),
+            (https_url, "negotiate", u),
             (https_url, "ntlm",      u),
-            (https_url, "basic",     u),
         ]
 
     errors = {}
@@ -1114,14 +1118,12 @@ def _winrm_connect(host: dict):
 
     err_summary = " | ".join(f"{k}: {v}" for k, v in list(errors.items())[:4])
     raise ConnectionError(
-        f"WinRM auth failed for {ip}:{port}. Tried ntlm/basic/plaintext on HTTP+HTTPS.\n"
+        f"WinRM auth failed for {ip}:{port}.\n"
+        f"Tried negotiate/ntlm/basic for user '{user}'.\n"
         f"Errors: {err_summary}\n\n"
-        f"Run on Windows (PowerShell as Admin):\n"
-        f"  winrm quickconfig -q\n"
-        f"  winrm set winrm/config/service/auth @{{Basic=\"true\";Ntlm=\"true\"}}\n"
-        f"  winrm set winrm/config/service @{{AllowUnencrypted=\"true\"}}\n"
-        f"  netsh advfirewall firewall add rule name=WinRM dir=in action=allow protocol=TCP localport=5985\n"
-        f"  Restart-Service WinRM"
+        f"IMPORTANT: For domain accounts enter username as:\n"
+        f"  tpcentralodisha\\\\tpwodl.jyotisethy  (DOMAIN\\\\username format)\n"
+        f"For local accounts: Administrator or .\\\\Administrator"
     )
 
 
