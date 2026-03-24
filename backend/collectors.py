@@ -1065,40 +1065,63 @@ def collect_kvm_vms(host: dict) -> list:
 
 def _winrm_connect(host: dict):
     """
-    Try every transport in order. Returns the first working winrm.Session.
-    Raises ConnectionError with the last error message if all fail.
+    Try WinRM transports. Handles username normalization for local vs domain accounts.
+    Returns first working winrm.Session or raises ConnectionError.
     """
     try:
         import winrm
     except ImportError:
-        raise ConnectionError("pywinrm not installed — add pywinrm to requirements.txt")
+        raise ConnectionError("pywinrm not installed — add pywinrm[security] to requirements.txt")
 
     ip   = host["ip"]
     port = int(host.get("winrm_port") or 5985)
     user = host["username"]
     pwd  = host.get("password") or ""
 
-    last_err = None
-    for transport in ("ntlm", "basic", "plaintext"):
+    # Try plain username and local-account prefix .\ for local accounts
+    usernames = [user]
+    if "\\" not in user and "@" not in user:
+        usernames = [user, f".\\{user}"]
+
+    http_url  = f"http://{ip}:{port}/wsman"
+    https_url = f"https://{ip}:5986/wsman"
+
+    candidates = []
+    for u in usernames:
+        candidates += [
+            (http_url,  "ntlm",      u),
+            (http_url,  "basic",     u),
+            (http_url,  "plaintext", u),
+            (https_url, "ntlm",      u),
+            (https_url, "basic",     u),
+        ]
+
+    errors = {}
+    for url, transport, uname in candidates:
+        key = f"{transport}({uname})"
         try:
             s = winrm.Session(
-                f"http://{ip}:{port}/wsman",
-                auth=(user, pwd),
+                url, auth=(uname, pwd),
                 transport=transport,
+                server_cert_validation="ignore",
             )
             r = s.run_cmd("echo ok")
             if r.status_code == 0:
                 return s
-            last_err = r.std_err.decode(errors="ignore").strip()[:300]
+            errors[key] = r.std_err.decode(errors="ignore").strip()[:100]
         except Exception as exc:
-            last_err = str(exc)
+            errors[key] = str(exc)[:100]
 
+    err_summary = " | ".join(f"{k}: {v}" for k, v in list(errors.items())[:4])
     raise ConnectionError(
-        f"WinRM could not connect to {ip}:{port} with ntlm/basic/plaintext. "
-        f"Last error: {last_err}. "
-        f"Run on Windows host: winrm quickconfig -q && "
-        f"winrm set winrm/config/service/auth @{{Basic=\"true\"}} && "
-        f"winrm set winrm/config/service @{{AllowUnencrypted=\"true\"}}"
+        f"WinRM auth failed for {ip}:{port}. Tried ntlm/basic/plaintext on HTTP+HTTPS.\n"
+        f"Errors: {err_summary}\n\n"
+        f"Run on Windows (PowerShell as Admin):\n"
+        f"  winrm quickconfig -q\n"
+        f"  winrm set winrm/config/service/auth @{{Basic=\"true\";Ntlm=\"true\"}}\n"
+        f"  winrm set winrm/config/service @{{AllowUnencrypted=\"true\"}}\n"
+        f"  netsh advfirewall firewall add rule name=WinRM dir=in action=allow protocol=TCP localport=5985\n"
+        f"  Restart-Service WinRM"
     )
 
 
