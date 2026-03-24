@@ -2429,6 +2429,13 @@ export default function App() {
               <div style={{color:T.muted,fontSize:11}}>Data persisted in DB · use ↻ Refresh per host to update</div>
             </div>
             <button className="btn btn-refresh" onClick={loadData}>↻ Reload DB</button>
+            <a href={"http://" + window.location.hostname + ":5000/api/docs"}
+              target="_blank" rel="noreferrer"
+              style={{padding:"7px 14px",borderRadius:7,border:"1px solid #e2e8f0",
+                background:"#fff",color:"#0369a1",fontWeight:600,fontSize:12,
+                textDecoration:"none",display:"inline-flex",alignItems:"center",gap:5}}>
+              API Docs
+            </a>
           </div>
           <div style={{flex:1,overflowY:"auto",padding:view==="infra"?"14px":"22px"}}>
             {view==="overview" && <Overview hosts={hosts} summary={summary} history={history}/>}
