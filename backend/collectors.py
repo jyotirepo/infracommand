@@ -1317,11 +1317,30 @@ foreach($pd in @(Get-AnyInstance "Win32_DiskDrive")) {
     }
 }
 $result | ConvertTo-Json -AsArray""")
-        if isinstance(data, list):
-            return data
-        if isinstance(data, dict):
-            return [data]
-        return []
+        rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
+        normalized = []
+        for d in rows:
+            if not isinstance(d, dict):
+                continue
+            size_gb = d.get("size_gb", d.get("total_gb", 0))
+            avail_gb = d.get("avail_gb", d.get("free_gb", 0))
+            use_pct = d.get("use_pct", d.get("pct_used", 0))
+            normalized.append({
+                "device": d.get("device", ""),
+                "mountpoint": d.get("mountpoint", d.get("device", "")),
+                "type": d.get("type", "local"),
+                "model": d.get("model", ""),
+                "fstype": d.get("fstype", ""),
+                "size_gb": size_gb,
+                "used_gb": d.get("used_gb", 0),
+                "avail_gb": avail_gb,
+                "use_pct": use_pct,
+                # keep compatibility fields too
+                "total_gb": d.get("total_gb", size_gb),
+                "free_gb": d.get("free_gb", avail_gb),
+                "pct_used": d.get("pct_used", use_pct),
+            })
+        return normalized
     except Exception as e:
         return [{"device": "C:", "mountpoint": "C:", "type": "local", "model": "C:",
                  "size_gb": 0, "used_gb": 0, "avail_gb": 0, "use_pct": 0,
