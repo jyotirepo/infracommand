@@ -1065,9 +1065,9 @@ def collect_kvm_vms(host: dict) -> list:
 
 def _winrm_connect(host: dict):
     """
-    Connect to Windows via WinRM.
-    Handles domain (DOMAIN\\user), UPN (user@domain), and local accounts.
-    Tries negotiate (NTLM/Kerberos), then basic, over HTTP then HTTPS.
+    Connect via WinRM. Tries ntlm then basic over HTTP then HTTPS.
+    For domain accounts use: DOMAIN\\username format.
+    For local accounts use: username (no prefix needed).
     """
     try:
         import winrm
@@ -1080,8 +1080,8 @@ def _winrm_connect(host: dict):
     pwd  = host.get("password") or ""
 
     # Build username variants
-    # Domain account: "tpcentralodisha\\user" or "user@tpcentralodisha.com" — use as-is
-    # Plain username: try as-is and with local prefix
+    # Domain: "DOMAIN\\user" → use as-is
+    # Local:  "user" → try as-is and ".\\user"
     usernames = [user]
     if "\\" not in user and "@" not in user:
         usernames = [user, ".\\" + user]
@@ -1089,16 +1089,18 @@ def _winrm_connect(host: dict):
     http_url  = f"http://{ip}:{port}/wsman"
     https_url = f"https://{ip}:5986/wsman"
 
-    # negotiate = auto NTLM or Kerberos — correct for domain accounts
+    # Try negotiate first (NTLM/Kerberos auto), then ntlm, then basic
+    # basic first — works for local accounts without encryption requirement
+    # ntlm second — works for domain accounts but needs AllowUnencrypted=true
+    transports = ["basic", "ntlm"]
+
     candidates = []
     for u in usernames:
-        candidates += [
-            (http_url,  "negotiate", u),
-            (http_url,  "ntlm",      u),
-            (http_url,  "basic",     u),
-            (https_url, "negotiate", u),
-            (https_url, "ntlm",      u),
-        ]
+        for t in transports:
+            candidates.append((http_url,  t, u))
+    for u in usernames:
+        for t in transports:
+            candidates.append((https_url, t, u))
 
     errors = {}
     for url, transport, uname in candidates:
@@ -1118,12 +1120,9 @@ def _winrm_connect(host: dict):
 
     err_summary = " | ".join(f"{k}: {v}" for k, v in list(errors.items())[:4])
     raise ConnectionError(
-        f"WinRM auth failed for {ip}:{port}.\n"
-        f"Tried negotiate/ntlm/basic for user '{user}'.\n"
-        f"Errors: {err_summary}\n\n"
-        f"IMPORTANT: For domain accounts enter username as:\n"
-        f"  tpcentralodisha\\\\tpwodl.jyotisethy  (DOMAIN\\\\username format)\n"
-        f"For local accounts: Administrator or .\\\\Administrator"
+        f"WinRM auth failed for {ip}:{port}. Errors: {err_summary}\n"
+        f"Domain account format: DOMAIN\\\\username\n"
+        f"Local account format: username (e.g. inframonitor)"
     )
 
 
@@ -1209,6 +1208,40 @@ $net = Get-WmiObject Win32_PerfFormattedData_Tcpip_NetworkInterface | Select-Obj
 # ─────────────────────────────────────────────────────────────────────────────
 # Windows storage
 # ─────────────────────────────────────────────────────────────────────────────
+
+def collect_windows_storage(host: dict) -> list:
+    """Collect disk/storage info from Windows via WinRM."""
+    try:
+        s = _winrm_connect(host)
+        data = _run_ps(s, r"""
+$disks = Get-WmiObject Win32_LogicalDisk | Where-Object { $_.DriveType -eq 3 }
+$result = @()
+foreach ($d in $disks) {
+    $total = [math]::Round($d.Size / 1GB, 2)
+    $free  = [math]::Round($d.FreeSpace / 1GB, 2)
+    $used  = [math]::Round($total - $free, 2)
+    $pct   = if ($d.Size -gt 0) { [math]::Round(($d.Size - $d.FreeSpace) / $d.Size * 100, 1) } else { 0 }
+    $result += [PSCustomObject]@{
+        device     = $d.DeviceID
+        mountpoint = $d.DeviceID
+        total_gb   = $total
+        used_gb    = $used
+        free_gb    = $free
+        pct_used   = $pct
+        fstype     = $d.FileSystem
+    }
+}
+$result | ConvertTo-Json -AsArray""")
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return [data]
+        return []
+    except Exception as e:
+        return [{"device": "C:", "mountpoint": "C:", "total_gb": 0,
+                 "used_gb": 0, "free_gb": 0, "pct_used": 0,
+                 "error": str(e)[:100]}]
+
 
 def collect_windows_nics(host: dict) -> list:
     try:
