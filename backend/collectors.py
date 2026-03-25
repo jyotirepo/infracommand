@@ -1464,9 +1464,9 @@ try {
     Get-NetTCPConnection -State Listen | ForEach-Object {
         $proc = try { (Get-Process -Id $_.OwningProcess -EA SilentlyContinue).Name } catch { "unknown" }
         [PSCustomObject]@{ port=$_.LocalPort; proto="TCP"; process=if($proc){$proc}else{"unknown"}; state="LISTEN" }
-    } | Sort-Object port | ConvertTo-Json -AsArray
+    } | Sort-Object port | ConvertTo-Json
 } catch {
-    @() | ConvertTo-Json -AsArray
+    @() | ConvertTo-Json
 }""")
         rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
         return [{"port": d.get("port",0), "proto": "TCP",
@@ -1558,10 +1558,10 @@ Get-VM | ForEach-Object {
         vCPU      = $vm.ProcessorCount
         Disk_GB   = if($vhd) { [int]($vhd.Size/1GB) } else { 0 }
         OS        = if($os) { $os } else { "Windows" }
-        Storage   = ($stor | ConvertTo-Json -Compress -AsArray)
-        NICs      = ($nicList | ConvertTo-Json -Compress -AsArray)
+        Storage   = ($stor | ConvertTo-Json -Compress)
+        NICs      = ($nicList | ConvertTo-Json -Compress)
     }
-} | ConvertTo-Json -AsArray""")
+} | ConvertTo-Json""")
         rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
         vms = []
         for v in rows:
