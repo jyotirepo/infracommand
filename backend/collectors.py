@@ -1323,8 +1323,9 @@ $result | ConvertTo-Json -AsArray""")
             return [data]
         return []
     except Exception as e:
-        return [{"device": "C:", "mountpoint": "C:", "total_gb": 0,
-                 "used_gb": 0, "free_gb": 0, "pct_used": 0,
+        return [{"device": "C:", "mountpoint": "C:", "type": "local", "model": "C:",
+                 "size_gb": 0, "used_gb": 0, "avail_gb": 0, "use_pct": 0,
+                 "total_gb": 0, "free_gb": 0, "pct_used": 0,
                  "error": str(e)[:100]}]
 
 
@@ -1375,6 +1376,50 @@ ForEach-Object {
         rx_mb       = if($p){ [math]::Round([double]$p.BytesReceivedPersec / 1MB, 2) } else { 0 }
         tx_mb       = if($p){ [math]::Round([double]$p.BytesSentPersec / 1MB, 2) } else { 0 }
     }
+} catch {}
+
+@(Get-AnyInstance "Win32_NetworkAdapterConfiguration") |
+Where-Object { $_.IPEnabled -eq $true -and $_.MACAddress } |
+ForEach-Object {
+    try {
+        $cfg = $_
+        $adp = @(Get-AnyInstance "Win32_NetworkAdapter" "Index = $($cfg.Index)" | Select-Object -First 1)
+        $name = if($adp -and $adp.NetConnectionID) { $adp.NetConnectionID } elseif($adp -and $adp.Name) { $adp.Name } else { $cfg.Description }
+        if(-not $name) { $name = "NIC-$($cfg.Index)" }
+        $state = "up"
+        if($adp -and $adp.NetEnabled -eq $false) { $state = "down" }
+        $speed = $null
+        if($adp -and $adp.Speed) {
+            try { $speed = [int][math]::Round([double]$adp.Speed / 1MB, 0) } catch { $speed = $null }
+        }
+
+        $p = $null
+        if($perfByName.ContainsKey($cfg.Description)) {
+            $p = $perfByName[$cfg.Description]
+        } elseif($perfByName.ContainsKey($name)) {
+            $p = $perfByName[$name]
+        } else {
+            $needle = "$($cfg.Description)"
+            if($needle.Length -gt 12) { $needle = $needle.Substring(0,12) }
+            if($needle) {
+                $p = $perfByName.Values | Where-Object { $_.Name -like "*$needle*" } | Select-Object -First 1
+            }
+        }
+
+        $nics += [PSCustomObject]@{
+            name        = $name
+            mac         = $cfg.MACAddress
+            ipv4        = if($cfg.IPAddress){($cfg.IPAddress | Where-Object {$_ -match '^\d+\.\d+\.\d+\.\d+'} | Select-Object -First 1)}else{""}
+            ipv6        = if($cfg.IPAddress){($cfg.IPAddress | Where-Object {$_ -match ':'} | Select-Object -First 1)}else{""}
+            subnet      = if($cfg.IPSubnet){($cfg.IPSubnet | Select-Object -First 1)}else{""}
+            gateway     = if($cfg.DefaultIPGateway){($cfg.DefaultIPGateway | Select-Object -First 1)}else{""}
+            dhcp        = [bool]$cfg.DHCPEnabled
+            state       = $state
+            speed_mbps  = $speed
+            rx_mb       = if($p){ [math]::Round([double]$p.BytesReceivedPersec / 1MB, 2) } else { 0 }
+            tx_mb       = if($p){ [math]::Round([double]$p.BytesSentPersec / 1MB, 2) } else { 0 }
+        }
+    } catch {}
 }
 $nics | Sort-Object name | ConvertTo-Json -AsArray""")
         rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
@@ -2000,8 +2045,38 @@ def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=No
         trivy_error = "No IP address available for this target. Set the VM IP first."
     else:
         try:
-            # Pass open_ports so scan can correlate CVEs with exposed services
-            vulns = _trivy_scan_via_server(host_ctx, open_ports=open_ports)
+            # Windows targets are scanned via WinRM (not SSH:22).
+            if (host_ctx.get("os_type") or "").lower() == "windows":
+                s = _winrm_connect(host_ctx)
+                win_rows = _run_ps(s, r"""
+try {
+  $sr = New-Object -ComObject Microsoft.Update.Searcher
+  $updates = $sr.Search("IsInstalled=0 and Type='Software'").Updates
+  $out = @()
+  foreach($u in $updates){
+    $sev = if($u.MsrcSeverity){$u.MsrcSeverity.ToString().ToUpper()}else{"MEDIUM"}
+    if($sev -notin @("CRITICAL","HIGH","MEDIUM","LOW")) { $sev = "MEDIUM" }
+    $kb = ""
+    if($u.KBArticleIDs -and $u.KBArticleIDs.Count -gt 0){ $kb = "KB" + $u.KBArticleIDs[0] }
+    if(-not $kb){ $kb = "WU-" + $u.Identity.UpdateID.Substring(0,8) }
+    $out += [PSCustomObject]@{
+      id = $kb
+      severity = $sev
+      cvss = if($sev -eq "CRITICAL"){9.1}elseif($sev -eq "HIGH"){7.5}elseif($sev -eq "LOW"){3.1}else{5.5}
+      pkg = "Windows Update"
+      desc = if($u.Title){$u.Title}else{"Pending Windows security/software update"}
+      url = if($kb -like "KB*"){"https://support.microsoft.com/help/" + $kb.Replace("KB","")}else{"https://msrc.microsoft.com/"}
+      port_exposed = $false
+    }
+  }
+  $out | ConvertTo-Json -AsArray
+} catch {
+  @() | ConvertTo-Json -AsArray
+}""")
+                vulns = win_rows if isinstance(win_rows, list) else ([win_rows] if isinstance(win_rows, dict) else [])
+            else:
+                # Linux/Unix targets continue to use SSH + Trivy flow.
+                vulns = _trivy_scan_via_server(host_ctx, open_ports=open_ports)
         except Exception as e:
             trivy_error = str(e)
 
