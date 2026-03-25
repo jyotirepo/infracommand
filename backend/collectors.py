@@ -1442,7 +1442,7 @@ ForEach-Object {
 }
 $nics | Sort-Object name | ConvertTo-Json -AsArray""")
         rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
-        return [{"name": d.get("name",""), "mac": d.get("mac",""),
+        mapped = [{"name": d.get("name",""), "mac": d.get("mac",""),
                  "ipv4": d.get("ipv4",""), "ipv6": d.get("ipv6",""),
                  "subnet": d.get("subnet",""), "gateway": d.get("gateway",""),
                  "dhcp": d.get("dhcp", False), "state": d.get("state","up"),
