@@ -1257,13 +1257,28 @@ def collect_windows_storage(host: dict) -> list:
     try:
         s = _winrm_connect(host)
         data = _run_ps(s, r"""
-$disks = Get-WmiObject Win32_LogicalDisk | Where-Object { $_.DriveType -eq 3 }
+function Get-AnyInstance([string]$ClassName, [string]$Filter = "") {
+    try {
+        if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+            if($Filter) { return Get-CimInstance -ClassName $ClassName -Filter $Filter -ErrorAction Stop }
+            return Get-CimInstance -ClassName $ClassName -ErrorAction Stop
+        }
+        if($Filter) { return Get-WmiObject -Class $ClassName -Filter $Filter -ErrorAction Stop }
+        return Get-WmiObject -Class $ClassName -ErrorAction Stop
+    } catch {
+        return @()
+    }
+}
+
+$disks = @(Get-AnyInstance "Win32_LogicalDisk") | Where-Object { $_.DriveType -eq 3 -and $_.Size -gt 0 }
 $result = @()
 foreach ($d in $disks) {
-    $total = [math]::Round($d.Size / 1GB, 2)
-    $free  = [math]::Round($d.FreeSpace / 1GB, 2)
+    $sizeRaw = [double]($d.Size)
+    $freeRaw = [double]($d.FreeSpace)
+    $total = [math]::Round($sizeRaw / 1GB, 2)
+    $free  = [math]::Round($freeRaw / 1GB, 2)
     $used  = [math]::Round($total - $free, 2)
-    $pct   = if ($d.Size -gt 0) { [math]::Round(($d.Size - $d.FreeSpace) / $d.Size * 100, 1) } else { 0 }
+    $pct   = if ($sizeRaw -gt 0) { [math]::Round(($sizeRaw - $freeRaw) / $sizeRaw * 100, 1) } else { 0 }
     $result += [PSCustomObject]@{
         device     = $d.DeviceID
         mountpoint = $d.DeviceID
@@ -1277,6 +1292,28 @@ foreach ($d in $disks) {
         free_gb    = $free
         pct_used   = $pct
         fstype     = $d.FileSystem
+    }
+}
+# include attached physical disks (SAN/local) for inventory visibility
+foreach($pd in @(Get-AnyInstance "Win32_DiskDrive")) {
+    $iface = "$($pd.InterfaceType)"
+    $dtype = if($iface -match "iSCSI") { "iSCSI/SAN" }
+             elseif($iface -match "SAS|FC") { "SAN ($iface)" }
+             else { "local-physical" }
+    $sz = [double]($pd.Size)
+    $result += [PSCustomObject]@{
+        device     = if($pd.DeviceID) { $pd.DeviceID } else { "$($pd.Index)" }
+        mountpoint = "[physical]"
+        type       = $dtype
+        model      = "$($pd.Manufacturer) $($pd.Model)".Trim()
+        size_gb    = if($sz -gt 0) { [math]::Round($sz/1GB, 2) } else { 0 }
+        used_gb    = 0
+        avail_gb   = if($sz -gt 0) { [math]::Round($sz/1GB, 2) } else { 0 }
+        use_pct    = 0
+        total_gb   = if($sz -gt 0) { [math]::Round($sz/1GB, 2) } else { 0 }
+        free_gb    = if($sz -gt 0) { [math]::Round($sz/1GB, 2) } else { 0 }
+        pct_used   = 0
+        fstype     = "RAW"
     }
 }
 $result | ConvertTo-Json -AsArray""")
@@ -1351,58 +1388,6 @@ $nics | Sort-Object name | ConvertTo-Json -AsArray""")
                 for d in rows if d.get("name")]
     except Exception:
         return []
-
-
-
-    try:
-        s = _winrm_connect(host)
-        data = _run_ps(s, r"""
-$r = @()
-Get-WmiObject Win32_LogicalDisk | ForEach-Object {
-    $t = switch($_.DriveType) {
-        2 { "Removable" } 3 { "Local Disk" } 4 { "Network Drive" }
-        5 { "CD-ROM" } default { "Unknown" }
-    }
-    $r += [PSCustomObject]@{
-        device    = $_.DeviceID
-        mountpoint= $_.DeviceID
-        fstype    = if($_.FileSystem) { $_.FileSystem } else { "RAW" }
-        type      = $t
-        size_gb   = [math]::Round($_.Size / 1GB, 1)
-        used_gb   = [math]::Round(($_.Size - $_.FreeSpace) / 1GB, 1)
-        avail_gb  = [math]::Round($_.FreeSpace / 1GB, 1)
-        use_pct   = if($_.Size -gt 0) { [math]::Round(($_.Size-$_.FreeSpace)/$_.Size*100,1) } else { 0 }
-        model     = $_.VolumeName
-    }
-}
-Get-WmiObject Win32_DiskDrive | ForEach-Object {
-    $it = if($_.InterfaceType -match "iSCSI")   { "iSCSI/SAN" }
-          elseif($_.InterfaceType -eq "FC")      { "SAN (FC)" }
-          elseif($_.InterfaceType -eq "SAS")     { "SAN (SAS)" }
-          else                                   { "Physical ($($_.InterfaceType))" }
-    $r += [PSCustomObject]@{
-        device    = $_.DeviceID
-        mountpoint= "[physical]"
-        fstype    = "RAW"
-        type      = $it
-        size_gb   = [math]::Round($_.Size / 1GB, 1)
-        used_gb   = 0
-        avail_gb  = [math]::Round($_.Size / 1GB, 1)
-        use_pct   = 0
-        model     = "$($_.Manufacturer) $($_.Model)".Trim()
-    }
-}
-$r | ConvertTo-Json -AsArray""")
-        rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
-        return [{"device": d.get("device",""), "mountpoint": d.get("mountpoint",""),
-                 "fstype": d.get("fstype",""), "type": d.get("type","local"),
-                 "model": d.get("model",""), "size_gb": d.get("size_gb",0),
-                 "used_gb": d.get("used_gb",0), "avail_gb": d.get("avail_gb",0),
-                 "use_pct": d.get("use_pct",0)} for d in rows]
-    except Exception:
-        return []
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Windows active ports
 # ─────────────────────────────────────────────────────────────────────────────
