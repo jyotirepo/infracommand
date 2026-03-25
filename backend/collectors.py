@@ -1332,34 +1332,20 @@ def collect_windows_nics(host: dict) -> list:
     try:
         s = _winrm_connect(host)
         data = _run_ps(s, r"""
-function Get-AnyInstance([string]$ClassName, [string]$Filter = "") {
-    try {
-        if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
-            if($Filter) { return Get-CimInstance -ClassName $ClassName -Filter $Filter -ErrorAction Stop }
-            return Get-CimInstance -ClassName $ClassName -ErrorAction Stop
-        }
-        if($Filter) { return Get-WmiObject -Class $ClassName -Filter $Filter -ErrorAction Stop }
-        return Get-WmiObject -Class $ClassName -ErrorAction Stop
-    } catch {
-        return @()
-    }
-}
-
 $nics = @()
 $perfByName = @{}
 try {
-    @(Get-AnyInstance "Win32_PerfFormattedData_Tcpip_NetworkInterface") | ForEach-Object {
+    Get-CimInstance Win32_PerfFormattedData_Tcpip_NetworkInterface -ErrorAction SilentlyContinue | ForEach-Object {
         $perfByName[$_.Name] = $_
     }
 } catch {}
 
-@(Get-AnyInstance "Win32_NetworkAdapterConfiguration") |
+Get-CimInstance Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue |
 Where-Object { $_.IPEnabled -eq $true -and $_.MACAddress } |
 ForEach-Object {
     $cfg = $_
-    $adp = @(Get-AnyInstance "Win32_NetworkAdapter" "Index = $($cfg.Index)" | Select-Object -First 1)
+    $adp = Get-CimInstance Win32_NetworkAdapter -Filter "Index = $($cfg.Index)" -ErrorAction SilentlyContinue
     $name = if($adp -and $adp.NetConnectionID) { $adp.NetConnectionID } elseif($adp -and $adp.Name) { $adp.Name } else { $cfg.Description }
-    if(-not $name) { $name = "NIC-$($cfg.Index)" }
     $state = "up"
     if($adp -and $adp.NetEnabled -eq $false) { $state = "down" }
     $speed = $null
@@ -1373,11 +1359,7 @@ ForEach-Object {
     } elseif($perfByName.ContainsKey($name)) {
         $p = $perfByName[$name]
     } else {
-        $needle = "$($cfg.Description)"
-        if($needle.Length -gt 12) { $needle = $needle.Substring(0,12) }
-        if($needle) {
-            $p = $perfByName.Values | Where-Object { $_.Name -like "*$needle*" } | Select-Object -First 1
-        }
+        $p = $perfByName.Values | Where-Object { $_.Name -like "*$($cfg.Description.Substring(0,[math]::Min(12,$cfg.Description.Length)))*" } | Select-Object -First 1
     }
 
     $nics += [PSCustomObject]@{
