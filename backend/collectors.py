@@ -1149,6 +1149,13 @@ def _run_ps_lines(s, script: str) -> list:
         return []
     return [ln.strip() for ln in raw.splitlines() if ln.strip()]
 
+def _run_cmd_text(s, cmd: str, args=None) -> str:
+    """Run a remote command and return stdout text."""
+    r = s.run_cmd(cmd, args or [])
+    if r.status_code != 0:
+        raise Exception(r.std_err.decode(errors="ignore").strip()[:300])
+    return r.std_out.decode(errors="ignore")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Windows metrics
@@ -1268,11 +1275,13 @@ def collect_windows_storage(host: dict, s=None) -> list:
         s = s or _winrm_connect(host)
         data = _run_ps(s, r"""
 function Get-AnyInstance([string]$ClassName, [string]$Filter = "") {
-    try {
-        if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+    if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+        try {
             if($Filter) { return Get-CimInstance -ClassName $ClassName -Filter $Filter -ErrorAction Stop }
             return Get-CimInstance -ClassName $ClassName -ErrorAction Stop
-        }
+        } catch {}
+    }
+    try {
         if($Filter) { return Get-WmiObject -Class $ClassName -Filter $Filter -ErrorAction Stop }
         return Get-WmiObject -Class $ClassName -ErrorAction Stop
     } catch {
@@ -1283,50 +1292,54 @@ function Get-AnyInstance([string]$ClassName, [string]$Filter = "") {
 $disks = @(Get-AnyInstance "Win32_LogicalDisk") | Where-Object { $_.DriveType -eq 3 -and $_.Size -gt 0 }
 $result = @()
 foreach ($d in $disks) {
-    $sizeRaw = [double]($d.Size)
-    $freeRaw = [double]($d.FreeSpace)
-    $total = [math]::Round($sizeRaw / 1GB, 2)
-    $free  = [math]::Round($freeRaw / 1GB, 2)
-    $used  = [math]::Round($total - $free, 2)
-    $pct   = if ($sizeRaw -gt 0) { [math]::Round(($sizeRaw - $freeRaw) / $sizeRaw * 100, 1) } else { 0 }
-    $result += [PSCustomObject]@{
-        device     = $d.DeviceID
-        mountpoint = $d.DeviceID
-        type       = "local"
-        model      = if($d.VolumeName) { $d.VolumeName } else { $d.DeviceID }
-        size_gb    = $total
-        used_gb    = $used
-        avail_gb   = $free
-        use_pct    = $pct
-        total_gb   = $total
-        free_gb    = $free
-        pct_used   = $pct
-        fstype     = $d.FileSystem
-    }
+    try {
+        $sizeRaw = [double]($d.Size)
+        $freeRaw = [double]($d.FreeSpace)
+        $total = [math]::Round($sizeRaw / 1GB, 2)
+        $free  = [math]::Round($freeRaw / 1GB, 2)
+        $used  = [math]::Round($total - $free, 2)
+        $pct   = if ($sizeRaw -gt 0) { [math]::Round(($sizeRaw - $freeRaw) / $sizeRaw * 100, 1) } else { 0 }
+        $result += [PSCustomObject]@{
+            device     = $d.DeviceID
+            mountpoint = $d.DeviceID
+            type       = "local"
+            model      = if($d.VolumeName) { $d.VolumeName } else { $d.DeviceID }
+            size_gb    = $total
+            used_gb    = $used
+            avail_gb   = $free
+            use_pct    = $pct
+            total_gb   = $total
+            free_gb    = $free
+            pct_used   = $pct
+            fstype     = $d.FileSystem
+        }
+    } catch {}
 }
 # include attached physical disks (SAN/local) for inventory visibility
 foreach($pd in @(Get-AnyInstance "Win32_DiskDrive")) {
-    $iface = "$($pd.InterfaceType)"
-    $dtype = if($iface -match "iSCSI") { "iSCSI/SAN" }
-             elseif($iface -match "SAS|FC") { "SAN ($iface)" }
-             else { "local-physical" }
-    $sz = [double]($pd.Size)
-    $result += [PSCustomObject]@{
-        device     = if($pd.DeviceID) { $pd.DeviceID } else { "$($pd.Index)" }
-        mountpoint = "[physical]"
-        type       = $dtype
-        model      = "$($pd.Manufacturer) $($pd.Model)".Trim()
-        size_gb    = if($sz -gt 0) { [math]::Round($sz/1GB, 2) } else { 0 }
-        used_gb    = 0
-        avail_gb   = if($sz -gt 0) { [math]::Round($sz/1GB, 2) } else { 0 }
-        use_pct    = 0
-        total_gb   = if($sz -gt 0) { [math]::Round($sz/1GB, 2) } else { 0 }
-        free_gb    = if($sz -gt 0) { [math]::Round($sz/1GB, 2) } else { 0 }
-        pct_used   = 0
-        fstype     = "RAW"
-    }
+    try {
+        $iface = "$($pd.InterfaceType)"
+        $dtype = if($iface -match "iSCSI") { "iSCSI/SAN" }
+                 elseif($iface -match "SAS|FC") { "SAN ($iface)" }
+                 else { "local-physical" }
+        $sz = [double]($pd.Size)
+        $result += [PSCustomObject]@{
+            device     = if($pd.DeviceID) { $pd.DeviceID } else { "$($pd.Index)" }
+            mountpoint = "[physical]"
+            type       = $dtype
+            model      = "$($pd.Manufacturer) $($pd.Model)".Trim()
+            size_gb    = if($sz -gt 0) { [math]::Round($sz/1GB, 2) } else { 0 }
+            used_gb    = 0
+            avail_gb   = if($sz -gt 0) { [math]::Round($sz/1GB, 2) } else { 0 }
+            use_pct    = 0
+            total_gb   = if($sz -gt 0) { [math]::Round($sz/1GB, 2) } else { 0 }
+            free_gb    = if($sz -gt 0) { [math]::Round($sz/1GB, 2) } else { 0 }
+            pct_used   = 0
+            fstype     = "RAW"
+        }
+    } catch {}
 }
-$result | ConvertTo-Json -AsArray""")
+$result | ConvertTo-Json""")
         rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
         normalized = []
         for d in rows:
@@ -1352,58 +1365,126 @@ $result | ConvertTo-Json -AsArray""")
             })
         return normalized
     except Exception as e:
+        # Last-resort fallback for older/locked-down PowerShell environments.
+        try:
+            s2 = s or _winrm_connect(host)
+            lines = _run_ps_lines(s2, r"""
+Get-WmiObject Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Object {
+  $vol = if($_.VolumeName){$_.VolumeName}else{$_.DeviceID}
+  "$($_.DeviceID)|$vol|$($_.FileSystem)|$($_.Size)|$($_.FreeSpace)"
+}""")
+            rows = []
+            for ln in lines:
+                parts = ln.split("|", 4)
+                if len(parts) != 5:
+                    continue
+                dev, vol, fs, size_raw, free_raw = parts
+                try:
+                    sz = float(size_raw or 0)
+                    fr = float(free_raw or 0)
+                except Exception:
+                    sz, fr = 0.0, 0.0
+                total = round(sz / (1024 ** 3), 2) if sz > 0 else 0
+                free = round(fr / (1024 ** 3), 2) if fr > 0 else 0
+                used = round(max(0.0, total - free), 2)
+                pct = round(((sz - fr) / sz) * 100, 1) if sz > 0 else 0
+                rows.append({
+                    "device": dev,
+                    "mountpoint": dev,
+                    "type": "local",
+                    "model": vol or dev,
+                    "fstype": fs or "",
+                    "size_gb": total,
+                    "used_gb": used,
+                    "avail_gb": free,
+                    "use_pct": pct,
+                    "total_gb": total,
+                    "free_gb": free,
+                    "pct_used": pct,
+                })
+            if rows:
+                return rows
+        except Exception:
+            pass
+        # Final fallback: avoid PowerShell entirely and query via WMIC.
+        try:
+            s3 = s or _winrm_connect(host)
+            out = _run_cmd_text(
+                s3,
+                "wmic",
+                ["logicaldisk", "where", "drivetype=3",
+                 "get", "DeviceID,FileSystem,FreeSpace,Size,VolumeName", "/format:csv"],
+            )
+            rows = []
+            for ln in out.splitlines():
+                line = (ln or "").strip()
+                if not line or line.lower().startswith("node,"):
+                    continue
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) < 6:
+                    continue
+                dev = parts[1]
+                fs = parts[2]
+                free_raw = parts[3]
+                size_raw = parts[4]
+                vol = parts[5]
+                try:
+                    sz = float(size_raw or 0)
+                    fr = float(free_raw or 0)
+                except Exception:
+                    sz, fr = 0.0, 0.0
+                total = round(sz / (1024 ** 3), 2) if sz > 0 else 0
+                free = round(fr / (1024 ** 3), 2) if fr > 0 else 0
+                used = round(max(0.0, total - free), 2)
+                pct = round(((sz - fr) / sz) * 100, 1) if sz > 0 else 0
+                if dev:
+                    rows.append({
+                        "device": dev,
+                        "mountpoint": dev,
+                        "type": "local",
+                        "model": vol or dev,
+                        "fstype": fs or "",
+                        "size_gb": total,
+                        "used_gb": used,
+                        "avail_gb": free,
+                        "use_pct": pct,
+                        "total_gb": total,
+                        "free_gb": free,
+                        "pct_used": pct,
+                    })
+            if rows:
+                return rows
+        except Exception:
+            pass
         return [{"device": "C:", "mountpoint": "C:", "type": "local", "model": "C:",
                  "size_gb": 0, "used_gb": 0, "avail_gb": 0, "use_pct": 0,
                  "total_gb": 0, "free_gb": 0, "pct_used": 0,
-                 "error": str(e)[:100]}]
+                 "error": str(e)[:180]}]
 
 
-def collect_windows_nics(host: dict) -> list:
-    try:
-        s = _winrm_connect(host)
-        data = _run_ps(s, r"""
+def _collect_windows_nics_ps(host: dict, s=None):
+    s = s or _winrm_connect(host)
+    return _run_ps(s, r"""
+function Get-AnyInstance([string]$ClassName, [string]$Filter = "") {
+    if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+        try {
+            if($Filter) { return Get-CimInstance -ClassName $ClassName -Filter $Filter -ErrorAction Stop }
+            return Get-CimInstance -ClassName $ClassName -ErrorAction Stop
+        } catch {}
+    }
+    try {
+        if($Filter) { return Get-WmiObject -Class $ClassName -Filter $Filter -ErrorAction Stop }
+        return Get-WmiObject -Class $ClassName -ErrorAction Stop
+    } catch {
+        return @()
+    }
+}
+
 $nics = @()
 $perfByName = @{}
 try {
-    Get-CimInstance Win32_PerfFormattedData_Tcpip_NetworkInterface -ErrorAction SilentlyContinue | ForEach-Object {
+    @(Get-AnyInstance "Win32_PerfFormattedData_Tcpip_NetworkInterface") | ForEach-Object {
         $perfByName[$_.Name] = $_
-    }
-} catch {}
-
-Get-CimInstance Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue |
-Where-Object { $_.IPEnabled -eq $true -and $_.MACAddress } |
-ForEach-Object {
-    $cfg = $_
-    $adp = Get-CimInstance Win32_NetworkAdapter -Filter "Index = $($cfg.Index)" -ErrorAction SilentlyContinue
-    $name = if($adp -and $adp.NetConnectionID) { $adp.NetConnectionID } elseif($adp -and $adp.Name) { $adp.Name } else { $cfg.Description }
-    $state = "up"
-    if($adp -and $adp.NetEnabled -eq $false) { $state = "down" }
-    $speed = $null
-    if($adp -and $adp.Speed) {
-        try { $speed = [int][math]::Round([double]$adp.Speed / 1MB, 0) } catch { $speed = $null }
-    }
-
-    $p = $null
-    if($perfByName.ContainsKey($cfg.Description)) {
-        $p = $perfByName[$cfg.Description]
-    } elseif($perfByName.ContainsKey($name)) {
-        $p = $perfByName[$name]
-    } else {
-        $p = $perfByName.Values | Where-Object { $_.Name -like "*$($cfg.Description.Substring(0,[math]::Min(12,$cfg.Description.Length)))*" } | Select-Object -First 1
-    }
-
-    $nics += [PSCustomObject]@{
-        name        = $name
-        mac         = $cfg.MACAddress
-        ipv4        = if($cfg.IPAddress){($cfg.IPAddress | Where-Object {$_ -match '^\d+\.\d+\.\d+\.\d+'} | Select-Object -First 1)}else{""}
-        ipv6        = if($cfg.IPAddress){($cfg.IPAddress | Where-Object {$_ -match ':'} | Select-Object -First 1)}else{""}
-        subnet      = if($cfg.IPSubnet){($cfg.IPSubnet | Select-Object -First 1)}else{""}
-        gateway     = if($cfg.DefaultIPGateway){($cfg.DefaultIPGateway | Select-Object -First 1)}else{""}
-        dhcp        = [bool]$cfg.DHCPEnabled
-        state       = $state
-        speed_mbps  = $speed
-        rx_mb       = if($p){ [math]::Round([double]$p.BytesReceivedPersec / 1MB, 2) } else { 0 }
-        tx_mb       = if($p){ [math]::Round([double]$p.BytesSentPersec / 1MB, 2) } else { 0 }
     }
 } catch {}
 
@@ -1450,7 +1531,13 @@ ForEach-Object {
         }
     } catch {}
 }
-$nics | Sort-Object name | ConvertTo-Json -AsArray""")
+$nics | Sort-Object name | ConvertTo-Json""")
+
+
+def collect_windows_nics(host: dict, s=None) -> list:
+    try:
+        s = s or _winrm_connect(host)
+        data = _collect_windows_nics_ps(host, s=s)
         rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
         mapped = [{"name": d.get("name",""), "mac": d.get("mac",""),
                  "ipv4": d.get("ipv4",""), "ipv6": d.get("ipv6",""),
@@ -2128,9 +2215,9 @@ try {
       port_exposed = $false
     }
   }
-  $out | ConvertTo-Json -AsArray
+  $out | ConvertTo-Json
 } catch {
-  @() | ConvertTo-Json -AsArray
+  @() | ConvertTo-Json
 }""")
                 vulns = win_rows if isinstance(win_rows, list) else ([win_rows] if isinstance(win_rows, dict) else [])
             else:
