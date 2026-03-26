@@ -1316,11 +1316,7 @@ foreach($pd in @(Get-AnyInstance "Win32_DiskDrive")) {
         fstype     = "RAW"
     }
 }
-<<<<<<< HEAD
-,@($result) | ConvertTo-Json""")
-=======
 $result | ConvertTo-Json -AsArray""")
->>>>>>> 099c753fbde10d33575255eaea1085d306d46d4d
         rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
         normalized = []
         for d in rows:
@@ -1444,11 +1440,7 @@ ForEach-Object {
         }
     } catch {}
 }
-<<<<<<< HEAD
-,@($nics | Sort-Object name) | ConvertTo-Json""")
-=======
 $nics | Sort-Object name | ConvertTo-Json -AsArray""")
->>>>>>> 099c753fbde10d33575255eaea1085d306d46d4d
         rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
         mapped = [{"name": d.get("name",""), "mac": d.get("mac",""),
                  "ipv4": d.get("ipv4",""), "ipv6": d.get("ipv6",""),
@@ -1458,18 +1450,8 @@ $nics | Sort-Object name | ConvertTo-Json -AsArray""")
                  "rx_mb": d.get("rx_mb",0), "tx_mb": d.get("tx_mb",0),
                  "rx_pkts": 0, "tx_pkts": 0, "rx_err": 0, "tx_err": 0}
                 for d in rows if d.get("name")]
-<<<<<<< HEAD
-        return mapped
-    except Exception as e:
-        return [{"name": "error", "mac": "", "ipv4": "", "ipv6": "",
-                 "subnet": "", "gateway": "", "dhcp": False, "state": "error",
-                 "speed_mbps": None, "rx_mb": 0, "tx_mb": 0,
-                 "rx_pkts": 0, "tx_pkts": 0, "rx_err": 0, "tx_err": 0,
-                 "error": str(e)[:100]}]
-=======
     except Exception:
         return []
->>>>>>> 099c753fbde10d33575255eaea1085d306d46d4d
 # ─────────────────────────────────────────────────────────────────────────────
 # Windows active ports
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2106,15 +2088,9 @@ try {
       port_exposed = $false
     }
   }
-<<<<<<< HEAD
-  ,@($out) | ConvertTo-Json
-} catch {
-  ,@() | ConvertTo-Json
-=======
   $out | ConvertTo-Json -AsArray
 } catch {
   @() | ConvertTo-Json -AsArray
->>>>>>> 099c753fbde10d33575255eaea1085d306d46d4d
 }""")
                 vulns = win_rows if isinstance(win_rows, list) else ([win_rows] if isinstance(win_rows, dict) else [])
             else:
