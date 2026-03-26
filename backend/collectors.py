@@ -1139,6 +1139,16 @@ def _run_ps(s, script: str):
     except Exception:
         return raw
 
+def _run_ps_lines(s, script: str) -> list:
+    """Run PowerShell script and return non-empty stdout lines."""
+    r = s.run_ps(script)
+    if r.status_code != 0:
+        raise Exception(r.std_err.decode(errors="ignore").strip()[:300])
+    raw = r.std_out.decode(errors="ignore")
+    if not raw:
+        return []
+    return [ln.strip() for ln in raw.splitlines() if ln.strip()]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Windows metrics
@@ -1237,9 +1247,9 @@ $net = Get-WmiObject Win32_PerfFormattedData_Tcpip_NetworkInterface | Select-Obj
                 "arch":       d.get("os_arch", "x64"),
                 "hostname":   d.get("hostname", ""),
             },
-            "storage":      collect_windows_storage(host),
-            "active_ports": collect_windows_ports(host),
-            "nics":         collect_windows_nics(host),
+            "storage":      collect_windows_storage(host, s=s),
+            "active_ports": collect_windows_ports(host, s=s),
+            "nics":         collect_windows_nics(host, s=s),
             "updated_at":   datetime.now(timezone.utc).isoformat(),
             "source":       "live",
         }
@@ -1252,10 +1262,10 @@ $net = Get-WmiObject Win32_PerfFormattedData_Tcpip_NetworkInterface | Select-Obj
 # Windows storage
 # ─────────────────────────────────────────────────────────────────────────────
 
-def collect_windows_storage(host: dict) -> list:
+def collect_windows_storage(host: dict, s=None) -> list:
     """Collect disk/storage info from Windows via WinRM."""
     try:
-        s = _winrm_connect(host)
+        s = s or _winrm_connect(host)
         data = _run_ps(s, r"""
 function Get-AnyInstance([string]$ClassName, [string]$Filter = "") {
     try {
@@ -1450,15 +1460,45 @@ $nics | Sort-Object name | ConvertTo-Json -AsArray""")
                  "rx_mb": d.get("rx_mb",0), "tx_mb": d.get("tx_mb",0),
                  "rx_pkts": 0, "tx_pkts": 0, "rx_err": 0, "tx_err": 0}
                 for d in rows if d.get("name")]
+        if mapped:
+            return mapped
+        # Fallback: minimal NIC inventory from adapter configuration only.
+        lines = _run_ps_lines(s, r"""
+Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -eq $true } | ForEach-Object {
+  $name=if($_.Description){$_.Description}else{"NIC-"+$_.Index}
+  $ipv4=if($_.IPAddress){($_.IPAddress | Where-Object {$_ -match '^\d+\.\d+\.\d+\.\d+'} | Select-Object -First 1)}else{""}
+  $ipv6=if($_.IPAddress){($_.IPAddress | Where-Object {$_ -match ':'} | Select-Object -First 1)}else{""}
+  $sub=if($_.IPSubnet){$_.IPSubnet[0]}else{""}
+  $gw=if($_.DefaultIPGateway){$_.DefaultIPGateway[0]}else{""}
+  "$name|$($_.MACAddress)|$ipv4|$ipv6|$sub|$gw|$([bool]$_.DHCPEnabled)"
+}""")
+        rows2 = []
+        for ln in lines:
+            parts = ln.split("|", 6)
+            if len(parts) != 7:
+                continue
+            name, mac, ipv4, ipv6, subnet, gateway, dhcp = parts
+            if not name:
+                continue
+            rows2.append({"name": name, "mac": mac, "ipv4": ipv4, "ipv6": ipv6,
+                          "subnet": subnet, "gateway": gateway,
+                          "dhcp": str(dhcp).strip().lower() in ("true", "1", "yes")})
+        return [{"name": d.get("name",""), "mac": d.get("mac",""),
+                 "ipv4": d.get("ipv4",""), "ipv6": d.get("ipv6",""),
+                 "subnet": d.get("subnet",""), "gateway": d.get("gateway",""),
+                 "dhcp": d.get("dhcp", False), "state": "up",
+                 "speed_mbps": None, "rx_mb": 0, "tx_mb": 0,
+                 "rx_pkts": 0, "tx_pkts": 0, "rx_err": 0, "tx_err": 0}
+                for d in rows2 if d.get("name")]
     except Exception:
         return []
 # ─────────────────────────────────────────────────────────────────────────────
 # Windows active ports
 # ─────────────────────────────────────────────────────────────────────────────
 
-def collect_windows_ports(host: dict) -> list:
+def collect_windows_ports(host: dict, s=None) -> list:
     try:
-        s = _winrm_connect(host)
+        s = s or _winrm_connect(host)
         data = _run_ps(s, r"""
 try {
     Get-NetTCPConnection -State Listen | ForEach-Object {
