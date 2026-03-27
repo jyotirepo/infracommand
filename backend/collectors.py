@@ -1673,7 +1673,7 @@ try {
         [PSCustomObject]@{ port=$_.LocalPort; proto="TCP"; process=if($proc){$proc}else{"unknown"}; state="LISTEN" }
     } | Sort-Object port | ConvertTo-Json
 } catch {
-    ,@() | ConvertTo-Json
+    @() | ConvertTo-Json
 }""")
         rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
         return [{"port": d.get("port",0), "proto": "TCP",
@@ -2275,43 +2275,27 @@ def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=No
             if (host_ctx.get("os_type") or "").lower() == "windows":
                 s = _winrm_connect(host_ctx)
                 win_rows = _run_ps(s, r"""
-$out = @()
-$ErrorActionPreference = "SilentlyContinue"
-try {
-  $sr = New-Object -ComObject Microsoft.Update.Searcher -ErrorAction Stop
+  $ErrorActionPreference = "Stop"
+  $sr = New-Object -ComObject Microsoft.Update.Searcher
   $updates = $sr.Search("IsInstalled=0 and Type='Software'").Updates
+  $out = @()
   foreach($u in $updates){
-    $sev = "MEDIUM"
-    if($u.MsrcSeverity){ $sev = $u.MsrcSeverity.ToString().ToUpper() }
+    $sev = if($u.MsrcSeverity){$u.MsrcSeverity.ToString().ToUpper()}else{"MEDIUM"}
     if($sev -notin @("CRITICAL","HIGH","MEDIUM","LOW")) { $sev = "MEDIUM" }
-    $kb = "WU-UNKNOWN"
+    $kb = ""
     if($u.KBArticleIDs -and $u.KBArticleIDs.Count -gt 0){ $kb = "KB" + $u.KBArticleIDs[0] }
+    if(-not $kb){ $kb = "WU-" + $u.Identity.UpdateID.Substring(0,8) }
     $out += [PSCustomObject]@{
-      id       = $kb
+      id = $kb
       severity = $sev
-      cvss     = if($sev -eq "CRITICAL"){9.1}elseif($sev -eq "HIGH"){7.5}elseif($sev -eq "LOW"){3.1}else{5.5}
-      pkg      = "Windows Update"
-      desc     = if($u.Title){$u.Title}else{"Pending update"}
-      url      = "https://support.microsoft.com/help/" + $kb.Replace("KB","")
+      cvss = if($sev -eq "CRITICAL"){9.1}elseif($sev -eq "HIGH"){7.5}elseif($sev -eq "LOW"){3.1}else{5.5}
+      pkg = "Windows Update"
+      desc = if($u.Title){$u.Title}else{"Pending Windows security/software update"}
+      url = if($kb -like "KB*"){"https://support.microsoft.com/help/" + $kb.Replace("KB","")}else{"https://msrc.microsoft.com/"}
       port_exposed = $false
     }
   }
-} catch {
-  try {
-    foreach($h in (Get-HotFix -ErrorAction SilentlyContinue | Sort-Object InstalledOn -Descending | Select-Object -First 30)){
-      $out += [PSCustomObject]@{
-        id       = if($h.HotFixID){$h.HotFixID}else{"KB-unknown"}
-        severity = "MEDIUM"
-        cvss     = 5.5
-        pkg      = "Windows HotFix"
-        desc     = if($h.Description){($h.Description + " " + $h.HotFixID).Trim()}else{"Installed hotfix"}
-        url      = "https://support.microsoft.com/help/" + ($h.HotFixID -replace "KB","")
-        port_exposed = $false
-      }
-    }
-  } catch {}
-}
-,@($out) | ConvertTo-Json""")
+  $out | ConvertTo-Json""")
                 vulns = win_rows if isinstance(win_rows, list) else ([win_rows] if isinstance(win_rows, dict) else [])
             else:
                 # Linux/Unix targets continue to use SSH + Trivy flow.

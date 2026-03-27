@@ -985,11 +985,11 @@ function DetailPanel({sel,hostData,onDbReload}) {
             <div className="section-hd" style={{margin:0}}>Network Interfaces ({nics.length})</div>
             <div style={{fontSize:11,color:T.muted}}>RX/TX bars show relative utilization vs peak</div>
           </div>
-          {(nics.filter(n=>n&&n.name&&n.name!=="error").length===0)
+          {nics.length===0
             ?<div style={{textAlign:"center",color:T.muted,padding:"30px 0"}}>
                No NIC data — click ↻ Refresh to collect
              </div>
-            :nics.filter(n=>n&&n.name&&n.name!=="error").map((n,i)=><NicRow key={n.name+"-"+i} n={n}/>)}
+            :nics.map(n=><NicRow key={n.name} n={n}/>)}
         </div>
       )}
 
@@ -1300,16 +1300,7 @@ function InfraView({rawHosts,onGlobalReload}) {
             {/* ── PHYSICAL HOSTS TAB ─────────────────────────────────── */}
             {treeTab==="physical"&&(
               <>
-                {/* ── Linux Hosts ── */}
-                {rawHosts.filter(h=>h.os_type!=="windows").length>0&&(
-                  <div style={{marginBottom:4}}>
-                    <div style={{padding:"4px 10px",fontSize:10,fontWeight:700,color:"#22c55e",
-                      letterSpacing:"1px",textTransform:"uppercase",opacity:.8}}>
-                      🐧 Linux ({rawHosts.filter(h=>h.os_type!=="windows").length})
-                    </div>
-                  </div>
-                )}
-                {rawHosts.filter(h=>h.os_type!=="windows").map(h=>{
+                {rawHosts.map(h=>{
                   const det=hostCache[h.id];
                   const vms=det?.vms||h.vms||[];
                   const m=(det||h).metrics||{};
@@ -1379,58 +1370,6 @@ function InfraView({rawHosts,onGlobalReload}) {
                               })}
                         </div>
                       )}
-                    </div>
-                  );
-                })}
-                {/* ── Windows Hosts ── */}
-                {rawHosts.filter(h=>h.os_type==="windows").length>0&&(
-                  <div style={{marginTop:6,marginBottom:4}}>
-                    <div style={{padding:"4px 10px",fontSize:10,fontWeight:700,color:"#3b82f6",
-                      letterSpacing:"1px",textTransform:"uppercase",opacity:.8}}>
-                      🖥️ Windows ({rawHosts.filter(h=>h.os_type==="windows").length})
-                    </div>
-                  </div>
-                )}
-                {rawHosts.filter(h=>h.os_type==="windows").map(h=>{
-                  const det=hostCache[h.id];
-                  const vms2=det?.vms||h.vms||[];
-                  const m2=(det||h).metrics||{};
-                  const isExp2=expanded[h.id];
-                  const isSel2=sel?.type==="host"&&sel.hostId===h.id;
-                  const isOnline2=m2.source==="live";
-                  return (
-                    <div key={h.id} style={{marginBottom:2}}>
-                      <div className={`tree-row ${isSel2?"sel":""}`} onClick={()=>clickHost(h.id)}>
-                        <span style={{fontSize:15,flexShrink:0}}>🪟</span>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.name}</div>
-                          <div style={{fontSize:10,color:T.muted,display:"flex",gap:5,alignItems:"center"}}>
-                            <span style={{fontFamily:"IBM Plex Mono",fontSize:9}}>{h.ip}</span>
-                            {isOnline2&&<><span style={{color:T.blue}}>CPU:{m2.cpu}%</span><span style={{color:T.amber}}>RAM:{m2.ram}%</span></>}
-                            <span className="badge b-hv" style={{fontSize:9}}>Windows</span>
-                          </div>
-                        </div>
-                        <div style={{display:"flex",gap:3,flexShrink:0,alignItems:"center"}}>
-                          {loading===h.id&&<span className="spinner" style={{width:10,height:10}}/>}
-                          <span style={{fontSize:10,color:T.muted,cursor:"pointer",padding:"0 2px"}}
-                            onClick={e=>{e.stopPropagation();setExpanded(ex=>({...ex,[h.id]:!ex[h.id]}));}}>
-                            {isExp2?"▾":"▸"}
-                          </span>
-                        </div>
-                      </div>
-                      {isExp2&&vms2.filter(v=>!promotedIPs.has(v.ip)).map(vm=>{
-                        const vmSel2=sel?.type==="vm"&&sel.vmId===vm.id;
-                        return (
-                          <div key={vm.id} className={`tree-row vm-row ${vmSel2?"sel":""}`}
-                            style={{paddingLeft:28}} onClick={()=>clickVM(h.id,vm)}>
-                            <span style={{fontSize:13}}>🖥️</span>
-                            <div style={{flex:1,minWidth:0}}>
-                              <div style={{fontSize:11,fontWeight:600}}>{vm.name}</div>
-                              <div style={{fontSize:9,color:T.muted}}>{vm.state||"unknown"}{vm.ip?" · "+vm.ip:""}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
                     </div>
                   );
                 })}
@@ -1675,8 +1614,6 @@ function CapacityPlanning() {
   const [err,setErr]           = useState("");           // FIX 1: was missing — caused crash on load
   const [sel,setSel]           = useState(null);         // selected host_id for drill-down
   const [hostFilter,setHostFilter] = useState("all");
-  const [osTab,setOsTab]           = useState("linux");   // linux | windows
-  const [genReport,setGenReport]   = useState(false);     // report modal open
 
   // FIX 2: selectedHost derived from sel + data (was never declared before)
   const selectedHost = sel ? data.find(h=>h.host_id===sel) || null : null;
@@ -1708,80 +1645,6 @@ function CapacityPlanning() {
   };
   useEffect(()=>{ load(); },[]);
 
-  // ── Report generation ─────────────────────────────────────────────────────
-  const generateReport = () => {
-    const rData = osFilteredData.length > 0 ? osFilteredData : filteredData;
-    const ts    = new Date().toLocaleString("en-IN",{timeZone:"Asia/Kolkata"});
-    const osLabel = osTab === "linux" ? "Linux" : "Windows";
-    let txt = `InfraCommand Capacity Report
-`;
-    txt += `Generated: ${ts} IST
-`;
-    txt += `OS Filter: ${osLabel}
-`;
-    txt += `Host Filter: ${hostFilter === "all" ? "All Hosts" : hostFilter}
-`;
-    txt += `${"=".repeat(60)}
-
-`;
-
-    rData.forEach(h => {
-      txt += `HOST: ${h.host_name} (${h.host_ip || ""})
-`;
-      txt += `  OS: ${h.os_name || osLabel}
-`;
-      txt += `  CPU:     ${h.cpu_vcpus || 0} vCPUs total, ${h.vm_vcpu_alloc || 0} allocated
-`;
-      txt += `  RAM:     ${h.ram_total_gb || 0} GB total, ${h.vm_ram_alloc_gb || 0} GB allocated
-`;
-      txt += `  Storage: ${h.disk_total_gb || 0} GB total
-`;
-      txt += `  VMs:     ${h.vm_count || 0} total, ${h.vm_running || 0} running
-`;
-      if (h.vms && h.vms.length > 0) {
-        txt += `  VM List:
-`;
-        h.vms.forEach(vm => {
-          txt += `    - ${vm.name} [${vm.status||"unknown"}] ${vm.vcpus||0}vCPU ${vm.ram_gb||0}GB RAM
-`;
-        });
-      }
-      txt += "
-";
-    });
-
-    txt += `${"=".repeat(60)}
-`;
-    txt += `SUMMARY
-`;
-    txt += `  Total Hosts: ${rData.length}
-`;
-    const tot = rData.reduce((a,h)=>({
-      vcpus:     a.vcpus     + (h.cpu_vcpus||0),
-      vcpu_alloc:a.vcpu_alloc+ (h.vm_vcpu_alloc||0),
-      ram:       a.ram       + (h.ram_total_gb||0),
-      ram_alloc: a.ram_alloc + (h.vm_ram_alloc_gb||0),
-      disk:      a.disk      + (h.disk_total_gb||0),
-      vms:       a.vms       + (h.vm_count||0),
-    }), {vcpus:0,vcpu_alloc:0,ram:0,ram_alloc:0,disk:0,vms:0});
-    txt += `  Total vCPUs: ${tot.vcpus} (${tot.vcpu_alloc} allocated)
-`;
-    txt += `  Total RAM:   ${tot.ram} GB (${tot.ram_alloc} GB allocated)
-`;
-    txt += `  Total Disk:  ${tot.disk} GB
-`;
-    txt += `  Total VMs:   ${tot.vms}
-`;
-
-    const blob = new Blob([txt], {type: "text/plain"});
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = `capacity-report-${osLabel.toLowerCase()}-${new Date().toISOString().slice(0,10)}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   const CommitBar = ({pct,warn=80,crit=100}) => {
     const color = pct>=crit ? T.red : pct>=warn ? T.amber : T.green;
     return (
@@ -1797,17 +1660,8 @@ function CapacityPlanning() {
   const hostOptions  = data.map(h=>({ id:h.host_id, name:h.host_name }));
   const filteredData = hostFilter==="all" ? data : data.filter(h=>h.host_id===hostFilter);
 
-  // OS tab filter - separate Linux and Windows hosts
-  const osFilteredData = filteredData.filter(h => {
-    const os = (h.os_name || h.os_type || "").toLowerCase();
-    if (osTab === "windows") return os.includes("windows") || (h.os_type||"").toLowerCase()==="windows";
-    // linux = everything that is not explicitly windows
-    return !os.includes("windows") && (h.os_type||"linux").toLowerCase()!=="windows";
-  });
-  const displayData = osFilteredData;
-
   // Aggregate totals across filtered hosts
-  const totals = displayData.reduce((a,h)=>({
+  const totals = filteredData.reduce((a,h)=>({
     vcpus:      a.vcpus      + n(h.cpu_vcpus),
     vcpu_alloc: a.vcpu_alloc + n(h.vm_vcpu_alloc),
     ram:        a.ram        + n(h.ram_total_gb),
@@ -1823,50 +1677,21 @@ function CapacityPlanning() {
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
       {/* ── Header ── */}
-      <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-          <div>
-            <div style={{fontWeight:700,fontSize:16}}>Capacity Planning</div>
-            <div style={{fontSize:12,color:T.muted,marginTop:2}}>
-              Snapshot from last Refresh · {displayData.length} host{displayData.length!==1?"s":""}
-            </div>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-            <select value={hostFilter} onChange={e=>{ setHostFilter(e.target.value); setSel(null); }} style={{minWidth:180}}>
-              <option value="all">All Hosts</option>
-              {hostOptions.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}
-            </select>
-            <button className="btn btn-ghost" onClick={load} disabled={busy}>
-              {busy?<><span className="spinner"/>Loading...</>:"↻ Refresh"}
-            </button>
-            <button onClick={generateReport}
-              style={{padding:"7px 14px",borderRadius:7,border:"none",
-                background:"#0f1f2e",color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer",
-                display:"flex",alignItems:"center",gap:5}}>
-              📥 Export Report
-            </button>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontWeight:700,fontSize:16}}>Capacity Planning</div>
+          <div style={{fontSize:12,color:T.muted,marginTop:2}}>
+            Snapshot data from last Refresh on each host. Run ↻ Refresh per host to update.
           </div>
         </div>
-
-        {/* OS Tabs */}
-        <div style={{display:"flex",gap:0,borderRadius:8,overflow:"hidden",
-          border:"1px solid #e2e8f0",alignSelf:"flex-start"}}>
-          {[["linux","🐧 Linux"],["windows","🪟 Windows"]].map(([key,label])=>(
-            <button key={key} onClick={()=>{setOsTab(key);setSel(null);}}
-              style={{padding:"8px 20px",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,
-                background:osTab===key?"#0f1f2e":"#fff",
-                color:osTab===key?"#fff":T.muted,
-                borderRight:key==="linux"?"1px solid #e2e8f0":"none"}}>
-              {label} <span style={{fontSize:10,opacity:.7}}>
-                ({filteredData.filter(h=>{
-                  const os=(h.os_name||h.os_type||"").toLowerCase();
-                  return key==="windows"
-                    ?(os.includes("windows")||(h.os_type||"").toLowerCase()==="windows")
-                    :(!os.includes("windows")&&(h.os_type||"linux").toLowerCase()!=="windows");
-                }).length})
-              </span>
-            </button>
-          ))}
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <select value={hostFilter} onChange={e=>{ setHostFilter(e.target.value); setSel(null); }} style={{minWidth:200}}>
+            <option value="all">All Hosts</option>
+            {hostOptions.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}
+          </select>
+          <button className="btn btn-ghost" onClick={load} disabled={busy}>
+            {busy?<><span className="spinner"/>Loading...</>:"↻ Refresh"}
+          </button>
         </div>
       </div>
 
@@ -1910,7 +1735,7 @@ function CapacityPlanning() {
             </tr>
           </thead>
           <tbody>
-            {displayData.map((h,i)=>{
+            {filteredData.map((h,i)=>{
               const vcpuPct = h.cpu_vcpus    ? Math.round(n(h.vm_vcpu_alloc)/n(h.cpu_vcpus)*100)       : 0;
               const ramPct  = h.ram_total_gb  ? Math.round(n(h.vm_ram_alloc_gb)/n(h.ram_total_gb)*100)  : 0;
               const diskPct = h.disk_total_gb ? Math.round(n(h.disk_used_gb)/n(h.disk_total_gb)*100)    : 0;
@@ -2076,7 +1901,7 @@ function CapacityPlanning() {
         </table>
 
         {/* Empty state */}
-        {displayData.length===0&&!busy&&(
+        {filteredData.length===0&&!busy&&(
           <div style={{padding:40,textAlign:"center",color:T.muted}}>
             <div style={{fontSize:28,marginBottom:8}}>📊</div>
             <div style={{fontWeight:600,marginBottom:6}}>
