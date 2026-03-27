@@ -258,7 +258,7 @@ function PromoteVMModal({vm, hostId, onClose, onAdded}) {
         <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16}}>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn btn-ok" onClick={submit} disabled={busy}>
-            {busy?<><span className="spinner"/>Adding...</>:"➕ Add as Host"}
+            {busy?<><span className="spinner"/>Adding...</>:"\u2795 Add as Host"}
           </button>
         </div>
       </div>
@@ -298,7 +298,7 @@ function AddHostModal({onClose,onAdded}) {
       const detail=e.response?.data?.detail;
       const errText=Array.isArray(detail)
         ? detail.map(d=>`${d.loc?.join(".")}: ${d.msg}`).join(", ")
-        : (typeof detail==="string" ? detail : e.message || "Save failed — check browser console");
+        : (typeof detail==="string" ? detail : e.message || "Save failed \u2014 check browser console");
       setMsg({t:"e",text:errText});
     }
     setBusy(false);
@@ -343,11 +343,11 @@ function AddHostModal({onClose,onAdded}) {
             background:testResult.status==="ok"?"#f0fdf4":"#fff7ed",
             border:`1px solid ${testResult.status==="ok"?"#bbf7d0":"#fed7aa"}`}}>
             <div style={{fontWeight:700,marginBottom:8,color:testResult.status==="ok"?T.green:T.amber}}>
-              {testResult.status==="ok"?"✅ Connection Successful":"⚠ Connection Diagnostics"}
+              {testResult.status==="ok"?"\u2705 Connection Successful":"\u26A0 Connection Diagnostics"}
             </div>
             {testResult.steps?.map((s,i)=>(
               <div key={i} style={{display:"flex",gap:8,marginBottom:4,alignItems:"flex-start"}}>
-                <span style={{color:s.status==="ok"?T.green:T.red,flexShrink:0}}>{s.status==="ok"?"✔":"✗"}</span>
+                <span style={{color:s.status==="ok"?T.green:T.red,flexShrink:0}}>{s.status==="ok"?"\u2714":"\u2717"}</span>
                 <span style={{color:T.sub,minWidth:120,flexShrink:0}}>{s.step}</span>
                 <span style={{color:s.status==="ok"?T.text:T.red}}>{s.msg}</span>
               </div>
@@ -360,7 +360,7 @@ function AddHostModal({onClose,onAdded}) {
           background:msg.t==="ok"?"#dcfce7":"#fee2e2",color:msg.t==="ok"?"#166534":"#991b1b"}}>{msg.text}</div>}
         <div style={{display:"flex",gap:8,marginTop:20,justifyContent:"space-between",alignItems:"center"}}>
           <button className="btn btn-ghost" onClick={testConn} disabled={testing}>
-            {testing?<><span className="spinner"/>Testing...</>:"🔌 Test Connection"}</button>
+            {testing?<><span className="spinner"/>Testing...</>:"\uD83D\uDD0C Test Connection"}</button>
           <div style={{display:"flex",gap:8}}>
             <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
             <button className="btn btn-primary" onClick={submit} disabled={busy}>
@@ -417,7 +417,7 @@ function ActivePortsTable({ports, onExternalScan, scanBusy}) {
       <div style={{color:T.muted,textAlign:"center",fontSize:12,marginBottom:12}}>No active port data — click ↻ Refresh to collect from host</div>
       <div style={{textAlign:"center"}}>
         <button className="btn btn-port btn-sm" onClick={onExternalScan} disabled={scanBusy}>
-          {scanBusy?<><span className="spinner"/>Scanning...</>:"🔌 External Port Scan"}
+          {scanBusy?<><span className="spinner"/>Scanning...</>:"\uD83D\uDD0C External Port Scan"}
         </button>
       </div>
     </div>
@@ -428,13 +428,13 @@ function ActivePortsTable({ports, onExternalScan, scanBusy}) {
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
         <div style={{fontSize:11,color:T.muted}}>{ports.length} active listening ports</div>
         <button className="btn btn-port btn-sm" onClick={onExternalScan} disabled={scanBusy}>
-          {scanBusy?<><span className="spinner"/>Scanning...</>:"🔌 External Scan"}
+          {scanBusy?<><span className="spinner"/>Scanning...</>:"\uD83D\uDD0C External Scan"}
         </button>
       </div>
       <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:12}}>
         {ports.map(p=>(
           <span key={p.port} className={`port-chip ${RISKY[p.port]?"port-risky":"port-active"}`}>
-            <strong>:{p.port}</strong> {p.process}{RISKY[p.port]?" ⚠":""}
+            <strong>:{p.port}</strong> {p.process}{RISKY[p.port]?" \u26A0":""}
           </span>
         ))}
       </div>
@@ -454,7 +454,7 @@ function PortScanModal({target,hostId,vmId,ip,onClose}) {
 
   const scan=async()=>{
     if(!hostId || hostId==="undefined") {
-      setResult({error:"Host ID not available — try closing and reopening."});
+      setResult({error:"Host ID not available \u2014 try closing and reopening."});
       return;
     }
     setBusy(true);setResult(null);
@@ -474,7 +474,7 @@ function PortScanModal({target,hostId,vmId,ip,onClose}) {
           <div><div style={{fontWeight:700,fontSize:15}}>External Port Scan — {target}</div>
             <div style={{color:T.muted,fontSize:12}}>Scanning {ip} from InfraCommand server</div></div>
           <div style={{display:"flex",gap:8}}>
-            <button className="btn btn-port btn-sm" onClick={scan} disabled={busy}>{busy?<><span className="spinner"/>Scanning...</>:"↻ Rescan"}</button>
+            <button className="btn btn-port btn-sm" onClick={scan} disabled={busy}>{busy?<><span className="spinner"/>Scanning...</>:"\u21BB Rescan"}</button>
             <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
           </div>
         </div>
@@ -489,7 +489,7 @@ function PortScanModal({target,hostId,vmId,ip,onClose}) {
             <div className="section-hd">Open Ports Found</div>
             <div>
               {result.ports?.length>0
-                ?result.ports.map(p=><span key={p.port} className={`port-chip ${p.risky?"port-risky":"port-open"}`}>:{p.port} {p.service}{p.risky?" ⚠":""}</span>)
+                ?result.ports.map(p=><span key={p.port} className={`port-chip ${p.risky?"port-risky":"port-open"}`}>:{p.port} {p.service}{p.risky?" \u26A0":""}</span>)
                 :<div style={{color:T.muted,fontSize:12}}>No open ports detected</div>}
             </div>
           </>
@@ -506,7 +506,7 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
 
   const scan=async()=>{
     if(!hostId || hostId==="undefined") {
-      setResult({error:"Host ID not available — try closing and reopening."});
+      setResult({error:"Host ID not available \u2014 try closing and reopening."});
       return;
     }
     setBusy(true);setResult(null);
@@ -531,7 +531,7 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
             <div style={{color:T.muted,fontSize:12}}>IP: {ip}</div></div>
           <div style={{display:"flex",gap:8}}>
             {result&&!result.error&&<button className="btn btn-ghost btn-sm" onClick={dl}>↓ Export</button>}
-            <button className="btn btn-scan btn-sm" onClick={scan} disabled={busy}>{busy?<><span className="spinner"/>Scanning...</>:"↻ Rescan"}</button>
+            <button className="btn btn-scan btn-sm" onClick={scan} disabled={busy}>{busy?<><span className="spinner"/>Scanning...</>:"\u21BB Rescan"}</button>
             <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
           </div>
         </div>
@@ -664,8 +664,8 @@ function DetailPanel({sel,hostData,onDbReload}) {
     ? ["metrics","nics","storage","ports","logs"]
     : ["metrics","hardware","nics","storage","ports","patch","os","logs"];
 
-  const tabLabel={metrics:"📊 Metrics",hardware:"🖥 Hardware",nics:"🌐 NICs",storage:"💾 Storage",
-                  ports:"🔌 Ports",patch:"🔧 Patches",os:"💻 OS Info",logs:"📋 Logs"};
+  const tabLabel={metrics:"\uD83D\uDCCA Metrics",hardware:"\uD83D\uDDA5 Hardware",nics:"\uD83C\uDF10 NICs",storage:"\uD83D\uDCBE Storage",
+                  ports:"\uD83D\uDD0C Ports",patch:"\uD83D\uDD27 Patches",os:"\uD83D\uDCBB OS Info",logs:"\uD83D\uDCCB Logs"};
 
   // ── NIC sparkline mini-bar ───────────────────────────────────────────────
   const NicBar=({val,max,color})=>{
@@ -691,7 +691,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:11}}>
           <div>
             <div style={{color:T.muted}}>IPv4</div>
-            <div style={{fontWeight:600,color:T.blue}}>{n.ipv4||"—"}</div>
+            <div style={{fontWeight:600,color:T.blue}}>{n.ipv4||"\u2014"}</div>
             {n.ipv6&&<div style={{color:T.muted,fontSize:10}}>{n.ipv6.slice(0,30)}</div>}
           </div>
           <div>
@@ -725,7 +725,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             <div style={{width:42,height:42,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,
               background:target.hypervisor==="Hyper-V"||target.os_type==="windows"?"#dbeafe":"#d1fae5"}}>
-              {isVM?(target.hypervisor==="Hyper-V"?"🪟":"🖥"):(target.os_type==="windows"?"🪟":"🐧")}
+              {isVM?(target.hypervisor==="Hyper-V"?"\uD83E\uDE9F":"\uD83D\uDDA5"):(target.os_type==="windows"?"\uD83E\uDE9F":"\uD83D\uDC27")}
             </div>
             <div>
               <div style={{fontWeight:700,fontSize:15}}>{target.name}</div>
@@ -763,7 +763,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
             )}
             <SrcBadge src={m.source}/>
             <button className="btn btn-refresh btn-sm" onClick={doRefresh} disabled={refreshing}>
-              {refreshing?<><span className="spinner"/>...</>:"↻ Refresh"}</button>
+              {refreshing?<><span className="spinner"/>...</>:"\u21BB Refresh"}</button>
             <button className="btn btn-port btn-sm" onClick={()=>setPortModal(true)}>🔌 Port Scan</button>
             <button className="btn btn-scan btn-sm" onClick={()=>setVulnModal(true)}>🔍 Vuln Scan</button>
           </div>
@@ -809,13 +809,13 @@ function DetailPanel({sel,hostData,onDbReload}) {
             <div className="card" style={{padding:14}}>
               <div className="section-hd">System</div>
               {[
-                ["Uptime",   m.uptime && m.uptime!=="N/A" ? m.uptime : (isVM ? "See host" : "—")],
-                ["OS",       osInfo.os_pretty || osInfo.os_name || (isVM ? target?.os : "—") || "—"],
-                ["Kernel",   osInfo.kernel || "—"],
-                ["Arch",     osInfo.arch || "—"],
-                ["Hostname", osInfo.hostname || "—"],
+                ["Uptime",   m.uptime && m.uptime!=="N/A" ? m.uptime : (isVM ? "See host" : "\u2014")],
+                ["OS",       osInfo.os_pretty || osInfo.os_name || (isVM ? target?.os : "\u2014") || "\u2014"],
+                ["Kernel",   osInfo.kernel || "\u2014"],
+                ["Arch",     osInfo.arch || "\u2014"],
+                ["Hostname", osInfo.hostname || "\u2014"],
                 ["Load Avg", !isVM && m.load ? String(m.load) : null],
-              ].filter(([,v])=>v && v!=="—" && v!==null).slice(0,4).map(([l,v])=>(
+              ].filter(([,v])=>v && v!=="\u2014" && v!==null).slice(0,4).map(([l,v])=>(
                 <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
                   <span style={{color:T.muted,fontSize:11}}>{l}</span>
                   <span style={{fontSize:11,fontWeight:600,fontFamily:l==="Kernel"?"IBM Plex Mono":"inherit",
@@ -837,7 +837,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
             padding:"10px 0",borderBottom:"1px solid #f1f5f9"}}>
             <div style={{color:T.muted,fontSize:12,fontWeight:500,minWidth:180}}>{label}</div>
             <div style={{textAlign:"right"}}>
-              <div style={{fontSize:13,fontWeight:700,color:color||T.text}}>{value||"—"}</div>
+              <div style={{fontSize:13,fontWeight:700,color:color||T.text}}>{value||"\u2014"}</div>
               {sub&&<div style={{fontSize:10,color:T.muted,marginTop:2}}>{sub}</div>}
             </div>
           </div>
@@ -865,7 +865,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
 
               {/* CPU Card */}
-              <HwCard title="CPU / Processor" icon="⚡">
+              <HwCard title="CPU / Processor" icon="\u26A1">
                 <HwRow label="Model" value={hw.cpu_model} />
                 <HwRow label="Architecture" value={hw.cpu_arch} />
                 <HwRow label="Sockets" value={hw.cpu_sockets} />
@@ -915,15 +915,15 @@ function DetailPanel({sel,hostData,onDbReload}) {
               </HwCard>
 
               {/* Memory Card */}
-              <HwCard title="Memory / RAM" icon="🧠">
+              <HwCard title="Memory / RAM" icon="\uD83E\uDDE0">
                 <HwRow label="Total Physical RAM"
-                  value={hw.ram_total_gb ? `${hw.ram_total_gb} GB` : "—"}
+                  value={hw.ram_total_gb ? `${hw.ram_total_gb} GB` : "\u2014"}
                   color={T.blue}/>
                 <HwRow label="RAM In Use"
-                  value={hw.ram_total_gb ? `${(hw.ram_total_gb * (m.ram||0) / 100).toFixed(1)} GB` : "—"}
+                  value={hw.ram_total_gb ? `${(hw.ram_total_gb * (m.ram||0) / 100).toFixed(1)} GB` : "\u2014"}
                   sub={`${m.ram||0}% utilization`} color={m.ram>85?T.red:m.ram>65?T.amber:T.text}/>
                 <HwRow label="RAM Free"
-                  value={hw.ram_total_gb ? `${(hw.ram_total_gb * (1-(m.ram||0)/100)).toFixed(1)} GB` : "—"}
+                  value={hw.ram_total_gb ? `${(hw.ram_total_gb * (1-(m.ram||0)/100)).toFixed(1)} GB` : "\u2014"}
                   color={T.green}/>
                 <div style={{marginTop:10}}>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:T.muted,marginBottom:4}}>
@@ -938,16 +938,16 @@ function DetailPanel({sel,hostData,onDbReload}) {
               </HwCard>
 
               {/* Storage Card */}
-              <HwCard title="Local Storage" icon="💾">
+              <HwCard title="Local Storage" icon="\uD83D\uDCBE">
                 <HwRow label="Total Local Storage"
-                  value={hw.local_storage_total_gb ? `${hw.local_storage_total_gb} GB` : "—"}
+                  value={hw.local_storage_total_gb ? `${hw.local_storage_total_gb} GB` : "\u2014"}
                   color={T.blue}/>
                 <HwRow label="Used"
-                  value={hw.local_storage_used_gb != null ? `${hw.local_storage_used_gb} GB` : "—"}
+                  value={hw.local_storage_used_gb != null ? `${hw.local_storage_used_gb} GB` : "\u2014"}
                   sub={hw.local_storage_total_gb ? `${Math.round(hw.local_storage_used_gb/hw.local_storage_total_gb*100)}% of total` : null}
                   color={T.amber}/>
                 <HwRow label="Free"
-                  value={hw.local_storage_total_gb ? `${(hw.local_storage_total_gb - (hw.local_storage_used_gb||0)).toFixed(1)} GB` : "—"}
+                  value={hw.local_storage_total_gb ? `${(hw.local_storage_total_gb - (hw.local_storage_used_gb||0)).toFixed(1)} GB` : "\u2014"}
                   color={T.green}/>
                 <div style={{marginTop:10}}>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:T.muted,marginBottom:4}}>
@@ -963,7 +963,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
               </HwCard>
 
               {/* System Summary Card */}
-              <HwCard title="System Summary" icon="🖧">
+              <HwCard title="System Summary" icon="\uD83D\uDDA7">
                 <HwRow label="Hostname"   value={osInfo.hostname}/>
                 <HwRow label="OS"         value={osInfo.os_pretty||osInfo.os_name}/>
                 <HwRow label="Kernel"     value={osInfo.kernel}/>
@@ -989,7 +989,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
             ?<div style={{textAlign:"center",color:T.muted,padding:"30px 0"}}>
                No NIC data — click ↻ Refresh to collect
              </div>
-            :nics.map(n=><NicRow key={n.name} n={n}/>)}
+            :nics.filter(n=>n&&n.name&&n.name!=="error").map((n,i)=><NicRow key={(n.name||"nic")+"-"+i} n={n}/>)}
         </div>
       )}
 
@@ -1031,7 +1031,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
               <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:16,
                 padding:"8px 14px",borderRadius:8,background:patchColor(patch.status)+"18",
                 border:`1px solid ${patchColor(patch.status)}44`}}>
-                <span style={{fontSize:16}}>{patch.status==="UP TO DATE"?"✅":patch.status==="CRITICAL UPDATE"?"🚨":"⚠️"}</span>
+                <span style={{fontSize:16}}>{patch.status==="UP TO DATE"?"\u2705":patch.status==="CRITICAL UPDATE"?"\uD83D\uDEA8":"\u26A0\uFE0F"}</span>
                 <span style={{fontWeight:700,color:patchColor(patch.status)}}>{patch.status}</span>
               </div>
               <table><tbody>
@@ -1089,7 +1089,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
                 <div key={i} style={{display:"flex",gap:10,padding:"7px 0",borderBottom:"1px solid #f1f5f9",fontSize:11}}>
                   <span style={{color:T.muted,minWidth:60,fontFamily:"IBM Plex Mono"}}>{toISTTime(l.ts)}</span>
                   <span style={{minWidth:14,color:lc,fontWeight:700}}>
-                    {l.level==="ERROR"?"✕":l.level==="WARN"?"⚠":"✓"}
+                    {l.level==="ERROR"?"\u2715":l.level==="WARN"?"\u26A0":"\u2713"}
                   </span>
                   <span className={`badge`} style={{background:lc+"22",color:lc,minWidth:42,textAlign:"center",height:16,lineHeight:"16px"}}>{l.level}</span>
                   <span style={{minWidth:60,color:T.muted}}>{l.source}</span>
@@ -1283,8 +1283,8 @@ function InfraView({rawHosts,onGlobalReload}) {
 
           {/* Group tabs */}
           <div style={{display:"flex",borderBottom:`1px solid ${T.border}`,background:"#f8fafc"}}>
-            {[["physical","🖧 Physical Hosts",rawHosts.length],
-              ["vms","🖥 VM Groups",allVMs.length]].map(([id,label,count])=>(
+            {[["physical","\uD83D\uDDA7 Physical Hosts",rawHosts.length],
+              ["vms","\uD83D\uDDA5 VM Groups",allVMs.length]].map(([id,label,count])=>(
               <button key={id} onClick={()=>setTreeTab(id)}
                 style={{flex:1,padding:"7px 4px",fontSize:11,fontWeight:treeTab===id?700:400,
                   border:"none",borderBottom:treeTab===id?`2px solid ${T.blue}`:"2px solid transparent",
@@ -1300,7 +1300,14 @@ function InfraView({rawHosts,onGlobalReload}) {
             {/* ── PHYSICAL HOSTS TAB ─────────────────────────────────── */}
             {treeTab==="physical"&&(
               <>
-                {rawHosts.map(h=>{
+                {/* Linux Hosts */}
+                {rawHosts.filter(h=>h.os_type!=="windows").length>0&&(
+                  <div style={{padding:"4px 10px 2px",fontSize:10,fontWeight:700,
+                    color:"#22c55e",letterSpacing:"1px",textTransform:"uppercase",opacity:.8}}>
+                    🐧 Linux ({rawHosts.filter(h=>h.os_type!=="windows").length})
+                  </div>
+                )}
+                {rawHosts.filter(h=>h.os_type!=="windows").map(h=>{
                   const det=hostCache[h.id];
                   const vms=det?.vms||h.vms||[];
                   const m=(det||h).metrics||{};
@@ -1310,7 +1317,7 @@ function InfraView({rawHosts,onGlobalReload}) {
                   return (
                     <div key={h.id} style={{marginBottom:2}}>
                       <div className={`tree-row ${isSel?"sel":""}`} onClick={()=>clickHost(h.id)}>
-                        <span style={{fontSize:15,flexShrink:0}}>{h.os_type==="linux"?"🐧":"🪟"}</span>
+                        <span style={{fontSize:15,flexShrink:0}}>{h.os_type==="linux"?"\uD83D\uDC27":"\uD83E\uDE9F"}</span>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.name}</div>
                           <div style={{fontSize:10,color:T.muted,display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
@@ -1324,7 +1331,7 @@ function InfraView({rawHosts,onGlobalReload}) {
                           {isExp&&<button className="btn btn-ghost btn-sm" style={{padding:"2px 5px",fontSize:9}}
                             onClick={e=>refreshVMs(h.id,e)} title="Discover VMs">⟳</button>}
                           <span style={{fontSize:10,color:T.muted,cursor:"pointer",padding:"0 2px"}}
-                            onClick={e=>{e.stopPropagation();setExpanded(ex=>({...ex,[h.id]:!ex[h.id]}));}}>{isExp?"▾":"▸"}</span>
+                            onClick={e=>{e.stopPropagation();setExpanded(ex=>({...ex,[h.id]:!ex[h.id]}));}}>{isExp?"\u25BE":"\u25B8"}</span>
                           <button className="btn btn-ghost btn-sm" style={{padding:"2px 4px",fontSize:9,color:T.red}}
                             onClick={e=>deleteHost(h.id,e)}>✕</button>
                         </div>
@@ -1335,7 +1342,7 @@ function InfraView({rawHosts,onGlobalReload}) {
                         <div style={{marginLeft:14,borderLeft:`2px solid ${T.border}`,paddingLeft:8,marginBottom:2}}>
                           {vms.length===0
                             ?<div style={{padding:"5px 8px",color:T.muted,fontSize:10}}>
-                                {loading===h.id+"_vms"?"Discovering...":"No VMs — click ⟳ to discover"}
+                                {loading===h.id+"_vms"?"Discovering...":"No VMs \u2014 click \u27F3 to discover"}
                               </div>
                             :vms.map(vm=>{
                                 const isSelVM=sel?.type==="vm"&&sel.vmId===vm.id;
@@ -1373,6 +1380,56 @@ function InfraView({rawHosts,onGlobalReload}) {
                     </div>
                   );
                 })}
+                {/* Windows Hosts */}
+                {rawHosts.filter(h=>h.os_type==="windows").length>0&&(
+                  <div style={{padding:"6px 10px 2px",fontSize:10,fontWeight:700,
+                    color:"#3b82f6",letterSpacing:"1px",textTransform:"uppercase",opacity:.8}}>
+                    🪟 Windows ({rawHosts.filter(h=>h.os_type==="windows").length})
+                  </div>
+                )}
+                {rawHosts.filter(h=>h.os_type==="windows").map(h=>{
+                  const det=hostCache[h.id];
+                  const vms2=det?.vms||h.vms||[];
+                  const m2=(det||h).metrics||{};
+                  const isExp2=expanded[h.id];
+                  const isSel2=sel?.type==="host"&&sel.hostId===h.id;
+                  const isOnline2=m2.source==="live";
+                  return (
+                    <div key={h.id} style={{marginBottom:2}}>
+                      <div className={`tree-row ${isSel2?"sel":""}`} onClick={()=>clickHost(h.id)}>
+                        <span style={{fontSize:15,flexShrink:0}}>🪟</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.name}</div>
+                          <div style={{fontSize:10,color:T.muted,display:"flex",gap:5,alignItems:"center"}}>
+                            <span style={{fontFamily:"IBM Plex Mono",fontSize:9}}>{h.ip}</span>
+                            {isOnline2&&<><span style={{color:T.blue}}>CPU:{m2.cpu}%</span><span style={{color:T.amber}}>RAM:{m2.ram}%</span></>}
+                            <span className="badge b-hv" style={{fontSize:9}}>Windows</span>
+                          </div>
+                        </div>
+                        <div style={{display:"flex",gap:3,flexShrink:0,alignItems:"center"}}>
+                          {loading===h.id&&<span className="spinner" style={{width:10,height:10}}/>}
+                          <span style={{fontSize:10,color:T.muted,cursor:"pointer",padding:"0 2px"}}
+                            onClick={e=>{e.stopPropagation();setExpanded(ex=>({...ex,[h.id]:!ex[h.id]}));}}>
+                            {isExp2?"\u25BE":"\u25B8"}
+                          </span>
+                        </div>
+                      </div>
+                      {isExp2&&vms2.filter(v=>!promotedIPs.has(v.ip)).map(vm=>{
+                        const vmSel2=sel?.type==="vm"&&sel.vmId===vm.id;
+                        return (
+                          <div key={vm.id} className={`tree-row vm-row ${vmSel2?"sel":""}`}
+                            style={{paddingLeft:28}} onClick={()=>clickVM(h.id,vm)}>
+                            <span style={{fontSize:13}}>🖥</span>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:11,fontWeight:600}}>{vm.name}</div>
+                              <div style={{fontSize:9,color:T.muted}}>{vm.state||"unknown"}{vm.ip?" \u00B7 "+vm.ip:""}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
                 {rawHosts.length===0&&(
                   <div style={{padding:"30px 10px",textAlign:"center",color:T.muted}}>
                     <div style={{fontSize:28,marginBottom:8}}>🖧</div>
@@ -1400,8 +1457,8 @@ function InfraView({rawHosts,onGlobalReload}) {
                         background:"#f1f5f9",borderRadius:6,cursor:"pointer",
                         fontSize:11,fontWeight:700,color:T.sub}}
                         onClick={()=>setExpanded(e=>({...e,["vg_"+h.id]:!isExp}))}>
-                        <span>{isExp?"▾":"▸"}</span>
-                        <span>{h.os_type==="linux"?"🐧":"🪟"}</span>
+                        <span>{isExp?"\u25BE":"\u25B8"}</span>
+                        <span>{h.os_type==="linux"?"\uD83D\uDC27":"\uD83E\uDE9F"}</span>
                         <span style={{flex:1}}>{h.name}</span>
                         <span style={{fontSize:10,background:T.border,borderRadius:8,
                           padding:"1px 6px",fontWeight:400}}>{vms.length} VMs</span>
@@ -1503,7 +1560,7 @@ function Overview({hosts,summary,history}) {
           <button className={`btn ${!selHost?"btn-primary":"btn-ghost"}`} onClick={()=>setSelHost(null)}>All Hosts</button>
           {hosts.map(h=>(
             <button key={h.id} className={`btn ${selHost===h.id?"btn-primary":"btn-ghost"}`}
-              onClick={()=>setSelHost(h.id)}>{h.os_type==="linux"?"🐧":"🪟"} {h.name}</button>
+              onClick={()=>setSelHost(h.id)}>{h.os_type==="linux"?"\uD83D\uDC27":"\uD83E\uDE9F"} {h.name}</button>
           ))}
         </div>
       </div>
@@ -1537,9 +1594,9 @@ function Overview({hosts,summary,history}) {
               <tbody>{hosts.map(h=>{
                 const o=h.metrics?.os_info||{};
                 return <tr key={h.id} style={{cursor:"pointer"}} onClick={()=>setSelHost(h.id)}>
-                  <td style={{fontWeight:600}}>{h.os_type==="linux"?"🐧":"🪟"} {h.name}</td>
+                  <td style={{fontWeight:600}}>{h.os_type==="linux"?"\uD83D\uDC27":"\uD83E\uDE9F"} {h.name}</td>
                   <td><code style={{fontSize:11}}>{h.ip}</code></td>
-                  <td style={{fontSize:11}}>{o.os_pretty||"—"}</td>
+                  <td style={{fontSize:11}}>{o.os_pretty||"\u2014"}</td>
                   <td><div style={{minWidth:80}}><div style={{fontSize:11,marginBottom:2}}>{h.metrics?.cpu}%</div><Bar val={h.metrics?.cpu}/></div></td>
                   <td><div style={{minWidth:80}}><div style={{fontSize:11,marginBottom:2}}>{h.metrics?.ram}%</div><Bar val={h.metrics?.ram}/></div></td>
                   <td><div style={{minWidth:80}}><div style={{fontSize:11,marginBottom:2}}>{h.metrics?.disk}%</div><Bar val={h.metrics?.disk}/></div></td>
@@ -1586,10 +1643,10 @@ function Overview({hosts,summary,history}) {
                 <thead><tr><th>Name</th><th>Hypervisor</th><th>Status</th><th>OS</th><th>IP</th><th>vCPU</th><th>RAM</th><th>CPU%</th><th>RAM%</th></tr></thead>
                 <tbody>{(host.vms||[]).map(vm=>(
                   <tr key={vm.id}>
-                    <td style={{fontWeight:600}}>🖥 {vm.name}</td>
+                    <td style={{fontWeight:600}}>\uD83D\uDDA5 {vm.name}</td>
                     <td><span className={`badge ${vm.hypervisor==="KVM"?"b-kvm":"b-hv"}`}>{vm.hypervisor}</span></td>
                     <td><StatusDot s={vm.status}/>{vm.status}</td>
-                    <td style={{fontSize:11,color:T.sub}}>{vm.os||"—"}</td>
+                    <td style={{fontSize:11,color:T.sub}}>{vm.os||"\u2014"}</td>
                     <td><code style={{fontSize:11}}>{vm.ip}</code></td>
                     <td>{vm.vcpu}</td>
                     <td>{fmtRAM(vm.ram_mb)}</td>
@@ -1606,21 +1663,23 @@ function Overview({hosts,summary,history}) {
   );
 }
 
-// ── Patches ───────────────────────────────────────────────────────────────────
-// ── Capacity Planning ─────────────────────────────────────────────────────────
+// \u2500\u2500 Patches \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// \u2500\u2500 Capacity Planning \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function CapacityPlanning() {
   const [data,setData]         = useState([]);
   const [busy,setBusy]         = useState(false);
-  const [err,setErr]           = useState("");           // FIX 1: was missing — caused crash on load
+  const [err,setErr]           = useState("");           // FIX 1: was missing \u2014 caused crash on load
   const [sel,setSel]           = useState(null);         // selected host_id for drill-down
   const [hostFilter,setHostFilter] = useState("all");
+  const [osTab,setOsTab]           = useState("linux");
+  const [genReport,setGenReport]   = useState(false);
 
   // FIX 2: selectedHost derived from sel + data (was never declared before)
   const selectedHost = sel ? data.find(h=>h.host_id===sel) || null : null;
 
   // FIX 3: helper functions missing from this scope
-  const gb = v => { const x=Number(v); return Number.isFinite(x)&&x>0?`${x} GB`:"—"; };
-  const txt = v => (v==null||v===""||v===undefined) ? "—" : String(v);
+  const gb = v => { const x=Number(v); return Number.isFinite(x)&&x>0?`${x} GB`:"\u2014"; };
+  const txt = v => (v==null||v===""||v===undefined) ? "\u2014" : String(v);
 
   // FIX 4: StatCard was used but never defined anywhere in the file
   const StatCard = ({label,value,sub,color}) => (
@@ -1657,8 +1716,63 @@ function CapacityPlanning() {
 
   const n = v => { const x=Number(v); return Number.isFinite(x)?x:0; };
 
+  var generateReport = function() {
+    var rData = displayData;
+    var ts = new Date().toLocaleString("en-IN",{timeZone:"Asia/Kolkata"});
+    var osLabel = osTab === "linux" ? "Linux" : "Windows";
+    var SEP = "=".repeat(60) + "\n";
+    var txt = "InfraCommand Capacity Report\n";
+    txt += "Generated: " + ts + " IST\n";
+    txt += "OS Filter: " + osLabel + "\n";
+    txt += SEP + "\n";
+    rData.forEach(function(h) {
+      txt += "HOST: " + h.host_name + " (" + (h.host_ip||"") + ")\n";
+      txt += "  CPU:     " + (h.cpu_vcpus||0) + " vCPUs, " + (h.vm_vcpu_alloc||0) + " allocated\n";
+      txt += "  RAM:     " + (h.ram_total_gb||0) + " GB, " + (h.vm_ram_alloc_gb||0) + " GB allocated\n";
+      txt += "  Storage: " + (h.disk_total_gb||0) + " GB\n";
+      txt += "  VMs:     " + (h.vm_count||0) + " total, " + (h.vm_running||0) + " running\n";
+      if (h.vms && h.vms.length > 0) {
+        txt += "  VM List:\n";
+        h.vms.forEach(function(vm) {
+          txt += "    - " + vm.name + " [" + (vm.status||"unknown") + "] " + (vm.vcpus||0) + "vCPU " + (vm.ram_gb||0) + "GB\n";
+        });
+      }
+      txt += "\n";
+    });
+    txt += SEP;
+    txt += "SUMMARY\n";
+    txt += "  Total Hosts: " + rData.length + "\n";
+    var tot = rData.reduce(function(a, h) {
+      return {
+        vcpus:      a.vcpus      + (h.cpu_vcpus||0),
+        vcpu_alloc: a.vcpu_alloc + (h.vm_vcpu_alloc||0),
+        ram:        a.ram        + (h.ram_total_gb||0),
+        ram_alloc:  a.ram_alloc  + (h.vm_ram_alloc_gb||0),
+        disk:       a.disk       + (h.disk_total_gb||0),
+        vms:        a.vms        + (h.vm_count||0),
+      };
+    }, {vcpus:0, vcpu_alloc:0, ram:0, ram_alloc:0, disk:0, vms:0});
+    txt += "  Total vCPUs: " + tot.vcpus + " (" + tot.vcpu_alloc + " allocated)\n";
+    txt += "  Total RAM:   " + tot.ram + " GB (" + tot.ram_alloc + " GB allocated)\n";
+    txt += "  Total Disk:  " + tot.disk + " GB\n";
+    txt += "  Total VMs:   " + tot.vms + "\n";
+    var blob = new Blob([txt], {type: "text/plain"});
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement("a");
+    a.href   = url;
+    a.download = "capacity-" + osLabel.toLowerCase() + "-" + new Date().toISOString().slice(0,10) + ".txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const hostOptions  = data.map(h=>({ id:h.host_id, name:h.host_name }));
   const filteredData = hostFilter==="all" ? data : data.filter(h=>h.host_id===hostFilter);
+  const osFilteredData = filteredData.filter(h => {
+    const os = (h.os_name || h.os_type || "").toLowerCase();
+    if (osTab === "windows") return os.includes("windows") || (h.os_type||"").toLowerCase()==="windows";
+    return !os.includes("windows") && (h.os_type||"linux").toLowerCase()!=="windows";
+  });
+  const displayData = osFilteredData;
 
   // Aggregate totals across filtered hosts
   const totals = filteredData.reduce((a,h)=>({
@@ -1676,42 +1790,70 @@ function CapacityPlanning() {
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
-      {/* ── Header ── */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-        <div>
-          <div style={{fontWeight:700,fontSize:16}}>Capacity Planning</div>
-          <div style={{fontSize:12,color:T.muted,marginTop:2}}>
-            Snapshot data from last Refresh on each host. Run ↻ Refresh per host to update.
+      {/* \u2500\u2500 Header \u2500\u2500 */}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:16}}>Capacity Planning</div>
+            <div style={{fontSize:12,color:T.muted,marginTop:2}}>
+              {displayData.length} host{displayData.length!==1?"s":""} \u00B7 snapshot from last Refresh
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <select value={hostFilter} onChange={e=>{ setHostFilter(e.target.value); setSel(null); }} style={{minWidth:180}}>
+              <option value="all">All Hosts</option>
+              {hostOptions.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}
+            </select>
+            <button className="btn btn-ghost" onClick={load} disabled={busy}>
+              {busy?<><span className="spinner"/>Loading...</>:"\u21BB Refresh"}
+            </button>
+            <button onClick={generateReport}
+              style={{padding:"7px 14px",borderRadius:7,border:"none",background:"#0f1f2e",
+                color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer"}}>
+              Download Report
+            </button>
           </div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <select value={hostFilter} onChange={e=>{ setHostFilter(e.target.value); setSel(null); }} style={{minWidth:200}}>
-            <option value="all">All Hosts</option>
-            {hostOptions.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}
-          </select>
-          <button className="btn btn-ghost" onClick={load} disabled={busy}>
-            {busy?<><span className="spinner"/>Loading...</>:"↻ Refresh"}
-          </button>
+        <div style={{display:"flex",gap:0,borderRadius:8,overflow:"hidden",
+          border:"1px solid #e2e8f0",alignSelf:"flex-start"}}>
+          {[["linux","\uD83D\uDC27 Linux"],["windows","\uD83E\uDE9F Windows"]].map(function(pair){
+            var key=pair[0]; var label=pair[1];
+            var count = filteredData.filter(function(h){
+              var os=(h.os_name||h.os_type||"").toLowerCase();
+              return key==="windows"
+                ?(os.includes("windows")||(h.os_type||"").toLowerCase()==="windows")
+                :(!os.includes("windows")&&(h.os_type||"linux").toLowerCase()!=="windows");
+            }).length;
+            return (
+              <button key={key} onClick={function(){setOsTab(key);setSel(null);}}
+                style={{padding:"8px 20px",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,
+                  background:osTab===key?"#0f1f2e":"#fff",
+                  color:osTab===key?"#fff":T.muted,
+                  borderRight:key==="linux"?"1px solid #e2e8f0":"none"}}>
+                {label} ({count})
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* ── Error banner ── */}
+      {/* \u2500\u2500 Error banner \u2500\u2500 */}
       {err&&(
         <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:6,padding:"10px 14px",color:"#b91c1c",fontSize:13}}>
-          ⚠️ {err}
+          \u26A0\uFE0F {err}
         </div>
       )}
 
-      {/* ── Summary cards ── */}
-      {filteredData.length>0&&(
+      {/* \u2500\u2500 Summary cards \u2500\u2500 */}
+      {displayData.length>0&&(
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
           {[
             ["Total vCPUs",       `${totals.vcpus}`,                                                   `${totals.vcpu_alloc} allocated`,                                                  T.blue],
             ["Free vCPUs",        `${totals.vcpus-totals.vcpu_alloc}`,                                 `${totals.vcpus?Math.round((totals.vcpus-totals.vcpu_alloc)/totals.vcpus*100):0}% available`, T.green],
             ["Total RAM",         `${totals.ram.toFixed(0)} GB`,                                        `${totals.ram_alloc.toFixed(1)} GB allocated`,                                      T.blue],
             ["Free RAM",          `${(totals.ram-totals.ram_alloc).toFixed(1)} GB`,                    `${totals.ram?Math.round((totals.ram-totals.ram_alloc)/totals.ram*100):0}% available`,T.green],
-            ["Local Storage",     `${totals.disk.toFixed(0)} GB`,                                       `${totals.disk_used.toFixed(1)} GB used · ${totals.disk_free.toFixed(1)} GB free`,  T.blue],
-            ["Total VMs",         `${totals.vms}`,                                                      `across ${filteredData.length} host(s)`,                                            T.purple],
+            ["Local Storage",     `${totals.disk.toFixed(0)} GB`,                                       `${totals.disk_used.toFixed(1)} GB used \u00B7 ${totals.disk_free.toFixed(1)} GB free`,  T.blue],
+            ["Total VMs",         `${totals.vms}`,                                                      `across ${displayData.length} host(s)`,                                            T.purple],
           ].map(([l,v,s,c])=>(
             <div key={l} className="card" style={{padding:12}}>
               <div style={{fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>{l}</div>
@@ -1722,12 +1864,12 @@ function CapacityPlanning() {
         </div>
       )}
 
-      {/* ── Main table ── */}
+      {/* \u2500\u2500 Main table \u2500\u2500 */}
       <div className="card shadow" style={{padding:0,overflow:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
           <thead>
             <tr style={{background:"#f8fafc",borderBottom:`2px solid ${T.border}`}}>
-              {/* FIX 5: table had 12 headers but only 11 data cells — "Storage Used" cell was missing */}
+              {/* FIX 5: table had 12 headers but only 11 data cells \u2014 "Storage Used" cell was missing */}
               {["Host","CPU Model","vCPU Total","vCPU Used","vCPU Free","RAM Total","RAM Used","RAM Free","Disk Total","Disk Used","Disk Free","VMs"].map(col=>(
                 <th key={col} style={{padding:"10px 12px",fontSize:10,fontWeight:700,color:T.muted,
                   textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{col}</th>
@@ -1735,7 +1877,7 @@ function CapacityPlanning() {
             </tr>
           </thead>
           <tbody>
-            {filteredData.map((h,i)=>{
+            {displayData.map((h,i)=>{
               const vcpuPct = h.cpu_vcpus    ? Math.round(n(h.vm_vcpu_alloc)/n(h.cpu_vcpus)*100)       : 0;
               const ramPct  = h.ram_total_gb  ? Math.round(n(h.vm_ram_alloc_gb)/n(h.ram_total_gb)*100)  : 0;
               const diskPct = h.disk_total_gb ? Math.round(n(h.disk_used_gb)/n(h.disk_total_gb)*100)    : 0;
@@ -1747,13 +1889,13 @@ function CapacityPlanning() {
                   {missing&&(
                     <tr style={{background:"#fffbeb"}}>
                       <td colSpan={12} style={{padding:"6px 14px",fontSize:11,color:"#92400e"}}>
-                        ⚠️ <strong>{h.host_name}</strong> — hardware inventory not yet collected.
-                        Go to <strong>Infrastructure</strong> tab → select this host → click <strong>↻ Refresh</strong>.
+                        \u26A0\uFE0F <strong>{h.host_name}</strong> \u2014 hardware inventory not yet collected.
+                        Go to <strong>Infrastructure</strong> tab \u2192 select this host \u2192 click <strong>\u21BB Refresh</strong>.
                       </td>
                     </tr>
                   )}
 
-                  {/* Main data row — click to expand VM drill-down */}
+                  {/* Main data row \u2014 click to expand VM drill-down */}
                   <tr style={{borderBottom:`1px solid ${T.border}`,cursor:"pointer",
                     background:isSel?"#eff6ff":missing?"#fffbeb":i%2===0?"#fff":"#fafbfc"}}
                     onClick={()=>setSel(isSel?null:h.host_id)}>
@@ -1767,13 +1909,13 @@ function CapacityPlanning() {
                     {/* CPU Model */}
                     <td style={{padding:"10px 12px",fontSize:11,color:T.sub,maxWidth:160,
                       overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={h.cpu_model}>
-                      {h.cpu_model||<span style={{color:T.amber,fontSize:10}}>↻ Refresh needed</span>}
-                      {h.cpu_model&&<div style={{fontSize:9,color:T.muted}}>{h.cpu_sockets} socket{h.cpu_sockets!==1?"s":""} · {h.cpu_pcores} cores · {h.threads_per_core}t</div>}
+                      {h.cpu_model||<span style={{color:T.amber,fontSize:10}}>\u21BB Refresh needed</span>}
+                      {h.cpu_model&&<div style={{fontSize:9,color:T.muted}}>{h.cpu_sockets} socket{h.cpu_sockets!==1?"s":""} \u00B7 {h.cpu_pcores} cores \u00B7 {h.threads_per_core}t</div>}
                     </td>
 
                     {/* vCPU Total */}
                     <td style={{padding:"10px 12px"}}>
-                      <div style={{fontWeight:700,color:T.blue}}>{h.cpu_vcpus||"—"}</div>
+                      <div style={{fontWeight:700,color:T.blue}}>{h.cpu_vcpus||"\u2014"}</div>
                     </td>
 
                     {/* vCPU Used */}
@@ -1786,13 +1928,13 @@ function CapacityPlanning() {
                     {/* vCPU Free */}
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,color:n(h.free_vcpus)>0?T.green:T.red}}>
-                        {h.free_vcpus!=null?h.free_vcpus:"—"}
+                        {h.free_vcpus!=null?h.free_vcpus:"\u2014"}
                       </div>
                     </td>
 
                     {/* RAM Total */}
                     <td style={{padding:"10px 12px",fontWeight:700,color:T.blue}}>
-                      {h.ram_total_gb?`${h.ram_total_gb} GB`:"—"}
+                      {h.ram_total_gb?`${h.ram_total_gb} GB`:"\u2014"}
                     </td>
 
                     {/* RAM Used (VM alloc) */}
@@ -1805,19 +1947,19 @@ function CapacityPlanning() {
                     {/* RAM Free */}
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,color:n(h.free_ram_gb)>0?T.green:T.red}}>
-                        {h.free_ram_gb!=null?`${h.free_ram_gb} GB`:"—"}
+                        {h.free_ram_gb!=null?`${h.free_ram_gb} GB`:"\u2014"}
                       </div>
                     </td>
 
                     {/* Disk Total */}
                     <td style={{padding:"10px 12px",fontWeight:700}}>
-                      {h.disk_total_gb?`${h.disk_total_gb} GB`:"—"}
+                      {h.disk_total_gb?`${h.disk_total_gb} GB`:"\u2014"}
                     </td>
 
-                    {/* FIX 5: Disk Used — this cell existed in header but was MISSING in the row */}
+                    {/* FIX 5: Disk Used \u2014 this cell existed in header but was MISSING in the row */}
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,color:diskPct>80?T.amber:T.text}}>
-                        {h.disk_used_gb!=null?`${h.disk_used_gb} GB`:"—"}
+                        {h.disk_used_gb!=null?`${h.disk_used_gb} GB`:"\u2014"}
                       </div>
                       {h.disk_total_gb&&<CommitBar pct={diskPct} warn={80} crit={95}/>}
                       {h.disk_total_gb&&<div style={{fontSize:9,color:T.muted,marginTop:2}}>{diskPct}%</div>}
@@ -1826,7 +1968,7 @@ function CapacityPlanning() {
                     {/* Disk Free */}
                     <td style={{padding:"10px 12px"}}>
                       <div style={{fontWeight:700,color:n(h.free_disk_gb)>0?T.green:T.red}}>
-                        {h.free_disk_gb!=null?`${h.free_disk_gb} GB`:"—"}
+                        {h.free_disk_gb!=null?`${h.free_disk_gb} GB`:"\u2014"}
                       </div>
                     </td>
 
@@ -1838,17 +1980,17 @@ function CapacityPlanning() {
                     </td>
                   </tr>
 
-                  {/* ── VM drill-down (expand on row click) ── */}
+                  {/* \u2500\u2500 VM drill-down (expand on row click) \u2500\u2500 */}
                   {isSel&&(
                     <tr style={{background:"#f0f7ff"}}>
                       <td colSpan={12} style={{padding:"0 16px 16px 32px"}}>
                         <div style={{paddingTop:12}}>
                           <div style={{fontWeight:700,fontSize:12,marginBottom:8,color:T.blue}}>
-                            VMs on {h.host_name} — {h.vm_running} running / {h.vm_count} total
+                            VMs on {h.host_name} \u2014 {h.vm_running} running / {h.vm_count} total
                           </div>
                           {(!Array.isArray(h.vms)||h.vms.length===0)?(
                             <div style={{color:T.muted,fontSize:12,padding:"8px 0"}}>
-                              No VMs found for this host. Run ↻ Refresh on the host to discover VMs.
+                              No VMs found for this host. Run \u21BB Refresh on the host to discover VMs.
                             </div>
                           ):(
                             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
@@ -1863,14 +2005,14 @@ function CapacityPlanning() {
                               <tbody>
                                 {h.vms.map((vm,vi)=>(
                                   <tr key={`${vm.name||"vm"}-${vi}`} style={{borderBottom:`1px solid #e2e8f0`}}>
-                                    <td style={{padding:"7px 10px",fontWeight:600}}>{vm.name||"—"}</td>
+                                    <td style={{padding:"7px 10px",fontWeight:600}}>{vm.name||"\u2014"}</td>
                                     <td style={{padding:"7px 10px"}}>
                                       <span className={`badge ${vm.status==="running"?"b-ok":"b-stop"}`}>{vm.status||"unknown"}</span>
                                     </td>
                                     <td style={{padding:"7px 10px",fontFamily:"IBM Plex Mono",fontSize:11,color:T.blue}}>{vm.ip||"N/A"}</td>
-                                    <td style={{padding:"7px 10px",fontWeight:600,color:T.amber}}>{vm.ram_gb>0?`${vm.ram_gb} GB`:"—"}</td>
-                                    <td style={{padding:"7px 10px",fontWeight:600,color:T.blue}}>{vm.vcpus||"—"}</td>
-                                    <td style={{padding:"7px 10px",color:T.sub}}>{vm.disk_gb>0?`${vm.disk_gb} GB`:"—"}</td>
+                                    <td style={{padding:"7px 10px",fontWeight:600,color:T.amber}}>{vm.ram_gb>0?`${vm.ram_gb} GB`:"\u2014"}</td>
+                                    <td style={{padding:"7px 10px",fontWeight:600,color:T.blue}}>{vm.vcpus||"\u2014"}</td>
+                                    <td style={{padding:"7px 10px",color:T.sub}}>{vm.disk_gb>0?`${vm.disk_gb} GB`:"\u2014"}</td>
                                   </tr>
                                 ))}
                                 <tr style={{background:"#e0f2fe",fontWeight:700}}>
@@ -1883,9 +2025,9 @@ function CapacityPlanning() {
                                 <tr style={{background:"#dcfce7",fontWeight:700}}>
                                   <td style={{padding:"7px 10px",color:T.green}}>REMAINING (host free)</td>
                                   <td/><td/>
-                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_ram_gb!=null?`${h.free_ram_gb} GB`:"—"}</td>
-                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_vcpus!=null?`${h.free_vcpus} vCPUs`:"—"}</td>
-                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_disk_gb!=null?`${h.free_disk_gb} GB`:"—"}</td>
+                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_ram_gb!=null?`${h.free_ram_gb} GB`:"\u2014"}</td>
+                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_vcpus!=null?`${h.free_vcpus} vCPUs`:"\u2014"}</td>
+                                  <td style={{padding:"7px 10px",color:T.green}}>{h.free_disk_gb!=null?`${h.free_disk_gb} GB`:"\u2014"}</td>
                                 </tr>
                               </tbody>
                             </table>
@@ -1901,15 +2043,15 @@ function CapacityPlanning() {
         </table>
 
         {/* Empty state */}
-        {filteredData.length===0&&!busy&&(
+        {displayData.length===0&&!busy&&(
           <div style={{padding:40,textAlign:"center",color:T.muted}}>
-            <div style={{fontSize:28,marginBottom:8}}>📊</div>
+            <div style={{fontSize:28,marginBottom:8}}>\uD83D\uDCCA</div>
             <div style={{fontWeight:600,marginBottom:6}}>
               {data.length===0?"No capacity data yet":"No hosts match the selected filter"}
             </div>
             <div style={{fontSize:12}}>
               {data.length===0?(
-                <>Go to <strong>Infrastructure</strong> tab → select each host → click <strong>↻ Refresh</strong> to collect hardware inventory.</>
+                <>Go to <strong>Infrastructure</strong> tab \u2192 select each host \u2192 click <strong>\u21BB Refresh</strong> to collect hardware inventory.</>
               ):(
                 <>Change the host filter to <strong>All Hosts</strong> or choose a different host.</>
               )}
@@ -1918,25 +2060,25 @@ function CapacityPlanning() {
         )}
       </div>
 
-      {/* ── Selected host detail panel (shown when a row is expanded) ── */}
+      {/* \u2500\u2500 Selected host detail panel (shown when a row is expanded) \u2500\u2500 */}
       {selectedHost&&(
         <div className="card shadow" style={{padding:16}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:10,flexWrap:"wrap"}}>
             <div>
               <div style={{fontWeight:700,fontSize:15}}>{selectedHost.host_name}</div>
-              <div style={{fontSize:12,color:T.muted}}>{selectedHost.host_ip} · {selectedHost.cpu_model||"CPU model unknown"}</div>
+              <div style={{fontSize:12,color:T.muted}}>{selectedHost.host_ip} \u00B7 {selectedHost.cpu_model||"CPU model unknown"}</div>
             </div>
             <div style={{fontSize:11,color:T.muted}}>
               {selectedHost.hw_missing
-                ? "⚠️ Hardware snapshot incomplete — refresh host for full totals."
+                ? "\u26A0\uFE0F Hardware snapshot incomplete \u2014 refresh host for full totals."
                 : `${n(selectedHost.vm_running)} running VM(s) of ${n(selectedHost.vm_count)} total`}
             </div>
           </div>
 
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:10,marginBottom:16}}>
-            <StatCard label="CPU Capacity"     value={`${n(selectedHost.cpu_vcpus)} vCPU`}      sub={`${n(selectedHost.vm_vcpu_alloc)} used · ${n(selectedHost.free_vcpus)} free`}        color={T.blue}/>
-            <StatCard label="Memory Capacity"  value={gb(selectedHost.ram_total_gb)}             sub={`${gb(selectedHost.vm_ram_alloc_gb)} used · ${gb(selectedHost.free_ram_gb)} free`}   color={T.amber}/>
-            <StatCard label="Storage Capacity" value={gb(selectedHost.disk_total_gb)}            sub={`${gb(selectedHost.disk_used_gb)} host used · ${gb(selectedHost.free_disk_gb)} free`} color={T.green}/>
+            <StatCard label="CPU Capacity"     value={`${n(selectedHost.cpu_vcpus)} vCPU`}      sub={`${n(selectedHost.vm_vcpu_alloc)} used \u00B7 ${n(selectedHost.free_vcpus)} free`}        color={T.blue}/>
+            <StatCard label="Memory Capacity"  value={gb(selectedHost.ram_total_gb)}             sub={`${gb(selectedHost.vm_ram_alloc_gb)} used \u00B7 ${gb(selectedHost.free_ram_gb)} free`}   color={T.amber}/>
+            <StatCard label="Storage Capacity" value={gb(selectedHost.disk_total_gb)}            sub={`${gb(selectedHost.disk_used_gb)} host used \u00B7 ${gb(selectedHost.free_disk_gb)} free`} color={T.green}/>
           </div>
 
           <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:T.blue}}>VM Allocation Details</div>
@@ -1952,17 +2094,17 @@ function CapacityPlanning() {
             <tbody>
               {(Array.isArray(selectedHost.vms)&&selectedHost.vms.length>0)?selectedHost.vms.map((vm,idx)=>(
                 <tr key={`${vm.name||"vm"}-${idx}`} style={{borderBottom:`1px solid #e2e8f0`}}>
-                  <td style={{padding:"8px 10px",fontWeight:600}}>{vm.name||"—"}</td>
+                  <td style={{padding:"8px 10px",fontWeight:600}}>{vm.name||"\u2014"}</td>
                   <td style={{padding:"8px 10px"}}><span className={`badge ${vm.status==="running"?"b-ok":"b-stop"}`}>{vm.status||"unknown"}</span></td>
                   <td style={{padding:"8px 10px",fontFamily:"IBM Plex Mono",fontSize:11,color:T.blue}}>{vm.ip||"N/A"}</td>
                   <td style={{padding:"8px 10px"}}>{gb(vm.ram_gb)}</td>
-                  <td style={{padding:"8px 10px"}}>{n(vm.vcpus)||"—"}</td>
-                  <td style={{padding:"8px 10px"}}>{vm.disk_gb>0?`${vm.disk_gb} GB`:"—"}</td>
+                  <td style={{padding:"8px 10px"}}>{n(vm.vcpus)||"\u2014"}</td>
+                  <td style={{padding:"8px 10px"}}>{vm.disk_gb>0?`${vm.disk_gb} GB`:"\u2014"}</td>
                 </tr>
               )):(
                 <tr>
                   <td colSpan={6} style={{padding:"14px 10px",color:T.muted,textAlign:"center"}}>
-                    No VMs in DB for this host — run ↻ Refresh on the host to discover VMs.
+                    No VMs in DB for this host \u2014 run \u21BB Refresh on the host to discover VMs.
                   </td>
                 </tr>
               )}
@@ -1987,14 +2129,14 @@ function Patches() {
           <tbody>{patches.map((p,i)=>(
             <tr key={i}>
               <td style={{fontWeight:600}}>{p.host||p.host_id}</td>
-              <td style={{fontSize:11}}>{p.os||"—"}</td>
-              <td><code style={{fontSize:10}}>{p.kernel||"—"}</code></td>
+              <td style={{fontSize:11}}>{p.os||"\u2014"}</td>
+              <td><code style={{fontSize:10}}>{p.kernel||"\u2014"}</code></td>
               <td><code style={{fontSize:10,color:p.latest_kernel&&p.latest_kernel!==p.kernel?T.amber:T.green}}>{p.latest_kernel||"N/A"}</code></td>
-              <td><code style={{fontSize:11}}>{p.pkg_manager||"—"}</code></td>
+              <td><code style={{fontSize:11}}>{p.pkg_manager||"\u2014"}</code></td>
               <td><span style={{fontWeight:700,color:p.updates_available>0?T.red:T.green}}>{p.updates_available??0}</span></td>
               <td><span style={{fontWeight:700,color:p.security_updates>0?T.red:T.green}}>{p.security_updates??0}</span></td>
-              <td style={{fontSize:11,color:T.muted}}>{p.last_patch||"—"}</td>
-              <td><span className="badge" style={{background:pc(p.status)+"22",color:pc(p.status)}}>{p.status||"—"}</span></td>
+              <td style={{fontSize:11,color:T.muted}}>{p.last_patch||"\u2014"}</td>
+              <td><span className="badge" style={{background:pc(p.status)+"22",color:pc(p.status)}}>{p.status||"\u2014"}</span></td>
             </tr>
           ))}</tbody>
         </table>
@@ -2003,7 +2145,7 @@ function Patches() {
   );
 }
 
-// ── Alerts ────────────────────────────────────────────────────────────────────
+// \u2500\u2500 Alerts \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function Alerts() {
   const [alerts,setAlerts]=useState([]);
   const [busy,setBusy]=useState(false);
@@ -2017,15 +2159,15 @@ function Alerts() {
   const crit = alerts.filter(a=>a.severity==="critical");
   const warn  = alerts.filter(a=>a.severity!=="critical");
 
-  const typeIcon={Connection:"🔌","CPU":"🔥","RAM":"🧠","Disk":"💾","Storage":"💽",
-                  NIC:"🌐","NIC Error":"🌐","Security Patch":"🔐","Patch":"🔧"};
+  const typeIcon={Connection:"\uD83D\uDD0C","CPU":"\uD83D\uDD25","RAM":"\uD83E\uDDE0","Disk":"\uD83D\uDCBE","Storage":"\uD83D\uDCBD",
+                  NIC:"\uD83C\uDF10","NIC Error":"\uD83C\uDF10","Security Patch":"\uD83D\uDD10","Patch":"\uD83D\uDD27"};
 
   const AlertCard=({a})=>(
     <div className="card shadow" style={{padding:"12px 18px",borderLeft:`4px solid ${a.severity==="critical"?T.red:T.amber}`,
       background:a.severity==="critical"?"#fff8f8":"#fffdf0"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
-          <span style={{fontSize:18}}>{typeIcon[a.type]||"⚠️"}</span>
+          <span style={{fontSize:18}}>{typeIcon[a.type]||"\u26A0\uFE0F"}</span>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
               <span className={`badge ${a.severity==="critical"?"b-crit":"b-warn"}`}>{a.type}</span>
@@ -2047,18 +2189,18 @@ function Alerts() {
           {crit.length>0&&<span style={{marginLeft:8,background:T.red,color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:11}}>{crit.length} critical</span>}
           {warn.length>0&&<span style={{marginLeft:6,background:T.amber,color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:11}}>{warn.length} warning</span>}
         </div>
-        <button className="btn btn-ghost" onClick={load} disabled={busy}>{busy?<span className="spinner"/>:"↻"} Refresh</button>
+        <button className="btn btn-ghost" onClick={load} disabled={busy}>{busy?<span className="spinner"/>:"\u21BB"} Refresh</button>
       </div>
-      {alerts.length===0&&<div className="card shadow" style={{padding:40,textAlign:"center",color:T.green,fontSize:15}}>✅ No active alerts — all systems healthy</div>}
+      {alerts.length===0&&<div className="card shadow" style={{padding:40,textAlign:"center",color:T.green,fontSize:15}}>\u2705 No active alerts \u2014 all systems healthy</div>}
       {crit.length>0&&(
         <div>
-          <div style={{fontWeight:700,color:T.red,fontSize:12,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>🚨 Critical ({crit.length})</div>
+          <div style={{fontWeight:700,color:T.red,fontSize:12,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>\uD83D\uDEA8 Critical ({crit.length})</div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>{crit.map(a=><AlertCard key={a.id} a={a}/>)}</div>
         </div>
       )}
       {warn.length>0&&(
         <div>
-          <div style={{fontWeight:700,color:T.amber,fontSize:12,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>⚠️ Warnings ({warn.length})</div>
+          <div style={{fontWeight:700,color:T.amber,fontSize:12,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>\u26A0\uFE0F Warnings ({warn.length})</div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>{warn.map(a=><AlertCard key={a.id} a={a}/>)}</div>
         </div>
       )}
@@ -2066,7 +2208,7 @@ function Alerts() {
   );
 }
 
-// ── Logs ──────────────────────────────────────────────────────────────────────
+// \u2500\u2500 Logs \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function Logs({hosts}) {
   const [logs,setLogs]=useState([]);
   const [hf,setHf]=useState("all");
@@ -2093,7 +2235,7 @@ function Logs({hosts}) {
           <option value="all">All Levels</option>
           <option value="ERROR">ERROR</option><option value="WARN">WARN</option><option value="INFO">INFO</option>
         </select>
-        <button className="btn btn-ghost" onClick={fetch}>{busy?<span className="spinner"/>:"↻"} Refresh</button>
+        <button className="btn btn-ghost" onClick={fetch}>{busy?<span className="spinner"/>:"\u21BB"} Refresh</button>
         <span style={{color:T.muted,fontSize:11}}>{logs.length} entries</span>
       </div>
       <div className="card shadow" style={{padding:0,maxHeight:"68vh",overflowY:"auto"}}>
@@ -2112,8 +2254,8 @@ function Logs({hosts}) {
 }
 
 
-// ── Debug Console ─────────────────────────────────────────────────────────────
-// ── VM IP Debugger ────────────────────────────────────────────────────────────
+// \u2500\u2500 Debug Console \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// \u2500\u2500 VM IP Debugger \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function VMIPDebug({hosts}) {
   const [hid,setHid]=useState("");
   const [result,setResult]=useState(null);
@@ -2132,11 +2274,11 @@ function VMIPDebug({hosts}) {
       <div style={{fontWeight:700,fontSize:15}}>VM IP Debugger</div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         <select value={hid} onChange={e=>setHid(e.target.value)} style={{width:200}}>
-          <option value="">— Select host —</option>
+          <option value="">\u2014 Select host \u2014</option>
           {hosts.map(h=><option key={h.id} value={h.id}>{h.name} ({h.ip})</option>)}
         </select>
         <button className="btn btn-primary btn-sm" onClick={run} disabled={busy||!hid}>
-          {busy?<><span className="spinner"/>Running...</>:"🔍 Run IP Debug"}
+          {busy?<><span className="spinner"/>Running...</>:"\uD83D\uDD0D Run IP Debug"}
         </button>
       </div>
       {result&&(
@@ -2150,7 +2292,7 @@ function VMIPDebug({hosts}) {
           )}
           {result.vms&&Object.entries(result.vms).map(([vname,d])=>(
             <div key={vname} style={{marginBottom:16,borderTop:"1px solid #f1f5f9",paddingTop:12}}>
-              <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>🖥 {vname} <span style={{fontSize:11,color:T.muted}}>({d.state})</span></div>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>\uD83D\uDDA5 {vname} <span style={{fontSize:11,color:T.muted}}>({d.state})</span></div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                 {[["virsh domifaddr",d.domifaddr],["virsh domiflist",d.domiflist],
                   ...d.macs?.flatMap(mac=>[
@@ -2205,13 +2347,13 @@ function DebugConsole() {
   };
 
   const stepColor=ok=>ok?T.green:T.red;
-  const stepIcon=ok=>ok?"✔":"✗";
+  const stepIcon=ok=>ok?"\u2714":"\u2717";
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14,maxWidth:900}}>
       <div style={{fontWeight:700,fontSize:15}}>Connection Debug Console</div>
       <div style={{fontSize:12,color:T.muted}}>
-        Tests TCP → Auth → OS detect → Metrics → Patch → VMs step by step and shows exact error at each stage.
+        Tests TCP \u2192 Auth \u2192 OS detect \u2192 Metrics \u2192 Patch \u2192 VMs step by step and shows exact error at each stage.
       </div>
 
       <div className="card shadow" style={{padding:18}}>
@@ -2222,8 +2364,8 @@ function DebugConsole() {
           ))}
           <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>OS Type</label>
             <select value={form.os_type} onChange={e=>set("os_type",e.target.value)}>
-              <option value="linux">🐧 Linux</option>
-              <option value="windows">🪟 Windows</option>
+              <option value="linux">\uD83D\uDC27 Linux</option>
+              <option value="windows">\uD83E\uDE9F Windows</option>
             </select></div>
           <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>
             {form.os_type==="linux"?"SSH Port":"WinRM Port"}</label>
@@ -2234,13 +2376,13 @@ function DebugConsole() {
             <input type="password" value={form.password} onChange={e=>set("password",e.target.value)}/></div>
         </div>
         <button className="btn btn-primary" onClick={run} disabled={busy||!form.ip}>
-          {busy?<><span className="spinner"/>Running diagnostics...</>:"▶ Run Full Diagnostics"}</button>
+          {busy?<><span className="spinner"/>Running diagnostics...</>:"\u25B6 Run Full Diagnostics"}</button>
       </div>
 
       {result&&(
         <div className="card shadow" style={{padding:18}}>
           <div style={{fontWeight:700,fontSize:14,marginBottom:14}}>
-            Diagnostic Results — {result.ip}
+            Diagnostic Results \u2014 {result.ip}
             {result.error&&!result.steps?.length&&(
               <span style={{color:T.red,fontWeight:400,fontSize:12,marginLeft:10}}>{result.error}</span>
             )}
@@ -2277,7 +2419,7 @@ function DebugConsole() {
           {/* WinRM setup for Windows */}
           {form.os_type==="windows" && result?.steps?.some(s=>!s.ok && s.step.startsWith("WinRM")) && (
             <div style={{marginTop:14,padding:"14px 16px",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8}}>
-              <div style={{fontWeight:700,marginBottom:10,color:T.blue}}>🪟 WinRM Setup Required</div>
+              <div style={{fontWeight:700,marginBottom:10,color:T.blue}}>\uD83E\uDE9F WinRM Setup Required</div>
               {!winrmSetup
                 ?<button className="btn btn-ghost btn-sm" onClick={loadWinrmSetup}>Show setup commands</button>
                 :<div>
@@ -2294,15 +2436,15 @@ function DebugConsole() {
           {result.steps?.some(s=>!s.ok)&&(
             <div style={{marginTop:14,padding:"12px 16px",background:"#fffbeb",
               border:"1px solid #fde68a",borderRadius:8,fontSize:12}}>
-              <div style={{fontWeight:700,marginBottom:8,color:T.amber}}>💡 Remediation hints</div>
+              <div style={{fontWeight:700,marginBottom:8,color:T.amber}}>\uD83D\uDCA1 Remediation hints</div>
               {result.steps.filter(s=>!s.ok).map((s,i)=>{
                 let hint="";
-                if(s.step.startsWith("TCP")) hint=`Port unreachable — check firewall, confirm the IP is correct, and that SSH/WinRM is running. Run: nc -zv ${result.ip} ${form.os_type==="linux"?form.ssh_port:form.winrm_port}`;
-                else if(s.step==="SSH") hint="Auth failed — verify username/password. If key auth, ensure the key is correct. Try: ssh "+form.username+"@"+result.ip;
+                if(s.step.startsWith("TCP")) hint=`Port unreachable \u2014 check firewall, confirm the IP is correct, and that SSH/WinRM is running. Run: nc -zv ${result.ip} ${form.os_type==="linux"?form.ssh_port:form.winrm_port}`;
+                else if(s.step==="SSH") hint="Auth failed \u2014 verify username/password. If key auth, ensure the key is correct. Try: ssh "+form.username+"@"+result.ip;
                 else if(s.step.startsWith("WinRM")) {
                   hint="WinRM failed. On the Windows host run (PowerShell as Admin):\n  winrm quickconfig\n  winrm set winrm/config/service/auth @{Basic=\"true\"}\n  winrm set winrm/config/service @{AllowUnencrypted=\"true\"}\n  netsh advfirewall firewall add rule name=WinRM dir=in action=allow protocol=TCP localport=5985";
                 }
-                else if(s.step==="Metrics") hint="SSH connected but metrics collection failed — likely a missing command. Check if top/free/df are available.";
+                else if(s.step==="Metrics") hint="SSH connected but metrics collection failed \u2014 likely a missing command. Check if top/free/df are available.";
                 return hint?<div key={i} style={{marginBottom:8}}>
                   <span style={{fontWeight:600,color:T.amber}}>{s.step}: </span>
                   <pre style={{display:"inline",fontFamily:"inherit",whiteSpace:"pre-wrap"}}>{hint}</pre>
@@ -2316,13 +2458,13 @@ function DebugConsole() {
   );
 }
 
-// ── App Shell ─────────────────────────────────────────────────────────────────
-const VIEWS=[{id:"overview",icon:"📊",label:"Overview"},{id:"infra",icon:"🖧",label:"Infrastructure"},
-             {id:"logs",icon:"📋",label:"Logs"},{id:"alerts",icon:"🔔",label:"Alerts"},
-             {id:"patches",icon:"🔧",label:"Patches"},{id:"capacity",icon:"📊",label:"Capacity"},{id:"vmip",icon:"🔬",label:"VM IP Debug"},{id:"scans",icon:"🔒",label:"Vuln Scans"},{id:"users",icon:"👥",label:"Users"},{id:"debug",icon:"🛠",label:"Debug"}];
+// \u2500\u2500 App Shell \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+const VIEWS=[{id:"overview",icon:"\uD83D\uDCCA",label:"Overview"},{id:"infra",icon:"\uD83D\uDDA7",label:"Infrastructure"},
+             {id:"logs",icon:"\uD83D\uDCCB",label:"Logs"},{id:"alerts",icon:"\uD83D\uDD14",label:"Alerts"},
+             {id:"patches",icon:"\uD83D\uDD27",label:"Patches"},{id:"capacity",icon:"\uD83D\uDCCA",label:"Capacity"},{id:"vmip",icon:"\uD83D\uDD2C",label:"VM IP Debug"},{id:"scans",icon:"\uD83D\uDD12",label:"Vuln Scans"},{id:"users",icon:"\uD83D\uDC65",label:"Users"},{id:"debug",icon:"\uD83D\uDEE0",label:"Debug"}];
 
 export default function App() {
-  // ── All hooks first (React rules) ─────────────────────────────────────────
+  // \u2500\u2500 All hooks first (React rules) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   var _stored = loadAuth();
   var [authUser,    setAuthUser]    = useState(_stored.user);
   var [mustChangePw,setMustChangePw]= useState(_stored.user ? !!_stored.user.must_change_pw : false);
@@ -2346,7 +2488,7 @@ export default function App() {
 
   useEffect(function(){ if (authUser && !mustChangePw) loadData(); }, [authUser, mustChangePw]); // eslint-disable-line
 
-  // ── Auth handlers ───────────────────────────────────────────────────────────
+  // \u2500\u2500 Auth handlers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   function handleLogin(user, mustChange) {
     setAuthUser(user);
     setMustChangePw(!!mustChange);
@@ -2364,7 +2506,7 @@ export default function App() {
     setMustChangePw(false);
   }
 
-  // ── Auth gate (after all hooks) ─────────────────────────────────────────────
+  // \u2500\u2500 Auth gate (after all hooks) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   if (!authUser) return React.createElement(LoginPage, { onLogin: handleLogin });
   if (mustChangePw) return React.createElement(ChangePasswordPage, { user: authUser, onDone: handlePasswordChanged });
 
@@ -2426,9 +2568,9 @@ export default function App() {
             display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
             <div>
               <div style={{fontWeight:700,fontSize:15}}>{VIEWS.find(v=>v.id===view)?.label}</div>
-              <div style={{color:T.muted,fontSize:11}}>Data persisted in DB · use ↻ Refresh per host to update</div>
+              <div style={{color:T.muted,fontSize:11}}>Data persisted in DB \u00B7 use \u21BB Refresh per host to update</div>
             </div>
-            <button className="btn btn-refresh" onClick={loadData}>↻ Reload DB</button>
+            <button className="btn btn-refresh" onClick={loadData}>\u21BB Reload DB</button>
             <a href={"http://" + window.location.hostname + ":5000/api/docs"}
               target="_blank" rel="noreferrer"
               style={{padding:"7px 14px",borderRadius:7,border:"1px solid #e2e8f0",
@@ -2455,7 +2597,7 @@ export default function App() {
   );
 }
 
-// ── LoginPage ─────────────────────────────────────────────────────────────────
+// \u2500\u2500 LoginPage \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
 
 
@@ -2515,7 +2657,7 @@ function LoginPage({ onLogin }) {
   );
 }
 
-// ── ChangePasswordPage ────────────────────────────────────────────────────────
+// \u2500\u2500 ChangePasswordPage \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function ChangePasswordPage({ user, onDone }) {
   var [form, setForm] = useState({ current_password: "", new_password: "", confirm: "" });
   var [error, setError] = useState("");
@@ -2555,7 +2697,7 @@ function ChangePasswordPage({ user, onDone }) {
     <div style={{minHeight:"100vh",background:"#0f1f2e",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{background:"#fff",borderRadius:16,padding:40,width:400,boxShadow:"0 20px 60px rgba(0,0,0,.4)"}}>
         <div style={{textAlign:"center",marginBottom:28}}>
-          <div style={{fontSize:36,marginBottom:8}}>🔐</div>
+          <div style={{fontSize:36,marginBottom:8}}>\uD83D\uDD10</div>
           <div style={{fontWeight:800,fontSize:20,color:"#0f172a"}}>Change Your Password</div>
           <div style={{marginTop:10,padding:"8px 14px",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,fontSize:13,color:"#92400e"}}>
             Welcome, <strong>{user ? (user.full_name || user.username) : ""}</strong>! Set a new password before continuing.
@@ -2589,7 +2731,7 @@ function ChangePasswordPage({ user, onDone }) {
   );
 }
 
-// ── AllScans ──────────────────────────────────────────────────────────────────
+// \u2500\u2500 AllScans \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function AllScans() {
   var [scans, setScans] = useState([]);
   var [hosts, setHosts] = useState([]);
@@ -2634,7 +2776,7 @@ function AllScans() {
   );
 }
 
-// ── UserManagementPage ────────────────────────────────────────────────────────
+// \u2500\u2500 UserManagementPage \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 var PERM_LABELS = {
   view:"View Dashboard", scan:"Run Scans", refresh:"Refresh Hosts",
   patch:"Patch Management", logs:"View Logs",
