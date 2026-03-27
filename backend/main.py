@@ -747,8 +747,23 @@ def scan_vm(hid: str, vid: str, db: Session = Depends(get_db), force: bool = Fal
         cached = db_get_scan(db, vid)
         if cached:
             return cached
-    # Use the VM IP but inherit SSH credentials from the parent host
-    vm_host_ctx = {**h, "ip": vm.get("ip", "N/A"), "name": vm["name"]}
+    # Build VM scan context:
+    # - Use VM IP
+    # - For KVM VMs (Linux guests): inherit SSH creds from parent host, force os_type=linux
+    # - For Hyper-V VMs (could be Windows or Linux): use VM's own os_type if known,
+    #   otherwise default to linux since most VMs are Linux guests
+    vm_os = vm.get("os_type") or vm.get("os", "")
+    is_windows_vm = "windows" in vm_os.lower() if vm_os else False
+    # If we can't determine VM OS from its data, check hypervisor type
+    # KVM = Linux guest, Hyper-V = could be either but default linux
+    if not vm_os:
+        is_windows_vm = False  # default to Linux scan (SSH+Trivy)
+    vm_host_ctx = {
+        **h,
+        "ip":      vm.get("ip", "N/A"),
+        "name":    vm["name"],
+        "os_type": "windows" if is_windows_vm else "linux",
+    }
     result = vuln_scan(vid, vm["name"], "vm", vm.get("ip", "N/A"), h["name"], host_ctx=vm_host_ctx)
     db_save_scan(db, vid, result)
     return result
