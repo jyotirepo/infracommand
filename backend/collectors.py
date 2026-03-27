@@ -1540,13 +1540,13 @@ def collect_windows_nics(host: dict, s=None) -> list:
         data = _collect_windows_nics_ps(host, s=s)
         rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
         mapped = [{"name": d.get("name",""), "mac": d.get("mac",""),
-                 "ipv4": d.get("ipv4",""), "ipv6": d.get("ipv6",""),
-                 "subnet": d.get("subnet",""), "gateway": d.get("gateway",""),
-                 "dhcp": d.get("dhcp", False), "state": d.get("state","up"),
-                 "speed_mbps": d.get("speed_mbps"),
-                 "rx_mb": d.get("rx_mb",0), "tx_mb": d.get("tx_mb",0),
-                 "rx_pkts": 0, "tx_pkts": 0, "rx_err": 0, "tx_err": 0}
-                for d in rows if d.get("name")]
+                   "ipv4": d.get("ipv4",""), "ipv6": d.get("ipv6",""),
+                   "subnet": d.get("subnet",""), "gateway": d.get("gateway",""),
+                   "dhcp": d.get("dhcp", False), "state": d.get("state","up"),
+                   "speed_mbps": d.get("speed_mbps"),
+                   "rx_mb": d.get("rx_mb",0), "tx_mb": d.get("tx_mb",0),
+                   "rx_pkts": 0, "tx_pkts": 0, "rx_err": 0, "tx_err": 0}
+                  for d in rows if isinstance(d, dict) and d.get("name")]
         if mapped:
             return mapped
         # Fallback: minimal NIC inventory from adapter configuration only.
@@ -1570,6 +1570,86 @@ Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -e
             rows2.append({"name": name, "mac": mac, "ipv4": ipv4, "ipv6": ipv6,
                           "subnet": subnet, "gateway": gateway,
                           "dhcp": str(dhcp).strip().lower() in ("true", "1", "yes")})
+        if not rows2:
+            # Final fallback via WMIC (no PowerShell parsing dependency).
+            try:
+                out = _run_cmd_text(
+                    s,
+                    "wmic",
+                    ["nicconfig", "where", "IPEnabled=true", "get",
+                     "Description,MACAddress,DHCPEnabled,DefaultIPGateway,IPAddress,IPSubnet", "/format:csv"],
+                )
+                for ln in out.splitlines():
+                    line = (ln or "").strip()
+                    if not line or line.lower().startswith("node,"):
+                        continue
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) < 7:
+                        continue
+                    name = parts[1]
+                    mac = parts[2]
+                    dhcp_raw = parts[3]
+                    gw_raw = parts[4]
+                    ip_raw = parts[5]
+                    subnet_raw = parts[6]
+                    ipv4 = ""
+                    ipv6 = ""
+                    for tok in ip_raw.replace("{", "").replace("}", "").replace('"', "").split(";"):
+                        t = tok.strip()
+                        if not t:
+                            continue
+                        if "." in t and not ipv4:
+                            ipv4 = t
+                        elif ":" in t and not ipv6:
+                            ipv6 = t
+                    gateway = gw_raw.replace("{", "").replace("}", "").replace('"', "").split(";")[0].strip() if gw_raw else ""
+                    subnet = subnet_raw.replace("{", "").replace("}", "").replace('"', "").split(";")[0].strip() if subnet_raw else ""
+                    if name:
+                        rows2.append({
+                            "name": name, "mac": mac, "ipv4": ipv4, "ipv6": ipv6,
+                            "subnet": subnet, "gateway": gateway,
+                            "dhcp": str(dhcp_raw).strip().lower() in ("true", "1", "yes")
+                        })
+            except Exception:
+                pass
+        if not rows2:
+            # Last fallback: parse `ipconfig /all` text (works when WMI providers are restricted).
+            try:
+                txt = _run_cmd_text(s, "cmd", ["/c", "ipconfig", "/all"])
+                current = None
+                for ln in txt.splitlines():
+                    line = (ln or "").rstrip()
+                    if not line.strip():
+                        continue
+                    low = line.lower().strip()
+                    if low.endswith(":") and "adapter" in low:
+                        name = line.strip().rstrip(":")
+                        current = {"name": name, "mac": "", "ipv4": "", "ipv6": "",
+                                   "subnet": "", "gateway": "", "dhcp": False}
+                        rows2.append(current)
+                        continue
+                    if not current:
+                        continue
+                    if ":" not in line:
+                        continue
+                    k, v = line.split(":", 1)
+                    key = k.strip().lower()
+                    val = v.strip()
+                    if "physical address" in key and val:
+                        current["mac"] = val.replace("-", ":")
+                    elif "ipv4 address" in key and val:
+                        current["ipv4"] = val.split("(")[0].strip()
+                    elif key.startswith("subnet mask") and val:
+                        current["subnet"] = val
+                    elif key.startswith("default gateway") and val and not current["gateway"]:
+                        current["gateway"] = val
+                    elif "dhcp enabled" in key:
+                        current["dhcp"] = val.lower().startswith("yes")
+                    elif "ipv6 address" in key and val and not current["ipv6"]:
+                        current["ipv6"] = val.split("(")[0].strip()
+                rows2 = [r for r in rows2 if r.get("name")]
+            except Exception:
+                pass
         return [{"name": d.get("name",""), "mac": d.get("mac",""),
                  "ipv4": d.get("ipv4",""), "ipv6": d.get("ipv6",""),
                  "subnet": d.get("subnet",""), "gateway": d.get("gateway",""),
@@ -2195,7 +2275,7 @@ def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=No
             if (host_ctx.get("os_type") or "").lower() == "windows":
                 s = _winrm_connect(host_ctx)
                 win_rows = _run_ps(s, r"""
-try {
+  $ErrorActionPreference = "Stop"
   $sr = New-Object -ComObject Microsoft.Update.Searcher
   $updates = $sr.Search("IsInstalled=0 and Type='Software'").Updates
   $out = @()
@@ -2215,10 +2295,7 @@ try {
       port_exposed = $false
     }
   }
-  $out | ConvertTo-Json
-} catch {
-  @() | ConvertTo-Json
-}""")
+  $out | ConvertTo-Json""")
                 vulns = win_rows if isinstance(win_rows, list) else ([win_rows] if isinstance(win_rows, dict) else [])
             else:
                 # Linux/Unix targets continue to use SSH + Trivy flow.
@@ -2241,10 +2318,10 @@ try {
             "total":        len(vulns),
             "open_ports":   len(open_ports),
             "risky_ports":  sum(1 for p in open_ports if p.get("risky")),
-            "port_exposed": sum(1 for v in vulns if v.get("port_exposed")),
-            "critical":     sum(1 for v in vulns if v["severity"] == "CRITICAL"),
-            "high":         sum(1 for v in vulns if v["severity"] == "HIGH"),
-            "medium":       sum(1 for v in vulns if v["severity"] == "MEDIUM"),
-            "low":          sum(1 for v in vulns if v["severity"] == "LOW"),
+            "port_exposed": sum(1 for v in vulns if isinstance(v, dict) and v.get("port_exposed")),
+            "critical":     sum(1 for v in vulns if isinstance(v, dict) and v.get("severity") == "CRITICAL"),
+            "high":         sum(1 for v in vulns if isinstance(v, dict) and v.get("severity") == "HIGH"),
+            "medium":       sum(1 for v in vulns if isinstance(v, dict) and v.get("severity") == "MEDIUM"),
+            "low":          sum(1 for v in vulns if isinstance(v, dict) and v.get("severity") == "LOW"),
         },
     }
