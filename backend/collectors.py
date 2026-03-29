@@ -1772,7 +1772,9 @@ Get-VM | ForEach-Object {
         rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
         vms = []
         for v in rows:
-            state = "running" if str(v.get("State","")).lower() in ("running","2") else "stopped"
+            # Hyper-V State: 2=Running, 3=Stopped, 6=Saved, 9=Paused, 10=Starting
+            raw_state = str(v.get("State", "")).strip()
+            state = "running" if raw_state.lower() in ("running", "2") else "stopped"
             stor = []
             try:
                 raw_s = v.get("Storage", "[]") or "[]"
@@ -1787,13 +1789,17 @@ Get-VM | ForEach-Object {
                 if isinstance(vm_nics, dict): vm_nics = [vm_nics]
             except Exception:
                 pass
+            # Determine VM OS type from OS field
+            vm_os_raw = str(v.get("OS", "")).strip()
+            vm_os_type = "windows" if "windows" in vm_os_raw.lower() else "linux"
             vms.append({
                 "id":       f"vm-{host['id']}-{v['Name']}",
                 "host_id":  host["id"],
                 "name":     v["Name"], "type": "Hyper-V", "hypervisor": "Hyper-V",
                 "status":   state, "ip": v.get("IP","N/A") or "N/A",
                 "vcpu":     v.get("vCPU", 1), "ram_mb": v.get("RAM_MB", 0),
-                "disk_gb":  v.get("Disk_GB", 0), "os": v.get("OS","Windows"),
+                "disk_gb":  v.get("Disk_GB", 0), "os": vm_os_raw or "Windows",
+                "os_type":  vm_os_type,
                 "storage":  stor, "nics": vm_nics,
                 "metrics":  {
                     "cpu":    min(100.0, max(0.0, float(v.get("CPU") or 0))),
@@ -1803,7 +1809,10 @@ Get-VM | ForEach-Object {
                 },
             })
         return vms
-    except Exception:
+    except Exception as e:
+        # Return error info so the API can surface it rather than silently failing
+        import logging
+        logging.getLogger(__name__).warning(f"collect_hyperv_vms failed for host {host.get('id')}: {e}")
         return []
 
 

@@ -1125,6 +1125,8 @@ function InfraView({rawHosts,onGlobalReload}) {
   const [showAdd,setShowAdd]     = useState(false);
   const [promoteVM,setPromoteVM] = useState(null);
   const [treeTab,setTreeTab]     = useState("physical"); // "physical" | "vms"
+  const [physicalOsTab,setPhysicalOsTab] = useState("linux"); // "linux" | "windows"
+  const [vmOsTab,setVmOsTab]     = useState("linux"); // "linux" | "windows"
   const [expanded,setExpanded]   = useState({});
 
   // ── Data helpers ────────────────────────────────────────────────────────────
@@ -1300,30 +1302,46 @@ function InfraView({rawHosts,onGlobalReload}) {
             {/* ── PHYSICAL HOSTS TAB ─────────────────────────────────── */}
             {treeTab==="physical"&&(
               <>
-                {/* Linux Hosts */}
-                {rawHosts.filter(h=>h.os_type!=="windows").length>0&&(
-                  <div style={{padding:"4px 10px 2px",fontSize:10,fontWeight:700,
-                    color:"#22c55e",letterSpacing:"1px",textTransform:"uppercase",opacity:.8}}>
-                    🐧 Linux ({rawHosts.filter(h=>h.os_type!=="windows").length})
+                {/* Linux / Windows sub-tabs */}
+                <div style={{display:"flex",gap:0,marginBottom:6,borderRadius:7,overflow:"hidden",border:`1px solid ${T.border}`}}>
+                  {[["linux","🐧 Linux",rawHosts.filter(h=>h.os_type!=="windows").length],
+                    ["windows","🪟 Windows",rawHosts.filter(h=>h.os_type==="windows").length]
+                  ].map(([key,label,cnt])=>(
+                    <button key={key} onClick={()=>setPhysicalOsTab(key)}
+                      style={{flex:1,padding:"5px 4px",fontSize:10,fontWeight:physicalOsTab===key?700:400,
+                        border:"none",cursor:"pointer",
+                        background:physicalOsTab===key?(key==="linux"?"#f0fdf4":"#eff6ff"):"#f8fafc",
+                        color:physicalOsTab===key?(key==="linux"?"#16a34a":T.blue):T.muted,
+                        borderRight:key==="linux"?`1px solid ${T.border}`:"none"}}>
+                      {label} <span style={{fontSize:9,background:physicalOsTab===key?(key==="linux"?"#dcfce7":"#dbeafe"):T.border,
+                        borderRadius:8,padding:"1px 5px",marginLeft:2}}>{cnt}</span>
+                    </button>
+                  ))}
+                </div>
+                {/* Filtered hosts by OS sub-tab */}
+                {rawHosts.filter(h=>physicalOsTab==="windows"?h.os_type==="windows":h.os_type!=="windows").length===0&&(
+                  <div style={{padding:"20px 10px",textAlign:"center",color:T.muted,fontSize:11}}>
+                    No {physicalOsTab==="windows"?"Windows":"Linux"} hosts added yet
                   </div>
                 )}
-                {rawHosts.filter(h=>h.os_type!=="windows").map(h=>{
+                {rawHosts.filter(h=>physicalOsTab==="windows"?h.os_type==="windows":h.os_type!=="windows").map(h=>{
                   const det=hostCache[h.id];
                   const vms=det?.vms||h.vms||[];
                   const m=(det||h).metrics||{};
                   const isExp=expanded[h.id];
                   const isSel=sel?.type==="host"&&sel.hostId===h.id;
                   const isOnline=m.source==="live";
+                  const isWin=h.os_type==="windows";
                   return (
                     <div key={h.id} style={{marginBottom:2}}>
                       <div className={`tree-row ${isSel?"sel":""}`} onClick={()=>clickHost(h.id)}>
-                        <span style={{fontSize:15,flexShrink:0}}>{h.os_type==="linux"?"\uD83D\uDC27":"\uD83E\uDE9F"}</span>
+                        <span style={{fontSize:15,flexShrink:0}}>{isWin?"🪟":"🐧"}</span>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.name}</div>
                           <div style={{fontSize:10,color:T.muted,display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
                             <span style={{fontFamily:"IBM Plex Mono",fontSize:9}}>{h.ip}</span>
                             {isOnline&&<><span style={{color:T.blue}}>CPU:{m.cpu}%</span><span style={{color:T.amber}}>RAM:{m.ram}%</span></>}
-                            <span className={`badge ${h.os_type==="linux"?"b-kvm":"b-hv"}`} style={{fontSize:8,padding:"0 4px"}}>{h.os_type==="linux"?"KVM":"Hyper-V"}</span>
+                            <span className={`badge ${isWin?"b-hv":"b-kvm"}`} style={{fontSize:8,padding:"0 4px"}}>{isWin?"Hyper-V":"KVM"}</span>
                           </div>
                         </div>
                         <div style={{display:"flex",gap:3,flexShrink:0,alignItems:"center"}}>
@@ -1331,18 +1349,16 @@ function InfraView({rawHosts,onGlobalReload}) {
                           {isExp&&<button className="btn btn-ghost btn-sm" style={{padding:"2px 5px",fontSize:9}}
                             onClick={e=>refreshVMs(h.id,e)} title="Discover VMs">⟳</button>}
                           <span style={{fontSize:10,color:T.muted,cursor:"pointer",padding:"0 2px"}}
-                            onClick={e=>{e.stopPropagation();setExpanded(ex=>({...ex,[h.id]:!ex[h.id]}));}}>{isExp?"\u25BE":"\u25B8"}</span>
+                            onClick={e=>{e.stopPropagation();setExpanded(ex=>({...ex,[h.id]:!ex[h.id]}));}}>{isExp?"▾":"▸"}</span>
                           <button className="btn btn-ghost btn-sm" style={{padding:"2px 4px",fontSize:9,color:T.red}}
                             onClick={e=>deleteHost(h.id,e)}>✕</button>
                         </div>
                       </div>
-
-                      {/* Hosted VMs under physical host */}
                       {isExp&&(
                         <div style={{marginLeft:14,borderLeft:`2px solid ${T.border}`,paddingLeft:8,marginBottom:2}}>
                           {vms.length===0
                             ?<div style={{padding:"5px 8px",color:T.muted,fontSize:10}}>
-                                {loading===h.id+"_vms"?"Discovering...":"No VMs \u2014 click \u27F3 to discover"}
+                                {loading===h.id+"_vms"?"Discovering...":"No VMs — click ⟳ to discover"}
                               </div>
                             :vms.map(vm=>{
                                 const isSelVM=sel?.type==="vm"&&sel.vmId===vm.id;
@@ -1380,56 +1396,6 @@ function InfraView({rawHosts,onGlobalReload}) {
                     </div>
                   );
                 })}
-                {/* Windows Hosts */}
-                {rawHosts.filter(h=>h.os_type==="windows").length>0&&(
-                  <div style={{padding:"6px 10px 2px",fontSize:10,fontWeight:700,
-                    color:"#3b82f6",letterSpacing:"1px",textTransform:"uppercase",opacity:.8}}>
-                    🪟 Windows ({rawHosts.filter(h=>h.os_type==="windows").length})
-                  </div>
-                )}
-                {rawHosts.filter(h=>h.os_type==="windows").map(h=>{
-                  const det=hostCache[h.id];
-                  const vms2=det?.vms||h.vms||[];
-                  const m2=(det||h).metrics||{};
-                  const isExp2=expanded[h.id];
-                  const isSel2=sel?.type==="host"&&sel.hostId===h.id;
-                  const isOnline2=m2.source==="live";
-                  return (
-                    <div key={h.id} style={{marginBottom:2}}>
-                      <div className={`tree-row ${isSel2?"sel":""}`} onClick={()=>clickHost(h.id)}>
-                        <span style={{fontSize:15,flexShrink:0}}>🪟</span>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.name}</div>
-                          <div style={{fontSize:10,color:T.muted,display:"flex",gap:5,alignItems:"center"}}>
-                            <span style={{fontFamily:"IBM Plex Mono",fontSize:9}}>{h.ip}</span>
-                            {isOnline2&&<><span style={{color:T.blue}}>CPU:{m2.cpu}%</span><span style={{color:T.amber}}>RAM:{m2.ram}%</span></>}
-                            <span className="badge b-hv" style={{fontSize:9}}>Windows</span>
-                          </div>
-                        </div>
-                        <div style={{display:"flex",gap:3,flexShrink:0,alignItems:"center"}}>
-                          {loading===h.id&&<span className="spinner" style={{width:10,height:10}}/>}
-                          <span style={{fontSize:10,color:T.muted,cursor:"pointer",padding:"0 2px"}}
-                            onClick={e=>{e.stopPropagation();setExpanded(ex=>({...ex,[h.id]:!ex[h.id]}));}}>
-                            {isExp2?"\u25BE":"\u25B8"}
-                          </span>
-                        </div>
-                      </div>
-                      {isExp2&&vms2.filter(v=>!promotedIPs.has(v.ip)).map(vm=>{
-                        const vmSel2=sel?.type==="vm"&&sel.vmId===vm.id;
-                        return (
-                          <div key={vm.id} className={`tree-row vm-row ${vmSel2?"sel":""}`}
-                            style={{paddingLeft:28}} onClick={()=>clickVM(h.id,vm)}>
-                            <span style={{fontSize:13}}>🖥</span>
-                            <div style={{flex:1,minWidth:0}}>
-                              <div style={{fontSize:11,fontWeight:600}}>{vm.name}</div>
-                              <div style={{fontSize:9,color:T.muted}}>{vm.state||"unknown"}{vm.ip?" \u00B7 "+vm.ip:""}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
                 {rawHosts.length===0&&(
                   <div style={{padding:"30px 10px",textAlign:"center",color:T.muted}}>
                     <div style={{fontSize:28,marginBottom:8}}>🖧</div>
@@ -1443,7 +1409,26 @@ function InfraView({rawHosts,onGlobalReload}) {
             {/* ── VM GROUPS TAB ──────────────────────────────────────── */}
             {treeTab==="vms"&&(
               <>
-                {rawHosts.filter(h=>{
+                {/* Linux / Windows sub-tabs for VM Groups */}
+                <div style={{display:"flex",gap:0,marginBottom:6,borderRadius:7,overflow:"hidden",border:`1px solid ${T.border}`}}>
+                  {[["linux","🐧 Linux VMs",rawHosts.filter(h=>h.os_type!=="windows")],
+                    ["windows","🪟 Windows VMs",rawHosts.filter(h=>h.os_type==="windows")]
+                  ].map(([key,label,filteredHosts])=>{
+                    const vmCount=filteredHosts.reduce((acc,h)=>{const det=hostCache[h.id];return acc+(det?.vms||h.vms||[]).length;},0);
+                    return (
+                      <button key={key} onClick={()=>setVmOsTab(key)}
+                        style={{flex:1,padding:"5px 4px",fontSize:10,fontWeight:vmOsTab===key?700:400,
+                          border:"none",cursor:"pointer",
+                          background:vmOsTab===key?(key==="linux"?"#f0fdf4":"#eff6ff"):"#f8fafc",
+                          color:vmOsTab===key?(key==="linux"?"#16a34a":T.blue):T.muted,
+                          borderRight:key==="linux"?`1px solid ${T.border}`:"none"}}>
+                        {label} <span style={{fontSize:9,background:vmOsTab===key?(key==="linux"?"#dcfce7":"#dbeafe"):T.border,
+                          borderRadius:8,padding:"1px 5px",marginLeft:2}}>{vmCount}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {rawHosts.filter(h=>vmOsTab==="windows"?h.os_type==="windows":h.os_type!=="windows").filter(h=>{
                   const det=hostCache[h.id];
                   return (det?.vms||h.vms||[]).length>0;
                 }).map(h=>{
@@ -1507,11 +1492,11 @@ function InfraView({rawHosts,onGlobalReload}) {
                     </div>
                   );
                 })}
-                {allVMs.length===0&&(
+                {rawHosts.filter(h=>vmOsTab==="windows"?h.os_type==="windows":h.os_type!=="windows").filter(h=>{const det=hostCache[h.id];return (det?.vms||h.vms||[]).length>0;}).length===0&&(
                   <div style={{padding:"30px 10px",textAlign:"center",color:T.muted}}>
-                    <div style={{fontSize:28,marginBottom:8}}>🖥</div>
-                    <div style={{fontSize:12}}>No VMs discovered yet</div>
-                    <div style={{fontSize:11,marginTop:4}}>Click ⟳ on a physical host to discover</div>
+                    <div style={{fontSize:28,marginBottom:8}}>{vmOsTab==="windows"?"🪟":"🖥"}</div>
+                    <div style={{fontSize:12}}>No {vmOsTab==="windows"?"Windows":"Linux"} VMs discovered yet</div>
+                    <div style={{fontSize:11,marginTop:4}}>Click ⟳ on a {vmOsTab==="windows"?"Windows":"Linux"} physical host to discover</div>
                   </div>
                 )}
               </>
@@ -1716,53 +1701,178 @@ function CapacityPlanning() {
 
   const n = v => { const x=Number(v); return Number.isFinite(x)?x:0; };
 
-  var generateReport = function() {
+  var generateReport = async function(format) {
     var rData = displayData;
     var ts = new Date().toLocaleString("en-IN",{timeZone:"Asia/Kolkata"});
     var osLabel = osTab === "linux" ? "Linux" : "Windows";
-    var SEP = "=".repeat(60) + "\n";
-    var txt = "InfraCommand Capacity Report\n";
-    txt += "Generated: " + ts + " IST\n";
-    txt += "OS Filter: " + osLabel + "\n";
-    txt += SEP + "\n";
-    rData.forEach(function(h) {
-      txt += "HOST: " + h.host_name + " (" + (h.host_ip||"") + ")\n";
-      txt += "  CPU:     " + (h.cpu_vcpus||0) + " vCPUs, " + (h.vm_vcpu_alloc||0) + " allocated\n";
-      txt += "  RAM:     " + (h.ram_total_gb||0) + " GB, " + (h.vm_ram_alloc_gb||0) + " GB allocated\n";
-      txt += "  Storage: " + (h.disk_total_gb||0) + " GB\n";
-      txt += "  VMs:     " + (h.vm_count||0) + " total, " + (h.vm_running||0) + " running\n";
-      if (h.vms && h.vms.length > 0) {
-        txt += "  VM List:\n";
-        h.vms.forEach(function(vm) {
-          txt += "    - " + vm.name + " [" + (vm.status||"unknown") + "] " + (vm.vcpus||0) + "vCPU " + (vm.ram_gb||0) + "GB\n";
-        });
+
+    // ── SHARED: load logo as base64 ──────────────────────────────────────────
+    var logoBase64 = null;
+    try {
+      var imgRes = await fetch("/logo.jpg");
+      var imgBlob = await imgRes.blob();
+      logoBase64 = await new Promise(function(res) {
+        var r = new FileReader();
+        r.onloadend = function(){ res(r.result); };
+        r.readAsDataURL(imgBlob);
+      });
+    } catch(e) { /* logo optional */ }
+
+    if (format === "pdf") {
+      // ── PDF generation via jsPDF + autoTable ────────────────────────────
+      var jsPDFLib = await import("jspdf");
+      var autoTable = (await import("jspdf-autotable")).default;
+      var jsPDF = jsPDFLib.jsPDF || jsPDFLib.default;
+      var doc = new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+
+      // Header bar
+      doc.setFillColor(15, 31, 46);
+      doc.rect(0, 0, 297, 20, "F");
+
+      // D&IT Logo (top-left inside header)
+      if (logoBase64) {
+        try { doc.addImage(logoBase64, "JPEG", 4, 2, 28, 16); } catch(e){}
       }
-      txt += "\n";
-    });
-    txt += SEP;
-    txt += "SUMMARY\n";
-    txt += "  Total Hosts: " + rData.length + "\n";
-    var tot = rData.reduce(function(a, h) {
-      return {
-        vcpus:      a.vcpus      + (h.cpu_vcpus||0),
-        vcpu_alloc: a.vcpu_alloc + (h.vm_vcpu_alloc||0),
-        ram:        a.ram        + (h.ram_total_gb||0),
-        ram_alloc:  a.ram_alloc  + (h.vm_ram_alloc_gb||0),
-        disk:       a.disk       + (h.disk_total_gb||0),
-        vms:        a.vms        + (h.vm_count||0),
-      };
-    }, {vcpus:0, vcpu_alloc:0, ram:0, ram_alloc:0, disk:0, vms:0});
-    txt += "  Total vCPUs: " + tot.vcpus + " (" + tot.vcpu_alloc + " allocated)\n";
-    txt += "  Total RAM:   " + tot.ram + " GB (" + tot.ram_alloc + " GB allocated)\n";
-    txt += "  Total Disk:  " + tot.disk + " GB\n";
-    txt += "  Total VMs:   " + tot.vms + "\n";
-    var blob = new Blob([txt], {type: "text/plain"});
-    var url  = URL.createObjectURL(blob);
-    var a    = document.createElement("a");
-    a.href   = url;
-    a.download = "capacity-" + osLabel.toLowerCase() + "-" + new Date().toISOString().slice(0,10) + ".txt";
-    a.click();
-    URL.revokeObjectURL(url);
+
+      // Title text
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(13);
+      doc.setFont("helvetica","bold");
+      doc.text("InfraCommand — Capacity Report", 38, 10);
+      doc.setFontSize(8);
+      doc.setFont("helvetica","normal");
+      doc.text("Generated: " + ts + " IST  |  OS: " + osLabel + "  |  Hosts: " + rData.length, 38, 16);
+
+      // Sub-header line
+      doc.setFillColor(0, 123, 255);
+      doc.rect(0, 20, 297, 1.2, "F");
+
+      // Table
+      var headers = ["Host","CPU Model","vCPU Total","vCPU Used","vCPU Free",
+                     "RAM Total (GB)","RAM Used (GB)","RAM Free (GB)",
+                     "Disk Total (GB)","Disk Used (GB)","Disk Free (GB)","VMs"];
+      var rows = rData.map(function(h) {
+        return [
+          h.host_name + (h.host_ip ? "\n" + h.host_ip : ""),
+          h.cpu_model || "—",
+          String(h.cpu_vcpus || 0),
+          String(h.vm_vcpu_alloc || 0),
+          String(h.free_vcpus != null ? h.free_vcpus : 0),
+          String(h.ram_total_gb || 0),
+          String(h.vm_ram_alloc_gb || 0),
+          String(h.free_ram_gb != null ? h.free_ram_gb : 0),
+          String(h.disk_total_gb || 0),
+          String(h.disk_used_gb != null ? h.disk_used_gb : 0),
+          String(h.free_disk_gb != null ? h.free_disk_gb : 0),
+          String(h.vm_count || 0),
+        ];
+      });
+
+      // Totals summary row
+      var tot = rData.reduce(function(a,h){
+        return {
+          vcpus:      a.vcpus      + Number(h.cpu_vcpus||0),
+          vcpu_alloc: a.vcpu_alloc + Number(h.vm_vcpu_alloc||0),
+          free_vcpus: a.free_vcpus + Number(h.free_vcpus||0),
+          ram:        a.ram        + Number(h.ram_total_gb||0),
+          ram_used:   a.ram_used   + Number(h.vm_ram_alloc_gb||0),
+          free_ram:   a.free_ram   + Number(h.free_ram_gb||0),
+          disk:       a.disk       + Number(h.disk_total_gb||0),
+          disk_used:  a.disk_used  + Number(h.disk_used_gb||0),
+          free_disk:  a.free_disk  + Number(h.free_disk_gb||0),
+          vms:        a.vms        + Number(h.vm_count||0),
+        };
+      },{vcpus:0,vcpu_alloc:0,free_vcpus:0,ram:0,ram_used:0,free_ram:0,disk:0,disk_used:0,free_disk:0,vms:0});
+      rows.push([
+        "TOTAL ("+rData.length+" hosts)","",
+        String(tot.vcpus), String(tot.vcpu_alloc), String(tot.free_vcpus),
+        tot.ram.toFixed(1), tot.ram_used.toFixed(1), tot.free_ram.toFixed(1),
+        tot.disk.toFixed(1), tot.disk_used.toFixed(1), tot.free_disk.toFixed(1),
+        String(tot.vms)
+      ]);
+
+      autoTable(doc, {
+        head: [headers],
+        body: rows,
+        startY: 24,
+        styles: {fontSize:7, cellPadding:2},
+        headStyles: {fillColor:[15,31,46], textColor:255, fontStyle:"bold", fontSize:7},
+        alternateRowStyles: {fillColor:[245,248,252]},
+        columnStyles: {
+          0:{cellWidth:32}, 1:{cellWidth:40},
+          2:{cellWidth:16,halign:"center"}, 3:{cellWidth:16,halign:"center"}, 4:{cellWidth:16,halign:"center"},
+          5:{cellWidth:20,halign:"right"},  6:{cellWidth:20,halign:"right"},  7:{cellWidth:20,halign:"right"},
+          8:{cellWidth:20,halign:"right"},  9:{cellWidth:20,halign:"right"},  10:{cellWidth:20,halign:"right"},
+          11:{cellWidth:12,halign:"center"},
+        },
+        didDrawPage: function(data) {
+          // Footer on each page
+          doc.setFontSize(7);
+          doc.setTextColor(130,130,130);
+          var pg = doc.internal.getCurrentPageInfo().pageNumber;
+          doc.text("InfraCommand — Confidential  |  Page " + pg, 14, doc.internal.pageSize.height - 6);
+        },
+        willDrawCell: function(data) {
+          // Highlight totals row
+          if (data.row.index === rows.length - 1) {
+            data.cell.styles.fillColor = [15, 31, 46];
+            data.cell.styles.textColor = [255, 255, 255];
+            data.cell.styles.fontStyle = "bold";
+          }
+        },
+      });
+
+      doc.save("InfraCommand-Capacity-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".pdf");
+
+    } else if (format === "excel") {
+      // ── Excel generation via SheetJS ─────────────────────────────────────
+      var XLSX = await import("xlsx");
+      var wb = XLSX.utils.book_new();
+
+      var headers = ["Host","IP","CPU Model","vCPU Total","vCPU Used","vCPU Free",
+                     "RAM Total (GB)","RAM Used (GB)","RAM Free (GB)",
+                     "Disk Total (GB)","Disk Used (GB)","Disk Free (GB)","VMs"];
+      var wsData = [
+        ["InfraCommand — Capacity Report"],
+        ["Generated: " + ts + " IST", "", "OS Filter: " + osLabel],
+        [],
+        headers,
+      ];
+      rData.forEach(function(h) {
+        wsData.push([
+          h.host_name || "",
+          h.host_ip || "",
+          h.cpu_model || "",
+          Number(h.cpu_vcpus || 0),
+          Number(h.vm_vcpu_alloc || 0),
+          Number(h.free_vcpus != null ? h.free_vcpus : 0),
+          Number(h.ram_total_gb || 0),
+          Number(h.vm_ram_alloc_gb || 0),
+          Number(h.free_ram_gb != null ? h.free_ram_gb : 0),
+          Number(h.disk_total_gb || 0),
+          Number(h.disk_used_gb != null ? h.disk_used_gb : 0),
+          Number(h.free_disk_gb != null ? h.free_disk_gb : 0),
+          Number(h.vm_count || 0),
+        ]);
+      });
+      // VM detail sheet
+      var vmData = [["Host","VM Name","Status","vCPU","RAM (GB)","Disk (GB)","OS","IP"]];
+      rData.forEach(function(h) {
+        (h.vms || []).forEach(function(vm) {
+          vmData.push([h.host_name, vm.name, vm.status||"", vm.vcpus||0, (vm.ram_mb||0)/1024, vm.disk_gb||0, vm.os||"", vm.ip||""]);
+        });
+      });
+
+      var ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws["!cols"] = [{wch:22},{wch:15},{wch:32},{wch:12},{wch:12},{wch:12},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:8}];
+      ws["!merges"] = [{s:{r:0,c:0},e:{r:0,c:12}}];
+      XLSX.utils.book_append_sheet(wb, ws, "Capacity Summary");
+
+      var ws2 = XLSX.utils.aoa_to_sheet(vmData);
+      XLSX.utils.book_append_sheet(wb, ws2, "VM Details");
+
+      XLSX.writeFile(wb, "InfraCommand-Capacity-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".xlsx");
+    }
   };
 
   const hostOptions  = data.map(h=>({ id:h.host_id, name:h.host_name }));
@@ -1807,11 +1917,20 @@ function CapacityPlanning() {
             <button className="btn btn-ghost" onClick={load} disabled={busy}>
               {busy?<><span className="spinner"/>Loading...</>:"\u21BB Refresh"}
             </button>
-            <button onClick={generateReport}
-              style={{padding:"7px 14px",borderRadius:7,border:"none",background:"#0f1f2e",
-                color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer"}}>
-              Download Report
-            </button>
+            <div style={{display:"flex",gap:0,borderRadius:7,overflow:"hidden",border:"1px solid #1e3a5f"}}>
+              <button onClick={()=>generateReport("pdf")}
+                style={{padding:"7px 13px",border:"none",background:"#0f1f2e",
+                  color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer",
+                  borderRight:"1px solid #1e3a5f",display:"flex",alignItems:"center",gap:5}}>
+                📄 PDF
+              </button>
+              <button onClick={()=>generateReport("excel")}
+                style={{padding:"7px 13px",border:"none",background:"#0f1f2e",
+                  color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer",
+                  display:"flex",alignItems:"center",gap:5}}>
+                📊 Excel
+              </button>
+            </div>
           </div>
         </div>
         <div style={{display:"flex",gap:0,borderRadius:8,overflow:"hidden",

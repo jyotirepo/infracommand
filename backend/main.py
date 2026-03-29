@@ -750,19 +750,26 @@ def scan_vm(hid: str, vid: str, db: Session = Depends(get_db), force: bool = Fal
     # Build VM scan context:
     # - Use VM IP
     # - For KVM VMs (Linux guests): inherit SSH creds from parent host, force os_type=linux
-    # - For Hyper-V VMs (could be Windows or Linux): use VM's own os_type if known,
-    #   otherwise default to linux since most VMs are Linux guests
-    vm_os = vm.get("os_type") or vm.get("os", "")
-    is_windows_vm = "windows" in vm_os.lower() if vm_os else False
-    # If we can't determine VM OS from its data, check hypervisor type
-    # KVM = Linux guest, Hyper-V = could be either but default linux
-    if not vm_os:
-        is_windows_vm = False  # default to Linux scan (SSH+Trivy)
+    # - For Hyper-V VMs: check vm os_type field (now populated by collector) or fall back to
+    #   hypervisor type (Hyper-V hosts = Windows guests by default)
+    vm_os = (vm.get("os_type") or "").strip().lower()
+    vm_os_fallback = (vm.get("os") or "").strip().lower()
+    hypervisor = (vm.get("hypervisor") or "").strip()
+
+    if vm_os:
+        is_windows_vm = vm_os == "windows"
+    elif vm_os_fallback:
+        is_windows_vm = "windows" in vm_os_fallback
+    else:
+        # If hypervisor is Hyper-V and no OS info, assume Windows guest
+        is_windows_vm = hypervisor == "Hyper-V"
+
     vm_host_ctx = {
         **h,
-        "ip":      vm.get("ip", "N/A"),
-        "name":    vm["name"],
-        "os_type": "windows" if is_windows_vm else "linux",
+        "ip":         vm.get("ip", "N/A"),
+        "name":       vm["name"],
+        "os_type":    "windows" if is_windows_vm else "linux",
+        "winrm_port": h.get("winrm_port", 5985),  # always carry WinRM port from parent host
     }
     result = vuln_scan(vid, vm["name"], "vm", vm.get("ip", "N/A"), h["name"], host_ctx=vm_host_ctx)
     db_save_scan(db, vid, result)
