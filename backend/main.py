@@ -724,8 +724,16 @@ def scan_host(hid: str, db: Session = Depends(get_db), force: bool = False, _=De
         cached = db_get_scan(db, hid)
         if cached:
             return cached
-    # Pass full host dict so trivy SSH scan has the credentials it needs
-    result = vuln_scan(hid, h["name"], "host", h["ip"], host_ctx=h)
+    # Explicitly build scan context with correct os_type and port.
+    # Linux → SSH port 22.  Windows → WinRM port 5985/5986.
+    os_type = (h.get("os_type") or "linux").strip().lower()
+    scan_ctx = {
+        **h,
+        "os_type":    os_type,
+        "ssh_port":   int(h.get("ssh_port") or 22),
+        "winrm_port": int(h.get("winrm_port") or 5985),
+    }
+    result = vuln_scan(hid, h["name"], "host", h["ip"], host_ctx=scan_ctx)
     db_save_scan(db, hid, result)
     return result
 
@@ -766,13 +774,14 @@ def scan_vm(hid: str, vid: str, db: Session = Depends(get_db), force: bool = Fal
 
     vm_host_ctx = {
         **h,
-        # Keep h["ip"] (the Hyper-V host IP) for WinRM connection.
-        # vuln_scan receives vm IP separately as the `ip` argument.
-        "ip":         h["ip"],             # WinRM connects to the Hyper-V host, not the VM
+        # WinRM connects to the Hyper-V parent host IP, not the VM's IP.
+        # Linux VM scans SSH into the VM's IP directly (inherited from parent host creds).
+        "ip":         h["ip"] if is_windows_vm else vm.get("ip", "N/A"),
         "name":       vm["name"],
-        "vm_name":    vm["name"],          # used by vuln_scan to Invoke-Command into the VM
+        "vm_name":    vm["name"],          # Invoke-Command target inside Hyper-V host
         "os_type":    "windows" if is_windows_vm else "linux",
-        "winrm_port": h.get("winrm_port", 5985),
+        "ssh_port":   int(h.get("ssh_port") or 22),        # Linux: SSH port
+        "winrm_port": int(h.get("winrm_port") or 5985),   # Windows: WinRM port
     }
     result = vuln_scan(vid, vm["name"], "vm", vm.get("ip", "N/A"), h["name"], host_ctx=vm_host_ctx)
     db_save_scan(db, vid, result)

@@ -2258,28 +2258,13 @@ def _trivy_scan_via_server(host: dict, open_ports: list = None) -> list:
 
 def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=None):
     """
-    Vulnerability scan using the centralised Trivy server pod.
+    Vulnerability scan with strict port routing:
+      - Linux hosts/VMs  → SSH port 22  → Trivy CVE scan
+      - Windows hosts/VMs → WinRM port 5985/5986 → PowerShell Windows Update scan
+      - Hyper-V VMs       → WinRM to parent host → Invoke-Command into VM
 
-    host_ctx  — full host dict (with credentials) injected by the API endpoint.
-                Required for SSH access into the target.
-
-    Caching:  results are saved to DB by the calling endpoint.
-              Opening the scan modal returns the cached result instantly.
-              Only the ↻ Rescan button triggers a fresh scan.
-    """
-    open_ports = port_scan(ip) if ip not in ("N/A", "", None) else []
-    trivy_error = None
-    vulns = []
-
-def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=None):
-    """
-    Vulnerability scan. Windows hosts/VMs use WinRM + PowerShell (Windows Update API).
-    Linux hosts/VMs use SSH + Trivy.
-
-    For Hyper-V VMs: we connect to the PARENT Hyper-V host (host_ctx contains its creds)
-    and run Invoke-Command targeting the VM by name — this avoids needing WinRM open on each VM.
-
-    host_ctx  — full host dict (with credentials) injected by the API endpoint.
+    host_ctx  — full host dict (with credentials) from the DB.
+                Must contain os_type='linux' or os_type='windows'.
     """
     open_ports = port_scan(ip) if ip not in ("N/A", "", None) else []
     trivy_error = None
@@ -2295,8 +2280,22 @@ def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=No
     else:
         import logging as _logging
         _log = _logging.getLogger(__name__)
-        _os_type = (host_ctx.get("os_type") or "").strip().lower()
-        _log.info(f"[vuln_scan] target={target_name} ip={ip} os_type='{_os_type}' type={target_type}")
+        _os_type = (host_ctx.get("os_type") or "linux").strip().lower()
+        _conn_ip  = host_ctx.get("ip", ip)
+        _ssh_port = int(host_ctx.get("ssh_port") or 22)
+        _wrm_port = int(host_ctx.get("winrm_port") or 5985)
+
+        # ── EXPLICIT PORT ROUTING LOG ─────────────────────────────────────────
+        if _os_type == "windows":
+            _log.info(
+                f"[vuln_scan] WINDOWS path → WinRM {_conn_ip}:{_wrm_port} "
+                f"target={target_name} ({target_type})"
+            )
+        else:
+            _log.info(
+                f"[vuln_scan] LINUX path → SSH {_conn_ip}:{_ssh_port} "
+                f"target={target_name} ({target_type})"
+            )
 
         try:
             if _os_type == "windows":
@@ -2421,12 +2420,12 @@ $out | ConvertTo-Json -Depth 3 -Compress
                     vulns = []
 
             else:
-                # Linux/Unix targets: SSH + Trivy flow.
-                # Guard: if os_type is not explicitly linux/unix, warn rather than blindly SSH
+                # Linux path: SSH port 22 → Trivy CVE scan
+                # Guard: if os_type is not linux/unix, refuse to SSH into a Windows host
                 if _os_type not in ("linux", "unix", ""):
                     trivy_error = (
-                        f"Unexpected os_type '{_os_type}' for target {target_name}. "
-                        f"Expected 'windows' or 'linux'. Check host configuration."
+                        f"Port routing error: os_type='{_os_type}' should use WinRM, "
+                        f"not SSH. Check host configuration or re-add the host."
                     )
                 else:
                     vulns = _trivy_scan_via_server(host_ctx, open_ports=open_ports)
