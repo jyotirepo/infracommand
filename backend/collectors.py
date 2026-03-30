@@ -2271,6 +2271,20 @@ def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=No
     trivy_error = None
     vulns = []
 
+def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=None):
+    """
+    Vulnerability scan. Windows hosts/VMs use WinRM + PowerShell (Windows Update API).
+    Linux hosts/VMs use SSH + Trivy.
+
+    For Hyper-V VMs: we connect to the PARENT Hyper-V host (host_ctx contains its creds)
+    and run Invoke-Command targeting the VM by name — this avoids needing WinRM open on each VM.
+
+    host_ctx  — full host dict (with credentials) injected by the API endpoint.
+    """
+    open_ports = port_scan(ip) if ip not in ("N/A", "", None) else []
+    trivy_error = None
+    vulns = []
+
     if not host_ctx:
         trivy_error = (
             "Host credentials not available — scan was not triggered correctly. "
@@ -2280,48 +2294,127 @@ def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=No
         trivy_error = "No IP address available for this target. Set the VM IP first."
     else:
         try:
-            # Windows targets are scanned via WinRM (not SSH:22).
             if (host_ctx.get("os_type") or "").lower() == "windows":
                 s = _winrm_connect(host_ctx)
-                win_rows = _run_ps(s, r"""
-$out = @()
-$ErrorActionPreference = "SilentlyContinue"
+
+                # Determine if this is a VM scan (target_type=="vm") — if so, use
+                # Invoke-Command on the Hyper-V host to reach the VM by name.
+                # This avoids requiring WinRM to be open on every individual VM.
+                vm_name = host_ctx.get("vm_name") or (target_name if target_type == "vm" else None)
+
+                if target_type == "vm" and vm_name:
+                    # Connect to Hyper-V host, then use Invoke-Command to reach the VM.
+                    # Falls back gracefully to a host-level scan if the VM is unreachable.
+                    safe_vm = vm_name.replace('"', '').replace("'", "").replace("`", "")
+                    ps_script = f"""
+$vmTarget = '{safe_vm}'
+$out = [System.Collections.Generic.List[object]]::new()
+
+function Get-WinUpdates {{
+    $items = [System.Collections.Generic.List[object]]::new()
+    $ErrorActionPreference = 'SilentlyContinue'
+    try {{
+        $sr = New-Object -ComObject Microsoft.Update.Searcher -ErrorAction Stop
+        $results = $sr.Search("IsInstalled=0 and Type='Software'")
+        foreach ($u in $results.Updates) {{
+            $sev = if ($u.MsrcSeverity) {{ $u.MsrcSeverity.ToString().ToUpper() }} else {{ 'MEDIUM' }}
+            if ($sev -notin @('CRITICAL','HIGH','MEDIUM','LOW')) {{ $sev = 'MEDIUM' }}
+            $kb  = if ($u.KBArticleIDs -and $u.KBArticleIDs.Count -gt 0) {{ 'KB' + $u.KBArticleIDs[0] }} else {{ 'WU-UNKNOWN' }}
+            $items.Add([PSCustomObject]@{{
+                id           = $kb
+                severity     = $sev
+                cvss         = if ($sev -eq 'CRITICAL') {{ 9.1 }} elseif ($sev -eq 'HIGH') {{ 7.5 }} elseif ($sev -eq 'LOW') {{ 3.1 }} else {{ 5.5 }}
+                pkg          = 'Windows Update'
+                desc         = if ($u.Title) {{ $u.Title }} else {{ 'Pending update' }}
+                url          = 'https://support.microsoft.com/help/' + $kb.Replace('KB','')
+                port_exposed = $false
+            }})
+        }}
+    }} catch {{
+        foreach ($h in (Get-HotFix -ErrorAction SilentlyContinue | Sort-Object InstalledOn -Descending | Select-Object -First 50)) {{
+            $items.Add([PSCustomObject]@{{
+                id           = if ($h.HotFixID) {{ $h.HotFixID }} else {{ 'KB-unknown' }}
+                severity     = 'INFO'
+                cvss         = 0.0
+                pkg          = 'Windows HotFix (installed)'
+                desc         = if ($h.Description) {{ ($h.Description + ' ' + $h.HotFixID).Trim() }} else {{ 'Installed hotfix' }}
+                url          = 'https://support.microsoft.com/help/' + ($h.HotFixID -replace 'KB','')
+                port_exposed = $false
+            }})
+        }}
+    }}
+    return ,@($items)
+}}
+
+$reached = $false
+try {{
+    $remoteResults = Invoke-Command -ComputerName $vmTarget -ErrorAction Stop -ScriptBlock ${{function:Get-WinUpdates}}
+    $remoteResults | ConvertTo-Json -Depth 3 -Compress
+    $reached = $true
+}} catch {{
+    # VM not reachable via Invoke-Command - fall back to Hyper-V host scan
+}}
+if (-not $reached) {{
+    $items = Get-WinUpdates
+    $items | ConvertTo-Json -Depth 3 -Compress
+}}
+"""
+                    win_rows = _run_ps(s, ps_script)
+                else:
+                    # Direct host scan
+                    ps_script = r"""
+$out = [System.Collections.Generic.List[object]]::new()
+$ErrorActionPreference = 'SilentlyContinue'
 try {
-  $sr = New-Object -ComObject Microsoft.Update.Searcher -ErrorAction Stop
-  $updates = $sr.Search("IsInstalled=0 and Type='Software'").Updates
-  foreach($u in $updates){
-    $sev = "MEDIUM"
-    if($u.MsrcSeverity){ $sev = $u.MsrcSeverity.ToString().ToUpper() }
-    if($sev -notin @("CRITICAL","HIGH","MEDIUM","LOW")) { $sev = "MEDIUM" }
-    $kb = "WU-UNKNOWN"
-    if($u.KBArticleIDs -and $u.KBArticleIDs.Count -gt 0){ $kb = "KB" + $u.KBArticleIDs[0] }
-    $out += [PSCustomObject]@{
-      id       = $kb
-      severity = $sev
-      cvss     = if($sev -eq "CRITICAL"){9.1}elseif($sev -eq "HIGH"){7.5}elseif($sev -eq "LOW"){3.1}else{5.5}
-      pkg      = "Windows Update"
-      desc     = if($u.Title){$u.Title}else{"Pending update"}
-      url      = "https://support.microsoft.com/help/" + $kb.Replace("KB","")
-      port_exposed = $false
+    $sr = New-Object -ComObject Microsoft.Update.Searcher -ErrorAction Stop
+    $results = $sr.Search("IsInstalled=0 and Type='Software'")
+    foreach ($u in $results.Updates) {
+        $sev = if ($u.MsrcSeverity) { $u.MsrcSeverity.ToString().ToUpper() } else { 'MEDIUM' }
+        if ($sev -notin @('CRITICAL','HIGH','MEDIUM','LOW')) { $sev = 'MEDIUM' }
+        $kb  = if ($u.KBArticleIDs -and $u.KBArticleIDs.Count -gt 0) { 'KB' + $u.KBArticleIDs[0] } else { 'WU-UNKNOWN' }
+        $out.Add([PSCustomObject]@{
+            id           = $kb
+            severity     = $sev
+            cvss         = if ($sev -eq 'CRITICAL') { 9.1 } elseif ($sev -eq 'HIGH') { 7.5 } elseif ($sev -eq 'LOW') { 3.1 } else { 5.5 }
+            pkg          = 'Windows Update'
+            desc         = if ($u.Title) { $u.Title } else { 'Pending update' }
+            url          = 'https://support.microsoft.com/help/' + $kb.Replace('KB','')
+            port_exposed = $false
+        })
     }
-  }
 } catch {
-  try {
-    foreach($h in (Get-HotFix -ErrorAction SilentlyContinue | Sort-Object InstalledOn -Descending | Select-Object -First 30)){
-      $out += [PSCustomObject]@{
-        id       = if($h.HotFixID){$h.HotFixID}else{"KB-unknown"}
-        severity = "MEDIUM"
-        cvss     = 5.5
-        pkg      = "Windows HotFix"
-        desc     = if($h.Description){($h.Description + " " + $h.HotFixID).Trim()}else{"Installed hotfix"}
-        url      = "https://support.microsoft.com/help/" + ($h.HotFixID -replace "KB","")
-        port_exposed = $false
-      }
+    foreach ($h in (Get-HotFix -ErrorAction SilentlyContinue | Sort-Object InstalledOn -Descending | Select-Object -First 50)) {
+        $out.Add([PSCustomObject]@{
+            id           = if ($h.HotFixID) { $h.HotFixID } else { 'KB-unknown' }
+            severity     = 'INFO'
+            cvss         = 0.0
+            pkg          = 'Windows HotFix (installed)'
+            desc         = if ($h.Description) { ($h.Description + ' ' + $h.HotFixID).Trim() } else { 'Installed hotfix' }
+            url          = 'https://support.microsoft.com/help/' + ($h.HotFixID -replace 'KB','')
+            port_exposed = $false
+        })
     }
-  } catch {}
 }
-,@($out) | ConvertTo-Json""")
-                vulns = win_rows if isinstance(win_rows, list) else ([win_rows] if isinstance(win_rows, dict) else [])
+$out | ConvertTo-Json -Depth 3 -Compress
+"""
+                    win_rows = _run_ps(s, ps_script)
+
+                # Normalise result — ConvertTo-Json returns dict for single item, list for many
+                if isinstance(win_rows, list):
+                    vulns = win_rows
+                elif isinstance(win_rows, dict):
+                    vulns = [win_rows]
+                elif isinstance(win_rows, str) and win_rows.strip():
+                    # _run_ps couldn't parse JSON — try ourselves
+                    import json as _json
+                    try:
+                        parsed = _json.loads(win_rows)
+                        vulns = parsed if isinstance(parsed, list) else [parsed]
+                    except Exception:
+                        trivy_error = f"Could not parse Windows scan output: {win_rows[:300]}"
+                else:
+                    vulns = []
+
             else:
                 # Linux/Unix targets continue to use SSH + Trivy flow.
                 vulns = _trivy_scan_via_server(host_ctx, open_ports=open_ports)

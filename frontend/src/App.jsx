@@ -504,25 +504,37 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
   const [result,setResult]=useState(null);
   const [busy,setBusy]=useState(false);
 
-  const scan=async()=>{
+  const scan=async(force=false)=>{
     if(!hostId || hostId==="undefined") {
-      setResult({error:"Host ID not available \u2014 try closing and reopening."});
+      setResult({error:"Host ID not available — try closing and reopening."});
       return;
     }
     setBusy(true);setResult(null);
     try {
-      const r=await api.post(vmId?`/hosts/${hostId}/vms/${vmId}/scan`:`/hosts/${hostId}/scan`);
+      const url = vmId
+        ? `/hosts/${hostId}/vms/${vmId}/scan${force?"?force=true":""}`
+        : `/hosts/${hostId}/scan${force?"?force=true":""}`;
+      const r=await api.post(url);
       setResult(r.data);
     } catch(e){setResult({error:e.response?.data?.detail||"Scan failed"});}
     setBusy(false);
   };
-  useEffect(()=>{ if(hostId && hostId!=="undefined") scan(); },[hostId]); // eslint-disable-line
+  // On open: fetch cached result first (no force), so it's instant if available
+  useEffect(()=>{ if(hostId && hostId!=="undefined") scan(false); },[hostId]); // eslint-disable-line
+
   const dl=()=>{
     if(!result||result.error) return;
     const txt=`InfraCommand Vulnerability Report\nTarget: ${result.target} (${result.ip})\nDate: ${result.scanned_at}\n\nSUMMARY: Critical:${result.summary?.critical} High:${result.summary?.high} Medium:${result.summary?.medium}\n\n${result.vulns?.map(v=>`${v.id} [${v.severity}] CVSS:${v.cvss} ${v.pkg}: ${v.desc}`).join("\n")}`;
     const a=document.createElement("a");a.href="data:text/plain,"+encodeURIComponent(txt);
     a.download=`vuln-${result.target}-${Date.now()}.txt`;a.click();
   };
+
+  // Determine display state
+  const httpError   = result?.error;                       // API-level error (network / 4xx / 5xx)
+  const scanError   = result?.scan_error;                  // backend scan_error in result body
+  const hasVulns    = result?.vulns?.length > 0;
+  const scanOk      = result && !httpError;
+
   return (
     <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="modal" style={{width:700,maxWidth:"96vw"}}>
@@ -530,19 +542,43 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
           <div><div style={{fontWeight:700,fontSize:15}}>Vulnerability Scan — {target}</div>
             <div style={{color:T.muted,fontSize:12}}>IP: {ip}</div></div>
           <div style={{display:"flex",gap:8}}>
-            {result&&!result.error&&<button className="btn btn-ghost btn-sm" onClick={dl}>↓ Export</button>}
-            <button className="btn btn-scan btn-sm" onClick={scan} disabled={busy}>{busy?<><span className="spinner"/>Scanning...</>:"\u21BB Rescan"}</button>
+            {scanOk&&hasVulns&&<button className="btn btn-ghost btn-sm" onClick={dl}>↓ Export</button>}
+            {/* Rescan always forces a fresh scan (bypasses cache) */}
+            <button className="btn btn-scan btn-sm" onClick={()=>scan(true)} disabled={busy}>
+              {busy?<><span className="spinner"/>Scanning...</>:"↻ Rescan"}
+            </button>
             <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
           </div>
         </div>
         {busy&&<div className="scan-bar" style={{marginBottom:12}}/>}
-        {result?.error&&<div style={{color:T.red,padding:10,background:"#fee2e2",borderRadius:7}}>{result.error}</div>}
-        {result&&!result.error&&(
+
+        {/* HTTP / API-level error */}
+        {httpError&&(
+          <div style={{color:T.red,padding:12,background:"#fee2e2",borderRadius:7,fontSize:13}}>
+            ⚠ {httpError}
+          </div>
+        )}
+
+        {/* Backend scan_error — scan ran but failed (e.g. WinRM auth, no IP) */}
+        {scanOk&&scanError&&(
+          <div style={{marginBottom:12,padding:"10px 14px",background:"#fff7ed",
+            border:"1px solid #fed7aa",borderRadius:7,fontSize:12,color:"#9a3412"}}>
+            <div style={{fontWeight:700,marginBottom:4}}>⚠ Scan Error</div>
+            <div style={{fontFamily:"IBM Plex Mono",fontSize:11,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+              {scanError}
+            </div>
+            <div style={{marginTop:8,color:"#92400e"}}>
+              Click <strong>↻ Rescan</strong> to retry, or check that WinRM is enabled and credentials are correct.
+            </div>
+          </div>
+        )}
+
+        {scanOk&&(
           <>
             <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
               {[["Total",result.summary?.total,T.blue],["Critical",result.summary?.critical,T.red],
                 ["High",result.summary?.high,T.amber],["Medium",result.summary?.medium,T.purple],["Low",result.summary?.low,T.muted]].map(([l,v,c])=>(
-                <KPI key={l} label={l} value={v} color={c}/>
+                <KPI key={l} label={l} value={v??0} color={c}/>
               ))}
             </div>
             {result.open_ports?.length>0&&(
@@ -551,18 +587,29 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
                 {result.open_ports.map(p=><span key={p.port} className={`port-chip ${p.risky?"port-risky":"port-open"}`}>:{p.port} {p.service}</span>)}
               </div>
             )}
-            <table>
-              <thead><tr><th>CVE ID</th><th>Severity</th><th>CVSS</th><th>Package</th><th>Description</th></tr></thead>
-              <tbody>{result.vulns?.map(v=>(
-                <tr key={v.id}>
-                  <td><a href={v.url} target="_blank" rel="noreferrer" style={{color:T.blue,fontFamily:"IBM Plex Mono",fontSize:11}}>{v.id}</a></td>
-                  <td><SevBadge sev={v.severity}/></td>
-                  <td><span style={{fontFamily:"IBM Plex Mono",fontWeight:700,color:v.cvss>=9?T.red:v.cvss>=7?T.amber:T.sub}}>{v.cvss}</span></td>
-                  <td><code style={{background:"#f1f5f9",padding:"2px 5px",borderRadius:4,fontSize:11}}>{v.pkg}</code></td>
-                  <td style={{color:T.sub}}>{v.desc}</td>
-                </tr>
-              ))}</tbody>
-            </table>
+            {hasVulns?(
+              <table>
+                <thead><tr><th>CVE / KB ID</th><th>Severity</th><th>CVSS</th><th>Package</th><th>Description</th></tr></thead>
+                <tbody>{result.vulns.map((v,i)=>(
+                  <tr key={v.id+i}>
+                    <td><a href={v.url} target="_blank" rel="noreferrer" style={{color:T.blue,fontFamily:"IBM Plex Mono",fontSize:11}}>{v.id}</a></td>
+                    <td><SevBadge sev={v.severity}/></td>
+                    <td><span style={{fontFamily:"IBM Plex Mono",fontWeight:700,
+                      color:v.cvss>=9?T.red:v.cvss>=7?T.amber:T.sub}}>{v.cvss}</span></td>
+                    <td><code style={{background:"#f1f5f9",padding:"2px 5px",borderRadius:4,fontSize:11}}>{v.pkg}</code></td>
+                    <td style={{color:T.sub,maxWidth:280,wordBreak:"break-word"}}>{v.desc}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            ):(
+              !scanError&&!busy&&(
+                <div style={{padding:"30px 0",textAlign:"center",color:T.muted}}>
+                  <div style={{fontSize:32,marginBottom:8}}>✅</div>
+                  <div style={{fontSize:13,fontWeight:600}}>No vulnerabilities found</div>
+                  <div style={{fontSize:11,marginTop:4}}>System appears up to date</div>
+                </div>
+              )
+            )}
           </>
         )}
       </div>

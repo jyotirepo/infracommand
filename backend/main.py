@@ -766,10 +766,13 @@ def scan_vm(hid: str, vid: str, db: Session = Depends(get_db), force: bool = Fal
 
     vm_host_ctx = {
         **h,
-        "ip":         vm.get("ip", "N/A"),
+        # Keep h["ip"] (the Hyper-V host IP) for WinRM connection.
+        # vuln_scan receives vm IP separately as the `ip` argument.
+        "ip":         h["ip"],             # WinRM connects to the Hyper-V host, not the VM
         "name":       vm["name"],
+        "vm_name":    vm["name"],          # used by vuln_scan to Invoke-Command into the VM
         "os_type":    "windows" if is_windows_vm else "linux",
-        "winrm_port": h.get("winrm_port", 5985),  # always carry WinRM port from parent host
+        "winrm_port": h.get("winrm_port", 5985),
     }
     result = vuln_scan(vid, vm["name"], "vm", vm.get("ip", "N/A"), h["name"], host_ctx=vm_host_ctx)
     db_save_scan(db, vid, result)
