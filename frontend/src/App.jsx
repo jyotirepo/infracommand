@@ -724,12 +724,16 @@ function DetailPanel({sel,hostData,onDbReload}) {
 
   // ── NIC table row ────────────────────────────────────────────────────────
   const NicRow=({n})=>{
-    const maxMB=Math.max(...nics.map(x=>Math.max(x.rx_mb||0,x.tx_mb||0)),1);
+    if(!n||typeof n!=="object") return null;
+    const safeNics = Array.isArray(nics) ? nics.filter(x=>x&&typeof x==="object") : [];
+    const maxMB=safeNics.length>0 ? Math.max(...safeNics.map(x=>Math.max(Number(x.rx_mb)||0,Number(x.tx_mb)||0)),1) : 1;
+    const rxMb = Number(n.rx_mb)||0;
+    const txMb = Number(n.tx_mb)||0;
     return (
       <div style={{padding:"12px 0",borderBottom:"1px solid #f1f5f9"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontWeight:700,fontFamily:"IBM Plex Mono",fontSize:13}}>{n.name}</span>
+            <span style={{fontWeight:700,fontFamily:"IBM Plex Mono",fontSize:13}}>{n.name||"unknown"}</span>
             <span className={`badge ${n.state==="up"?"b-ok":"b-stop"}`}>{n.state||"unknown"}</span>
             {n.speed_mbps&&<span className="badge b-info">{n.speed_mbps>=1000?`${n.speed_mbps/1000}Gbps`:`${n.speed_mbps}Mbps`}</span>}
           </div>
@@ -738,26 +742,27 @@ function DetailPanel({sel,hostData,onDbReload}) {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:11}}>
           <div>
             <div style={{color:T.muted}}>IPv4</div>
-            <div style={{fontWeight:600,color:T.blue}}>{n.ipv4||"\u2014"}</div>
-            {n.ipv6&&<div style={{color:T.muted,fontSize:10}}>{n.ipv6.slice(0,30)}</div>}
+            <div style={{fontWeight:600,color:T.blue}}>{n.ipv4||"—"}</div>
+            {n.ipv6&&<div style={{color:T.muted,fontSize:10}}>{String(n.ipv6).slice(0,30)}</div>}
           </div>
           <div>
             <div style={{color:T.muted}}>RX</div>
-            <div style={{fontWeight:600,color:T.green}}>{n.rx_mb?.toFixed?.(1)||0} MB</div>
-            <NicBar val={n.rx_mb||0} max={maxMB} color={T.green}/>
-            {(n.rx_err>0)&&<div style={{color:T.red,fontSize:10}}>⚠ {n.rx_err} errors</div>}
+            <div style={{fontWeight:600,color:T.green}}>{rxMb.toFixed(1)} MB</div>
+            <NicBar val={rxMb} max={maxMB} color={T.green}/>
+            {(Number(n.rx_err)>0)&&<div style={{color:T.red,fontSize:10}}>⚠ {n.rx_err} errors</div>}
           </div>
           <div>
             <div style={{color:T.muted}}>TX</div>
-            <div style={{fontWeight:600,color:T.amber}}>{n.tx_mb?.toFixed?.(1)||0} MB</div>
-            <NicBar val={n.tx_mb||0} max={maxMB} color={T.amber}/>
-            {(n.tx_err>0)&&<div style={{color:T.red,fontSize:10}}>⚠ {n.tx_err} errors</div>}
+            <div style={{fontWeight:600,color:T.amber}}>{txMb.toFixed(1)} MB</div>
+            <NicBar val={txMb} max={maxMB} color={T.amber}/>
+            {(Number(n.tx_err)>0)&&<div style={{color:T.red,fontSize:10}}>⚠ {n.tx_err} errors</div>}
           </div>
         </div>
-        {(n.gateway||n.subnet)&&(
+        {(n.gateway||n.subnet||n.switch)&&(
           <div style={{marginTop:6,fontSize:10,color:T.muted}}>
-            {n.subnet&&<span>Subnet: {n.subnet}  </span>}
-            {n.gateway&&<span>GW: {n.gateway}</span>}
+            {n.subnet&&<span>Subnet: {n.subnet}{"  "}</span>}
+            {n.gateway&&<span>GW: {n.gateway}{"  "}</span>}
+            {n.switch&&<span>Switch: {n.switch}</span>}
           </div>
         )}
       </div>
@@ -1029,14 +1034,25 @@ function DetailPanel({sel,hostData,onDbReload}) {
       {tab==="nics"&&(
         <div className="card shadow" style={{padding:18}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-            <div className="section-hd" style={{margin:0}}>Network Interfaces ({nics.length})</div>
+            <div className="section-hd" style={{margin:0}}>Network Interfaces ({(nics||[]).filter(n=>n&&typeof n==="object").length})</div>
             <div style={{fontSize:11,color:T.muted}}>RX/TX bars show relative utilization vs peak</div>
           </div>
-          {nics.length===0
-            ?<div style={{textAlign:"center",color:T.muted,padding:"30px 0"}}>
-               No NIC data — click ↻ Refresh to collect
-             </div>
-            :nics.filter(n=>n&&n.name&&n.name!=="error").map((n,i)=><NicRow key={(n.name||"nic")+"-"+i} n={n}/>)}
+          {(()=>{
+            const validNics=(nics||[]).filter(n=>n&&typeof n==="object"&&(n.name||n.mac||n.ipv4));
+            if(validNics.length===0) return (
+              <div style={{textAlign:"center",color:T.muted,padding:"30px 0"}}>
+                No NIC data — click ↻ Refresh to collect
+              </div>
+            );
+            return validNics.map((n,i)=>{
+              try { return <NicRow key={(n.name||n.mac||"nic")+"-"+i} n={n}/>; }
+              catch(e) { return (
+                <div key={i} style={{padding:"8px",color:T.muted,fontSize:11,borderBottom:"1px solid #f1f5f9"}}>
+                  NIC {i+1}: {n.name||n.mac||"unknown"} — {n.ipv4||"no IP"}
+                </div>
+              ); }
+            });
+          })()}
         </div>
       )}
 
@@ -1675,7 +1691,7 @@ function Overview({hosts,summary,history}) {
                 <thead><tr><th>Name</th><th>Hypervisor</th><th>Status</th><th>OS</th><th>IP</th><th>vCPU</th><th>RAM</th><th>CPU%</th><th>RAM%</th></tr></thead>
                 <tbody>{(host.vms||[]).map(vm=>(
                   <tr key={vm.id}>
-                    <td style={{fontWeight:600}}>\uD83D\uDDA5 {vm.name}</td>
+                    <td style={{fontWeight:600}}>{vm.name}</td>
                     <td><span className={`badge ${vm.hypervisor==="KVM"?"b-kvm":"b-hv"}`}>{vm.hypervisor}</span></td>
                     <td><StatusDot s={vm.status}/>{vm.status}</td>
                     <td style={{fontSize:11,color:T.sub}}>{vm.os||"\u2014"}</td>

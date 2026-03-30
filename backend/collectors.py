@@ -2293,8 +2293,13 @@ def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=No
     elif ip in ("N/A", "", None):
         trivy_error = "No IP address available for this target. Set the VM IP first."
     else:
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
+        _os_type = (host_ctx.get("os_type") or "").strip().lower()
+        _log.info(f"[vuln_scan] target={target_name} ip={ip} os_type='{_os_type}' type={target_type}")
+
         try:
-            if (host_ctx.get("os_type") or "").lower() == "windows":
+            if _os_type == "windows":
                 s = _winrm_connect(host_ctx)
 
                 # Determine if this is a VM scan (target_type=="vm") — if so, use
@@ -2416,8 +2421,15 @@ $out | ConvertTo-Json -Depth 3 -Compress
                     vulns = []
 
             else:
-                # Linux/Unix targets continue to use SSH + Trivy flow.
-                vulns = _trivy_scan_via_server(host_ctx, open_ports=open_ports)
+                # Linux/Unix targets: SSH + Trivy flow.
+                # Guard: if os_type is not explicitly linux/unix, warn rather than blindly SSH
+                if _os_type not in ("linux", "unix", ""):
+                    trivy_error = (
+                        f"Unexpected os_type '{_os_type}' for target {target_name}. "
+                        f"Expected 'windows' or 'linux'. Check host configuration."
+                    )
+                else:
+                    vulns = _trivy_scan_via_server(host_ctx, open_ports=open_ports)
         except Exception as e:
             trivy_error = str(e)
 
