@@ -2299,16 +2299,12 @@ def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=No
 
         try:
             if _os_type == "windows":
+                # ── WINDOWS PATH: WinRM port 5985/5986 ───────────────────────
+                # Step 1: collect pending Windows Update KBs via WinRM
                 s = _winrm_connect(host_ctx)
-
-                # Determine if this is a VM scan (target_type=="vm") — if so, use
-                # Invoke-Command on the Hyper-V host to reach the VM by name.
-                # This avoids requiring WinRM to be open on every individual VM.
                 vm_name = host_ctx.get("vm_name") or (target_name if target_type == "vm" else None)
 
                 if target_type == "vm" and vm_name:
-                    # Connect to Hyper-V host, then use Invoke-Command to reach the VM.
-                    # Falls back gracefully to a host-level scan if the VM is unreachable.
                     safe_vm = vm_name.replace('"', '').replace("'", "").replace("`", "")
                     ps_script = f"""
 $vmTarget = '{safe_vm}'
@@ -2355,9 +2351,7 @@ try {{
     $remoteResults = Invoke-Command -ComputerName $vmTarget -ErrorAction Stop -ScriptBlock ${{function:Get-WinUpdates}}
     $remoteResults | ConvertTo-Json -Depth 3 -Compress
     $reached = $true
-}} catch {{
-    # VM not reachable via Invoke-Command - fall back to Hyper-V host scan
-}}
+}} catch {{}}
 if (-not $reached) {{
     $items = Get-WinUpdates
     $items | ConvertTo-Json -Depth 3 -Compress
@@ -2365,7 +2359,6 @@ if (-not $reached) {{
 """
                     win_rows = _run_ps(s, ps_script)
                 else:
-                    # Direct host scan
                     ps_script = r"""
 $out = [System.Collections.Generic.List[object]]::new()
 $ErrorActionPreference = 'SilentlyContinue'
@@ -2403,32 +2396,126 @@ $out | ConvertTo-Json -Depth 3 -Compress
 """
                     win_rows = _run_ps(s, ps_script)
 
-                # Normalise result — ConvertTo-Json returns dict for single item, list for many
+                # Normalise WinRM result
                 if isinstance(win_rows, list):
-                    vulns = win_rows
+                    win_vulns = win_rows
                 elif isinstance(win_rows, dict):
-                    vulns = [win_rows]
+                    win_vulns = [win_rows]
                 elif isinstance(win_rows, str) and win_rows.strip():
-                    # _run_ps couldn't parse JSON — try ourselves
-                    import json as _json
                     try:
-                        parsed = _json.loads(win_rows)
-                        vulns = parsed if isinstance(parsed, list) else [parsed]
+                        parsed = json.loads(win_rows)
+                        win_vulns = parsed if isinstance(parsed, list) else [parsed]
                     except Exception:
+                        win_vulns = []
                         trivy_error = f"Could not parse Windows scan output: {win_rows[:300]}"
                 else:
-                    vulns = []
+                    win_vulns = []
+
+                # Step 2: also run Trivy CVE/NVD scan for Windows installed software
+                trivy_cves = []
+                LOCAL_TRIVY = _os.environ.get("TRIVY_BINARY_PATH", "/usr/local/bin/trivy")
+                if _os.path.exists(LOCAL_TRIVY):
+                    try:
+                        import tempfile, shutil, subprocess as _sp2
+                        sw_ps = r"""
+$apps = [System.Collections.Generic.List[object]]::new()
+$ErrorActionPreference = 'SilentlyContinue'
+$paths = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+)
+foreach ($p in $paths) {
+    Get-ItemProperty $p -ErrorAction SilentlyContinue |
+    Where-Object { $_.DisplayName } |
+    ForEach-Object {
+        $apps.Add([PSCustomObject]@{
+            name    = $_.DisplayName
+            version = if ($_.DisplayVersion) { $_.DisplayVersion } else { '0.0.0' }
+            vendor  = if ($_.Publisher) { $_.Publisher } else { 'Unknown' }
+        })
+    }
+}
+$apps | ConvertTo-Json -Depth 2 -Compress
+"""
+                        sw_rows = _run_ps(s, sw_ps)
+                        sw_list = sw_rows if isinstance(sw_rows, list) else ([sw_rows] if isinstance(sw_rows, dict) else [])
+
+                        if sw_list:
+                            tmpdir = tempfile.mkdtemp(prefix="infracmd-win-scan-")
+                            try:
+                                components = []
+                                for sw in sw_list:
+                                    if not isinstance(sw, dict): continue
+                                    name = str(sw.get("name","")).strip()
+                                    ver  = str(sw.get("version","0")).strip() or "0"
+                                    if name:
+                                        components.append({
+                                            "type": "library",
+                                            "name": name,
+                                            "version": ver,
+                                            "purl": f"pkg:generic/{name.replace(' ','+')}@{ver}"
+                                        })
+                                sbom = {
+                                    "bomFormat": "CycloneDX",
+                                    "specVersion": "1.4",
+                                    "version": 1,
+                                    "metadata": {"component": {"type":"application","name":target_name}},
+                                    "components": components
+                                }
+                                sbom_path = _os.path.join(tmpdir, "bom.json")
+                                with open(sbom_path, "w") as f:
+                                    json.dump(sbom, f)
+
+                                offline_flags = ["--skip-db-update","--skip-check-update"] if TRIVY_SKIP_DB_UPDATE else []
+                                cmd = [
+                                    LOCAL_TRIVY, "sbom",
+                                    "--server",   TRIVY_SERVER_URL,
+                                    "--format",   "json",
+                                    "--scanners", "vuln",
+                                    "--severity", "CRITICAL,HIGH,MEDIUM,LOW",
+                                    "--timeout",  "120s",
+                                    "--quiet",
+                                ] + offline_flags + [sbom_path]
+
+                                result = _sp2.run(cmd, capture_output=True, text=True, timeout=150)
+                                if result.stdout.strip().startswith("{"):
+                                    trivy_cves = _parse_trivy_output(result.stdout.strip())
+                                    for v in trivy_cves:
+                                        v["source"] = "Trivy/NVD"
+                            finally:
+                                shutil.rmtree(tmpdir, ignore_errors=True)
+                    except Exception as e_trivy:
+                        _log.warning(f"[vuln_scan] Windows Trivy CVE scan skipped: {e_trivy}")
+
+                # Merge: Windows Update KBs + Trivy CVEs (deduplicate by id)
+                seen_ids = set()
+                for v in win_vulns:
+                    if isinstance(v, dict):
+                        v.setdefault("source", "Windows Update")
+                        seen_ids.add(v.get("id",""))
+                for v in trivy_cves:
+                    if isinstance(v, dict) and v.get("id","") not in seen_ids:
+                        win_vulns.append(v)
+                vulns = win_vulns
 
             else:
-                # Linux path: SSH port 22 → Trivy CVE scan
-                # Guard: if os_type is not linux/unix, refuse to SSH into a Windows host
+                # ── LINUX PATH: SSH port 22 → Trivy CVE scan ─────────────────
                 if _os_type not in ("linux", "unix", ""):
                     trivy_error = (
                         f"Port routing error: os_type='{_os_type}' should use WinRM, "
                         f"not SSH. Check host configuration or re-add the host."
                     )
                 else:
-                    vulns = _trivy_scan_via_server(host_ctx, open_ports=open_ports)
+                    LOCAL_TRIVY = _os.environ.get("TRIVY_BINARY_PATH", "/usr/local/bin/trivy")
+                    if not _os.path.exists(LOCAL_TRIVY):
+                        trivy_error = (
+                            f"Trivy binary not found at {LOCAL_TRIVY}. "
+                            f"Run setup.sh on the backend node to install Trivy, "
+                            f"or set TRIVY_BINARY_PATH env var. "
+                            f"(Linux scan uses SSH:{_ssh_port} to {_conn_ip})"
+                        )
+                    else:
+                        vulns = _trivy_scan_via_server(host_ctx, open_ports=open_ports)
         except Exception as e:
             trivy_error = str(e)
 

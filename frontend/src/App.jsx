@@ -627,15 +627,18 @@ function VulnScanModal({target,hostId,vmId,ip,onClose}) {
             )}
             {hasVulns?(
               <table>
-                <thead><tr><th>CVE / KB ID</th><th>Severity</th><th>CVSS</th><th>Package</th><th>Description</th></tr></thead>
+                <thead><tr><th>CVE / KB ID</th><th>Severity</th><th>CVSS</th><th>Source</th><th>Package</th><th>Description</th></tr></thead>
                 <tbody>{result.vulns.map((v,i)=>(
                   <tr key={v.id+i}>
                     <td><a href={v.url} target="_blank" rel="noreferrer" style={{color:T.blue,fontFamily:"IBM Plex Mono",fontSize:11}}>{v.id}</a></td>
                     <td><SevBadge sev={v.severity}/></td>
                     <td><span style={{fontFamily:"IBM Plex Mono",fontWeight:700,
                       color:v.cvss>=9?T.red:v.cvss>=7?T.amber:T.sub}}>{v.cvss}</span></td>
+                    <td><span style={{fontSize:10,padding:"1px 5px",borderRadius:4,
+                      background:v.source==="Trivy/NVD"?"#ede9fe":"#f0fdf4",
+                      color:v.source==="Trivy/NVD"?"#6d28d9":"#16a34a"}}>{v.source||"Windows Update"}</span></td>
                     <td><code style={{background:"#f1f5f9",padding:"2px 5px",borderRadius:4,fontSize:11}}>{v.pkg}</code></td>
-                    <td style={{color:T.sub,maxWidth:280,wordBreak:"break-word"}}>{v.desc}</td>
+                    <td style={{color:T.sub,maxWidth:260,wordBreak:"break-word"}}>{v.desc}</td>
                   </tr>
                 ))}</tbody>
               </table>
