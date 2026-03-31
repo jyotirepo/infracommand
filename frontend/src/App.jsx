@@ -267,14 +267,19 @@ function PromoteVMModal({vm, hostId, onClose, onAdded}) {
 }
 
 // ── Add Host Modal ─────────────────────────────────────────────────────────────
-function AddHostModal({onClose,onAdded}) {
+function AddHostModal({onClose,onAdded,existingGroups=[]}) {
   const [form,setForm]=useState({name:"",ip:"",os_type:"linux",auth_type:"password",
-    username:"root",password:"",ssh_key:"",ssh_port:22,winrm_port:5985});
+    username:"root",password:"",ssh_key:"",ssh_port:22,winrm_port:5985,group:"Default"});
   const [busy,setBusy]=useState(false);
   const [msg,setMsg]=useState(null);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const [testResult,setTestResult]=useState(null);
   const [testing,setTesting]=useState(false);
+  const [newGroup,setNewGroup]=useState("");
+  const [addingGroup,setAddingGroup]=useState(false);
+
+  // All available groups: existing ones + any new one just typed
+  const allGroups=[...new Set([...existingGroups,"Default"])].sort();
 
   const testConn=async()=>{
     if(!form.ip) return setMsg({t:"e",text:"Enter IP address first"});
@@ -288,29 +293,62 @@ function AddHostModal({onClose,onAdded}) {
 
   const submit=async()=>{
     if(!form.name||!form.ip) return setMsg({t:"e",text:"Name and IP required"});
+    if(!form.group) return setMsg({t:"e",text:"Select or create a Discom group"});
     setBusy(true);setMsg(null);
     try {
       const r=await api.post("/hosts",{...form,ssh_port:Number(form.ssh_port),winrm_port:Number(form.winrm_port)});
       setMsg({t:"ok",text:r.data.message});
       setTimeout(()=>{onAdded();onClose();},2000);
     } catch(e){
-      // Handle FastAPI 422 (validation), 500, and network errors
       const detail=e.response?.data?.detail;
       const errText=Array.isArray(detail)
         ? detail.map(d=>`${d.loc?.join(".")}: ${d.msg}`).join(", ")
-        : (typeof detail==="string" ? detail : e.message || "Save failed \u2014 check browser console");
+        : (typeof detail==="string" ? detail : e.message || "Save failed — check browser console");
       setMsg({t:"e",text:errText});
     }
     setBusy(false);
   };
+
   return (
     <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className="modal" style={{width:500}}>
+      <div className="modal" style={{width:520}}>
         <div style={{display:"flex",justifyContent:"space-between",marginBottom:20}}>
           <div><div style={{fontWeight:700,fontSize:16}}>Add Host</div>
             <div style={{color:T.muted,fontSize:12,marginTop:2}}>SSH (Linux/KVM) or WinRM (Windows/Hyper-V)</div></div>
           <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
         </div>
+
+        {/* ── Discom Group ── */}
+        <div style={{marginBottom:14,padding:"10px 14px",background:"#f0f9ff",borderRadius:8,border:"1px solid #bae6fd"}}>
+          <label style={{fontSize:11,fontWeight:700,color:"#0369a1",display:"block",marginBottom:6}}>
+            🏢 Discom / Business Unit Group
+          </label>
+          {!addingGroup?(
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <select value={form.group} onChange={e=>set("group",e.target.value)} style={{flex:1}}>
+                {allGroups.map(g=><option key={g} value={g}>{g}</option>)}
+              </select>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setAddingGroup(true)}
+                style={{whiteSpace:"nowrap",fontSize:11}}>+ New Group</button>
+            </div>
+          ):(
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <input autoFocus placeholder="e.g. TPCODL, NESCO, WESCO..." value={newGroup}
+                onChange={e=>setNewGroup(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter"&&newGroup.trim()){set("group",newGroup.trim());setAddingGroup(false);}
+                               if(e.key==="Escape"){setAddingGroup(false);setNewGroup("");}}}
+                style={{flex:1}}/>
+              <button className="btn btn-primary btn-sm" onClick={()=>{if(newGroup.trim()){set("group",newGroup.trim());setAddingGroup(false);}}}
+                style={{fontSize:11}}>Add</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>{setAddingGroup(false);setNewGroup("");}}
+                style={{fontSize:11}}>Cancel</button>
+            </div>
+          )}
+          {form.group&&<div style={{fontSize:10,color:"#0369a1",marginTop:5}}>
+            This host will appear under: <strong>{form.group}</strong>
+          </div>}
+        </div>
+
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           {[["Host Name *","name","text","prod-server-01"],["IP Address *","ip","text","192.168.1.100"]].map(([l,k,t,p])=>(
             <div key={k}><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>{l}</label>
@@ -343,11 +381,11 @@ function AddHostModal({onClose,onAdded}) {
             background:testResult.status==="ok"?"#f0fdf4":"#fff7ed",
             border:`1px solid ${testResult.status==="ok"?"#bbf7d0":"#fed7aa"}`}}>
             <div style={{fontWeight:700,marginBottom:8,color:testResult.status==="ok"?T.green:T.amber}}>
-              {testResult.status==="ok"?"\u2705 Connection Successful":"\u26A0 Connection Diagnostics"}
+              {testResult.status==="ok"?"✅ Connection Successful":"⚠ Connection Diagnostics"}
             </div>
             {testResult.steps?.map((s,i)=>(
               <div key={i} style={{display:"flex",gap:8,marginBottom:4,alignItems:"flex-start"}}>
-                <span style={{color:s.status==="ok"?T.green:T.red,flexShrink:0}}>{s.status==="ok"?"\u2714":"\u2717"}</span>
+                <span style={{color:s.status==="ok"?T.green:T.red,flexShrink:0}}>{s.status==="ok"?"✔":"✗"}</span>
                 <span style={{color:T.sub,minWidth:120,flexShrink:0}}>{s.step}</span>
                 <span style={{color:s.status==="ok"?T.text:T.red}}>{s.msg}</span>
               </div>
@@ -360,7 +398,7 @@ function AddHostModal({onClose,onAdded}) {
           background:msg.t==="ok"?"#dcfce7":"#fee2e2",color:msg.t==="ok"?"#166534":"#991b1b"}}>{msg.text}</div>}
         <div style={{display:"flex",gap:8,marginTop:20,justifyContent:"space-between",alignItems:"center"}}>
           <button className="btn btn-ghost" onClick={testConn} disabled={testing}>
-            {testing?<><span className="spinner"/>Testing...</>:"\uD83D\uDD0C Test Connection"}</button>
+            {testing?<><span className="spinner"/>Testing...</>:"🔌 Test Connection"}</button>
           <div style={{display:"flex",gap:8}}>
             <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
             <button className="btn btn-primary" onClick={submit} disabled={busy}>
@@ -1181,6 +1219,73 @@ function DetailPanel({sel,hostData,onDbReload}) {
   );
 }
 
+// ── Change Discom Group Modal ─────────────────────────────────────────────────
+function ChangeGroupModal({host, existingGroups=[], onClose, onSaved}) {
+  const [group, setGroup] = useState(host.group||"Default");
+  const [newGroup, setNewGroup] = useState("");
+  const [addingNew, setAddingNew] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const allGroups = [...new Set([...existingGroups,"Default"])].sort();
+
+  const save = async () => {
+    const g = (addingNew ? newGroup : group).trim();
+    if (!g) return setMsg({t:"e", text:"Group name cannot be empty"});
+    setBusy(true); setMsg(null);
+    try {
+      await api.patch(`/hosts/${host.id}/group`, {group: g});
+      setMsg({t:"ok", text:`Moved to "${g}"`});
+      setTimeout(onSaved, 1000);
+    } catch(e) {
+      setMsg({t:"e", text: e.response?.data?.detail || "Failed to update group"});
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="modal" style={{width:420}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:15}}>Move Host to Discom Group</div>
+            <div style={{color:T.muted,fontSize:12,marginTop:2}}>{host.name}</div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <div style={{marginBottom:8}}>
+          <div style={{fontSize:11,color:T.muted,marginBottom:4}}>
+            Current group: <strong style={{color:T.blue}}>{host.group||"Default"}</strong>
+          </div>
+          {!addingNew?(
+            <div style={{display:"flex",gap:8}}>
+              <select value={group} onChange={e=>setGroup(e.target.value)} style={{flex:1}}>
+                {allGroups.map(g=><option key={g} value={g}>{g}</option>)}
+              </select>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setAddingNew(true)}>+ New</button>
+            </div>
+          ):(
+            <div style={{display:"flex",gap:8}}>
+              <input autoFocus value={newGroup} placeholder="New Discom group name..."
+                onChange={e=>setNewGroup(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter")save();if(e.key==="Escape")setAddingNew(false);}}
+                style={{flex:1}}/>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setAddingNew(false)}>←</button>
+            </div>
+          )}
+        </div>
+        {msg&&<div style={{padding:"8px 12px",borderRadius:6,fontSize:12,marginBottom:8,
+          background:msg.t==="ok"?"#dcfce7":"#fee2e2",color:msg.t==="ok"?"#166534":"#991b1b"}}>{msg.text}</div>}
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={save} disabled={busy}>
+            {busy?<><span className="spinner"/>Saving...</>:"Move Host"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InfraView({rawHosts,onGlobalReload}) {
   const [sel,setSel]       = useState(null);
   const [hostCache,setHostCache] = useState({});
@@ -1191,6 +1296,19 @@ function InfraView({rawHosts,onGlobalReload}) {
   const [physicalOsTab,setPhysicalOsTab] = useState("linux"); // "linux" | "windows"
   const [vmOsTab,setVmOsTab]     = useState("linux"); // "linux" | "windows"
   const [expanded,setExpanded]   = useState({});
+  // ── Discom Group state ───────────────────────────────────────────────────
+  const [selectedGroup,setSelectedGroup] = useState("All");   // "All" or group name
+  const [changeGroupHost,setChangeGroupHost] = useState(null); // {id, name, group}
+  const [allGroups,setAllGroups] = useState([]);
+
+  // Load groups and keep in sync with hosts
+  const loadGroups = async () => {
+    try {
+      const r = await api.get("/groups");
+      setAllGroups(r.data || []);
+    } catch(e) {}
+  };
+  useEffect(()=>{ loadGroups(); },[rawHosts.length]); // eslint-disable-line
 
   // ── Data helpers ────────────────────────────────────────────────────────────
   const loadHost=async(hid,force=false)=>{
@@ -1259,6 +1377,10 @@ function InfraView({rawHosts,onGlobalReload}) {
   });
   // VMs that have been "promoted" (IP matches a rawHost)
   const promotedIPs = new Set(rawHosts.map(h=>h.ip).filter(Boolean));
+  // Hosts filtered by selected Discom group
+  const groupedHosts = selectedGroup==="All"
+    ? rawHosts
+    : rawHosts.filter(h=>(h.group||"Default")===selectedGroup);
 
   // ── Resource summary (total across all hosts with live metrics) ──────────
   const liveHosts = rawHosts.filter(h=>{
@@ -1340,16 +1462,29 @@ function InfraView({rawHosts,onGlobalReload}) {
         <div className="card shadow" style={{padding:0,overflow:"hidden",display:"flex",flexDirection:"column"}}>
 
           {/* Header + Add */}
-          <div style={{padding:"10px 12px 8px",borderBottom:`1px solid ${T.border}`,
-            display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div style={{fontWeight:700,fontSize:13}}>Infrastructure</div>
-            <button className="btn btn-primary btn-sm" onClick={()=>setShowAdd(true)}>+ Add Host</button>
+          <div style={{padding:"10px 12px 8px",borderBottom:`1px solid ${T.border}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+              <div style={{fontWeight:700,fontSize:13}}>🏢 Infrastructure</div>
+              <button className="btn btn-primary btn-sm" onClick={()=>setShowAdd(true)}>+ Add Host</button>
+            </div>
+            {/* Discom Group Dropdown */}
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:10,color:T.muted,fontWeight:600,whiteSpace:"nowrap"}}>Discom:</span>
+              <select value={selectedGroup} onChange={e=>{setSelectedGroup(e.target.value);setSel(null);}}
+                style={{flex:1,fontSize:11,padding:"4px 6px",borderRadius:6,border:`1px solid ${T.border}`}}>
+                <option value="All">All Groups ({rawHosts.length})</option>
+                {allGroups.map(g=>(
+                  <option key={g} value={g}>{g} ({rawHosts.filter(h=>(h.group||"Default")===g).length})</option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          {/* Group tabs */}
+          {/* Physical / VM Groups tabs */}
           <div style={{display:"flex",borderBottom:`1px solid ${T.border}`,background:"#f8fafc"}}>
-            {[["physical","\uD83D\uDDA7 Physical Hosts",rawHosts.length],
-              ["vms","\uD83D\uDDA5 VM Groups",allVMs.length]].map(([id,label,count])=>(
+            {[["physical","🖧 Physical",groupedHosts.length],
+              ["vms","🖥 VM Groups",groupedHosts.reduce((a,h)=>{const d=hostCache[h.id];return a+(d?.vms||h.vms||[]).length;},0)]
+            ].map(([id,label,count])=>(
               <button key={id} onClick={()=>setTreeTab(id)}
                 style={{flex:1,padding:"7px 4px",fontSize:11,fontWeight:treeTab===id?700:400,
                   border:"none",borderBottom:treeTab===id?`2px solid ${T.blue}`:"2px solid transparent",
@@ -1367,8 +1502,8 @@ function InfraView({rawHosts,onGlobalReload}) {
               <>
                 {/* Linux / Windows sub-tabs */}
                 <div style={{display:"flex",gap:0,marginBottom:6,borderRadius:7,overflow:"hidden",border:`1px solid ${T.border}`}}>
-                  {[["linux","🐧 Linux",rawHosts.filter(h=>h.os_type!=="windows").length],
-                    ["windows","🪟 Windows",rawHosts.filter(h=>h.os_type==="windows").length]
+                  {[["linux","🐧 Linux",groupedHosts.filter(h=>h.os_type!=="windows").length],
+                    ["windows","🪟 Windows",groupedHosts.filter(h=>h.os_type==="windows").length]
                   ].map(([key,label,cnt])=>(
                     <button key={key} onClick={()=>setPhysicalOsTab(key)}
                       style={{flex:1,padding:"5px 4px",fontSize:10,fontWeight:physicalOsTab===key?700:400,
@@ -1382,12 +1517,12 @@ function InfraView({rawHosts,onGlobalReload}) {
                   ))}
                 </div>
                 {/* Filtered hosts by OS sub-tab */}
-                {rawHosts.filter(h=>physicalOsTab==="windows"?h.os_type==="windows":h.os_type!=="windows").length===0&&(
+                {groupedHosts.filter(h=>physicalOsTab==="windows"?h.os_type==="windows":h.os_type!=="windows").length===0&&(
                   <div style={{padding:"20px 10px",textAlign:"center",color:T.muted,fontSize:11}}>
-                    No {physicalOsTab==="windows"?"Windows":"Linux"} hosts added yet
+                    No {physicalOsTab==="windows"?"Windows":"Linux"} hosts in {selectedGroup==="All"?"any group":selectedGroup}
                   </div>
                 )}
-                {rawHosts.filter(h=>physicalOsTab==="windows"?h.os_type==="windows":h.os_type!=="windows").map(h=>{
+                {groupedHosts.filter(h=>physicalOsTab==="windows"?h.os_type==="windows":h.os_type!=="windows").map(h=>{
                   const det=hostCache[h.id];
                   const vms=det?.vms||h.vms||[];
                   const m=(det||h).metrics||{};
@@ -1395,6 +1530,7 @@ function InfraView({rawHosts,onGlobalReload}) {
                   const isSel=sel?.type==="host"&&sel.hostId===h.id;
                   const isOnline=m.source==="live";
                   const isWin=h.os_type==="windows";
+                  const grp=h.group||"Default";
                   return (
                     <div key={h.id} style={{marginBottom:2}}>
                       <div className={`tree-row ${isSel?"sel":""}`} onClick={()=>clickHost(h.id)}>
@@ -1405,14 +1541,18 @@ function InfraView({rawHosts,onGlobalReload}) {
                             <span style={{fontFamily:"IBM Plex Mono",fontSize:9}}>{h.ip}</span>
                             {isOnline&&<><span style={{color:T.blue}}>CPU:{m.cpu}%</span><span style={{color:T.amber}}>RAM:{m.ram}%</span></>}
                             <span className={`badge ${isWin?"b-hv":"b-kvm"}`} style={{fontSize:8,padding:"0 4px"}}>{isWin?"Hyper-V":"KVM"}</span>
+                            {selectedGroup==="All"&&<span style={{fontSize:8,background:"#e0f2fe",color:"#0369a1",borderRadius:4,padding:"0 4px"}}>{grp}</span>}
                           </div>
                         </div>
-                        <div style={{display:"flex",gap:3,flexShrink:0,alignItems:"center"}}>
+                        <div style={{display:"flex",gap:2,flexShrink:0,alignItems:"center"}}>
                           {(loading===h.id||loading===h.id+"_vms")&&<span className="spinner" style={{width:10,height:10}}/>}
                           {isExp&&<button className="btn btn-ghost btn-sm" style={{padding:"2px 5px",fontSize:9}}
                             onClick={e=>refreshVMs(h.id,e)} title="Discover VMs">⟳</button>}
                           <span style={{fontSize:10,color:T.muted,cursor:"pointer",padding:"0 2px"}}
                             onClick={e=>{e.stopPropagation();setExpanded(ex=>({...ex,[h.id]:!ex[h.id]}));}}>{isExp?"▾":"▸"}</span>
+                          <button title="Move to Discom group" onClick={e=>{e.stopPropagation();setChangeGroupHost({id:h.id,name:h.name,group:grp});}}
+                            style={{fontSize:9,padding:"1px 4px",border:`1px solid ${T.border}`,borderRadius:3,
+                              background:"transparent",color:T.muted,cursor:"pointer"}} >⇄</button>
                           <button className="btn btn-ghost btn-sm" style={{padding:"2px 4px",fontSize:9,color:T.red}}
                             onClick={e=>deleteHost(h.id,e)}>✕</button>
                         </div>
@@ -1474,8 +1614,8 @@ function InfraView({rawHosts,onGlobalReload}) {
               <>
                 {/* Linux / Windows sub-tabs for VM Groups */}
                 <div style={{display:"flex",gap:0,marginBottom:6,borderRadius:7,overflow:"hidden",border:`1px solid ${T.border}`}}>
-                  {[["linux","🐧 Linux VMs",rawHosts.filter(h=>h.os_type!=="windows")],
-                    ["windows","🪟 Windows VMs",rawHosts.filter(h=>h.os_type==="windows")]
+                  {[["linux","🐧 Linux VMs",groupedHosts.filter(h=>h.os_type!=="windows")],
+                    ["windows","🪟 Windows VMs",groupedHosts.filter(h=>h.os_type==="windows")]
                   ].map(([key,label,filteredHosts])=>{
                     const vmCount=filteredHosts.reduce((acc,h)=>{const det=hostCache[h.id];return acc+(det?.vms||h.vms||[]).length;},0);
                     return (
@@ -1491,7 +1631,7 @@ function InfraView({rawHosts,onGlobalReload}) {
                     );
                   })}
                 </div>
-                {rawHosts.filter(h=>vmOsTab==="windows"?h.os_type==="windows":h.os_type!=="windows").filter(h=>{
+                {groupedHosts.filter(h=>vmOsTab==="windows"?h.os_type==="windows":h.os_type!=="windows").filter(h=>{
                   const det=hostCache[h.id];
                   return (det?.vms||h.vms||[]).length>0;
                 }).map(h=>{
@@ -1505,9 +1645,10 @@ function InfraView({rawHosts,onGlobalReload}) {
                         background:"#f1f5f9",borderRadius:6,cursor:"pointer",
                         fontSize:11,fontWeight:700,color:T.sub}}
                         onClick={()=>setExpanded(e=>({...e,["vg_"+h.id]:!isExp}))}>
-                        <span>{isExp?"\u25BE":"\u25B8"}</span>
-                        <span>{h.os_type==="linux"?"\uD83D\uDC27":"\uD83E\uDE9F"}</span>
+                        <span>{isExp?"▾":"▸"}</span>
+                        <span>{h.os_type==="linux"?"🐧":"🪟"}</span>
                         <span style={{flex:1}}>{h.name}</span>
+                        {selectedGroup==="All"&&<span style={{fontSize:8,background:"#e0f2fe",color:"#0369a1",borderRadius:4,padding:"0 3px",fontWeight:400}}>{h.group||"Default"}</span>}
                         <span style={{fontSize:10,background:T.border,borderRadius:8,
                           padding:"1px 6px",fontWeight:400}}>{vms.length} VMs</span>
                       </div>
@@ -1573,11 +1714,19 @@ function InfraView({rawHosts,onGlobalReload}) {
         </div>
       </div>
 
-      {showAdd&&<AddHostModal onClose={()=>setShowAdd(false)} onAdded={()=>{onGlobalReload();setShowAdd(false);}}/>}
+      {showAdd&&<AddHostModal
+        onClose={()=>setShowAdd(false)}
+        onAdded={()=>{onGlobalReload();loadGroups();setShowAdd(false);}}
+        existingGroups={allGroups}/>}
       {promoteVM&&<PromoteVMModal
         vm={promoteVM.vm} hostId={promoteVM.hostId}
         onClose={()=>setPromoteVM(null)}
         onAdded={()=>{onGlobalReload();setPromoteVM(null);}}/>}
+      {changeGroupHost&&<ChangeGroupModal
+        host={changeGroupHost}
+        existingGroups={allGroups}
+        onClose={()=>setChangeGroupHost(null)}
+        onSaved={()=>{onGlobalReload();loadGroups();setChangeGroupHost(null);}}/>}
     </div>
   );
 }
@@ -1716,20 +1865,21 @@ function Overview({hosts,summary,history}) {
 function CapacityPlanning() {
   const [data,setData]         = useState([]);
   const [busy,setBusy]         = useState(false);
-  const [err,setErr]           = useState("");           // FIX 1: was missing \u2014 caused crash on load
-  const [sel,setSel]           = useState(null);         // selected host_id for drill-down
+  const [err,setErr]           = useState("");
+  const [sel,setSel]           = useState(null);
   const [hostFilter,setHostFilter] = useState("all");
   const [osTab,setOsTab]           = useState("linux");
   const [genReport,setGenReport]   = useState(false);
+  const [groupFilter,setGroupFilter] = useState("All");  // Discom group filter
+  const [capGroups,setCapGroups]     = useState([]);     // all groups from API
 
-  // FIX 2: selectedHost derived from sel + data (was never declared before)
+  useEffect(()=>{
+    api.get("/groups").then(r=>setCapGroups(r.data||[])).catch(()=>{});
+  },[]);
+
   const selectedHost = sel ? data.find(h=>h.host_id===sel) || null : null;
-
-  // FIX 3: helper functions missing from this scope
-  const gb = v => { const x=Number(v); return Number.isFinite(x)&&x>0?`${x} GB`:"\u2014"; };
-  const txt = v => (v==null||v===""||v===undefined) ? "\u2014" : String(v);
-
-  // FIX 4: StatCard was used but never defined anywhere in the file
+  const gb = v => { const x=Number(v); return Number.isFinite(x)&&x>0?`${x} GB`:"—"; };
+  const txt = v => (v==null||v===""||v===undefined) ? "—" : String(v);
   const StatCard = ({label,value,sub,color}) => (
     <div className="card" style={{padding:14}}>
       <div style={{fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{label}</div>
@@ -1768,6 +1918,8 @@ function CapacityPlanning() {
     var rData = displayData;
     var ts = new Date().toLocaleString("en-IN",{timeZone:"Asia/Kolkata"});
     var osLabel = osTab === "linux" ? "Linux" : "Windows";
+    var groupLabel = groupFilter === "All" ? "All Discoms" : groupFilter;
+    var fileSlug = (groupFilter==="All"?"all":groupFilter.replace(/[^a-z0-9]/gi,"-").toLowerCase());
 
     // ── SHARED: load logo as base64 ──────────────────────────────────────────
     var logoBase64 = null;
@@ -1790,25 +1942,25 @@ function CapacityPlanning() {
 
       // Header bar
       doc.setFillColor(15, 31, 46);
-      doc.rect(0, 0, 297, 20, "F");
+      doc.rect(0, 0, 297, 22, "F");
 
       // D&IT Logo (top-left inside header)
       if (logoBase64) {
-        try { doc.addImage(logoBase64, "JPEG", 4, 2, 28, 16); } catch(e){}
+        try { doc.addImage(logoBase64, "JPEG", 4, 2, 28, 18); } catch(e){}
       }
 
       // Title text
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(13);
       doc.setFont("helvetica","bold");
-      doc.text("InfraCommand — Capacity Report", 38, 10);
+      doc.text("InfraCommand — Capacity Report", 38, 9);
       doc.setFontSize(8);
       doc.setFont("helvetica","normal");
-      doc.text("Generated: " + ts + " IST  |  OS: " + osLabel + "  |  Hosts: " + rData.length, 38, 16);
+      doc.text("Discom: " + groupLabel + "  |  OS: " + osLabel + "  |  Hosts: " + rData.length + "  |  Generated: " + ts + " IST", 38, 16);
 
       // Sub-header line
       doc.setFillColor(0, 123, 255);
-      doc.rect(0, 20, 297, 1.2, "F");
+      doc.rect(0, 22, 297, 1.2, "F");
 
       // Table
       var headers = ["Host","CPU Model","vCPU Total","vCPU Used","vCPU Free",
@@ -1857,7 +2009,7 @@ function CapacityPlanning() {
       autoTable(doc, {
         head: [headers],
         body: rows,
-        startY: 24,
+        startY: 26,
         styles: {fontSize:7, cellPadding:2},
         headStyles: {fillColor:[15,31,46], textColor:255, fontStyle:"bold", fontSize:7},
         alternateRowStyles: {fillColor:[245,248,252]},
@@ -1869,14 +2021,12 @@ function CapacityPlanning() {
           11:{cellWidth:12,halign:"center"},
         },
         didDrawPage: function(data) {
-          // Footer on each page
           doc.setFontSize(7);
           doc.setTextColor(130,130,130);
           var pg = doc.internal.getCurrentPageInfo().pageNumber;
-          doc.text("InfraCommand — Confidential  |  Page " + pg, 14, doc.internal.pageSize.height - 6);
+          doc.text("InfraCommand — " + groupLabel + " — Confidential  |  Page " + pg, 14, doc.internal.pageSize.height - 6);
         },
         willDrawCell: function(data) {
-          // Highlight totals row
           if (data.row.index === rows.length - 1) {
             data.cell.styles.fillColor = [15, 31, 46];
             data.cell.styles.textColor = [255, 255, 255];
@@ -1885,19 +2035,19 @@ function CapacityPlanning() {
         },
       });
 
-      doc.save("InfraCommand-Capacity-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".pdf");
+      doc.save("InfraCommand-" + fileSlug + "-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".pdf");
 
     } else if (format === "excel") {
       // ── Excel generation via SheetJS ─────────────────────────────────────
       var XLSX = await import("xlsx");
       var wb = XLSX.utils.book_new();
 
-      var headers = ["Host","IP","CPU Model","vCPU Total","vCPU Used","vCPU Free",
+      var headers = ["Host","IP","Discom Group","CPU Model","vCPU Total","vCPU Used","vCPU Free",
                      "RAM Total (GB)","RAM Used (GB)","RAM Free (GB)",
                      "Disk Total (GB)","Disk Used (GB)","Disk Free (GB)","VMs"];
       var wsData = [
-        ["InfraCommand — Capacity Report"],
-        ["Generated: " + ts + " IST", "", "OS Filter: " + osLabel],
+        ["InfraCommand — Capacity Report — " + groupLabel],
+        ["Generated: " + ts + " IST", "", "Discom: " + groupLabel, "OS Filter: " + osLabel],
         [],
         headers,
       ];
@@ -1905,6 +2055,7 @@ function CapacityPlanning() {
         wsData.push([
           h.host_name || "",
           h.host_ip || "",
+          h.group || "Default",
           h.cpu_model || "",
           Number(h.cpu_vcpus || 0),
           Number(h.vm_vcpu_alloc || 0),
@@ -1919,27 +2070,29 @@ function CapacityPlanning() {
         ]);
       });
       // VM detail sheet
-      var vmData = [["Host","VM Name","Status","vCPU","RAM (GB)","Disk (GB)","OS","IP"]];
+      var vmData = [["Host","Discom Group","VM Name","Status","vCPU","RAM (GB)","Disk (GB)","OS","IP"]];
       rData.forEach(function(h) {
         (h.vms || []).forEach(function(vm) {
-          vmData.push([h.host_name, vm.name, vm.status||"", vm.vcpus||0, (vm.ram_mb||0)/1024, vm.disk_gb||0, vm.os||"", vm.ip||""]);
+          vmData.push([h.host_name, h.group||"Default", vm.name, vm.status||"", vm.vcpus||0, (vm.ram_mb||0)/1024, vm.disk_gb||0, vm.os||"", vm.ip||""]);
         });
       });
 
       var ws = XLSX.utils.aoa_to_sheet(wsData);
-      ws["!cols"] = [{wch:22},{wch:15},{wch:32},{wch:12},{wch:12},{wch:12},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:8}];
-      ws["!merges"] = [{s:{r:0,c:0},e:{r:0,c:12}}];
+      ws["!cols"] = [{wch:22},{wch:15},{wch:14},{wch:30},{wch:12},{wch:12},{wch:12},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:8}];
+      ws["!merges"] = [{s:{r:0,c:0},e:{r:0,c:13}}];
       XLSX.utils.book_append_sheet(wb, ws, "Capacity Summary");
 
       var ws2 = XLSX.utils.aoa_to_sheet(vmData);
       XLSX.utils.book_append_sheet(wb, ws2, "VM Details");
 
-      XLSX.writeFile(wb, "InfraCommand-Capacity-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".xlsx");
+      XLSX.writeFile(wb, "InfraCommand-" + fileSlug + "-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".xlsx");
     }
   };
 
   const hostOptions  = data.map(h=>({ id:h.host_id, name:h.host_name }));
-  const filteredData = hostFilter==="all" ? data : data.filter(h=>h.host_id===hostFilter);
+  // Apply Discom group filter first, then host-level filter, then OS tab filter
+  const groupFilteredData = groupFilter==="All" ? data : data.filter(h=>(h.group||"Default")===groupFilter);
+  const filteredData = hostFilter==="all" ? groupFilteredData : groupFilteredData.filter(h=>h.host_id===hostFilter);
   const osFilteredData = filteredData.filter(h => {
     const os = (h.os_name || h.os_type || "").toLowerCase();
     if (osTab === "windows") return os.includes("windows") || (h.os_type||"").toLowerCase()==="windows";
@@ -1963,22 +2116,32 @@ function CapacityPlanning() {
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
-      {/* \u2500\u2500 Header \u2500\u2500 */}
+      {/* ── Header ── */}
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
           <div>
             <div style={{fontWeight:700,fontSize:16}}>Capacity Planning</div>
             <div style={{fontSize:12,color:T.muted,marginTop:2}}>
-              {displayData.length} host{displayData.length!==1?"s":""} \u00B7 snapshot from last Refresh
+              {displayData.length} host{displayData.length!==1?"s":""} · {groupFilter==="All"?"All Discoms":groupFilter} · snapshot from last Refresh
             </div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-            <select value={hostFilter} onChange={e=>{ setHostFilter(e.target.value); setSel(null); }} style={{minWidth:180}}>
+            {/* Discom Group Filter */}
+            <div style={{display:"flex",alignItems:"center",gap:5}}>
+              <span style={{fontSize:11,color:T.muted,fontWeight:600}}>🏢</span>
+              <select value={groupFilter} onChange={e=>{setGroupFilter(e.target.value);setHostFilter("all");setSel(null);}}
+                style={{minWidth:130,fontSize:12}}>
+                <option value="All">All Discoms</option>
+                {capGroups.map(g=><option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+            <select value={hostFilter} onChange={e=>{ setHostFilter(e.target.value); setSel(null); }} style={{minWidth:160}}>
               <option value="all">All Hosts</option>
-              {hostOptions.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}
+              {hostOptions.filter(h=>groupFilter==="All"||groupFilteredData.some(d=>d.host_id===h.id))
+                .map(h=><option key={h.id} value={h.id}>{h.name}</option>)}
             </select>
             <button className="btn btn-ghost" onClick={load} disabled={busy}>
-              {busy?<><span className="spinner"/>Loading...</>:"\u21BB Refresh"}
+              {busy?<><span className="spinner"/>Loading...</>:"↻ Refresh"}
             </button>
             <div style={{display:"flex",gap:0,borderRadius:7,overflow:"hidden",border:"1px solid #1e3a5f"}}>
               <button onClick={()=>generateReport("pdf")}

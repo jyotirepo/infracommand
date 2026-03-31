@@ -47,6 +47,7 @@ class HostCreate(BaseModel):
     ssh_key: Optional[str] = None
     ssh_port: int = 22
     winrm_port: int = 5985
+    group: str = "Default"       # Discom / business unit group
 
 class HostUpdate(BaseModel):
     name: Optional[str] = None
@@ -54,6 +55,7 @@ class HostUpdate(BaseModel):
     password: Optional[str] = None
     ssh_key: Optional[str] = None
     ssh_port: Optional[int] = None
+    group: Optional[str] = None  # allow reassigning group
 
 
 def _collect_metrics(host: dict) -> dict:
@@ -306,6 +308,7 @@ def get_capacity(db: Session = Depends(get_db), _u=Depends(require_perm("view"))
             "host_name":  h.get("name", ""),
             "host_ip":    h.get("ip", ""),
             "os_type":    h.get("os_type", ""),
+            "group":      h.get("group", "Default"),
             "hw_missing": hw_missing,         # True = needs Refresh to collect hardware
             "cpu_model":  cpu_model,
             "cpu_sockets":     cpu_sockets,
@@ -462,6 +465,28 @@ def delete_host(hid: str, db: Session = Depends(get_db), _=Depends(require_perm(
     if not db_get_host(db, hid): raise HTTPException(404,"Host not found")
     db_delete_host(db, hid)
     return {"message":"Deleted"}
+
+@app.get("/api/groups")
+def get_groups(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
+    """Return sorted list of all unique group names across all hosts."""
+    hosts = db_get_hosts(db)
+    groups = sorted(set(h.get("group") or "Default" for h in hosts))
+    if not groups:
+        groups = ["Default"]
+    return groups
+
+@app.patch("/api/hosts/{hid}/group")
+def patch_host_group(hid: str, body: dict, db: Session = Depends(get_db), _u=Depends(require_perm("add_host"))):
+    """Reassign an existing host to a different group."""
+    h = db_get_host(db, hid)
+    if not h: raise HTTPException(404, "Host not found")
+    new_group = (body.get("group") or "Default").strip()
+    if not new_group:
+        raise HTTPException(400, "Group name cannot be empty")
+    h["group"] = new_group
+    db_save_host(db, h)
+    _append_log(db, hid, h["name"], "INFO", f"Group changed to: {new_group}", "system")
+    return {"id": hid, "group": new_group, "message": f"Host moved to group '{new_group}'"}
 
 # ── User-triggered refresh (explicit only) ────────────────────────────────────
 @app.post("/api/hosts/{hid}/refresh")

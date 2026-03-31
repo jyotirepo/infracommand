@@ -26,6 +26,7 @@ class HostModel(Base):
     ssh_key     = Column(Text)
     ssh_port    = Column(Integer, default=22)
     winrm_port  = Column(Integer, default=5985)
+    group       = Column(String, default="Default")   # Discom / business unit group
     status      = Column(String, default="unknown")
     created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -62,6 +63,19 @@ class LogModel(Base):
     updated_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 Base.metadata.create_all(engine)
+
+# ── Auto-migrate: add 'group' column to existing DBs that predate this field ──
+def _migrate():
+    from sqlalchemy import text, inspect
+    with engine.connect() as conn:
+        cols = [c["name"] for c in inspect(engine).get_columns("hosts")]
+        if "group" not in cols:
+            conn.execute(text("ALTER TABLE hosts ADD COLUMN \"group\" VARCHAR DEFAULT 'Default'"))
+            conn.commit()
+try:
+    _migrate()
+except Exception:
+    pass
 
 def get_db():
     with Session(engine) as s:
