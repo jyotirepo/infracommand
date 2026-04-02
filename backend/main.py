@@ -61,7 +61,7 @@ class HostCreate(BaseModel):
     ssh_key: Optional[str] = None
     ssh_port: int = 22
     winrm_port: int = 5985
-    winrm_auth: str = "negotiate"   # negotiate|ntlm|basic
+    winrm_auth: str = "ntlm"        # ntlm|basic|negotiate (ntlm works without domain join)
     domain: str = ""                # AD domain e.g. TPCODL or corp.tpcodl.com
     group: str = "Default"
 

@@ -1065,24 +1065,26 @@ def collect_kvm_vms(host: dict) -> list:
 
 def _winrm_connect(host: dict):
     """
-    Connect via WinRM using NTLM (negotiate transport).
+    Connect via WinRM using NTLM authentication.
 
-    Authentication strategy — InfraCommand server does NOT need to be domain-joined:
+    Transport choice:
     ─────────────────────────────────────────────────────────────────────────────
-    1. negotiate  (tries NTLM first, Kerberos if domain-joined) — recommended
-    2. ntlm       (explicit NTLM — works from any Linux server to Windows)
-    3. basic       (only if WinRM AllowUnencrypted=true is set — avoid in prod)
+    • ntlm   — works from any Linux server to any Windows host, domain-joined or
+               not. Requires pywinrm[security] (requests-ntlm). DEFAULT.
+    • basic  — only works if WinRM AllowUnencrypted=true is set on the target.
+               Avoid in production.
+    • negotiate — requires requests-kerberos which is NOT installed by default.
+               Will raise "unsupported auth method" if that lib is missing.
 
-    Domain account formats:
-      DOMAIN\\username   e.g.  TPCODL\\inframon   (NetBIOS domain — most common)
-      username@domain   e.g.  inframon@corp.tpcodl.com  (UPN — also works)
+    InfraCommand server does NOT need to be domain-joined.
+    NTLM works purely machine-to-machine — the Windows host validates credentials
+    against its own DC. Different Discoms with different AD domains work fine.
 
-    Local account (no domain):
-      Administrator or .\\Administrator
+    Domain account format (auto-applied when 'domain' field is set):
+      TPCODL\\inframonitor   (NetBIOS — used automatically)
 
-    Windows WinRM must be enabled on the target:
-      Enable-PSRemoting -Force
-      Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value "*" -Force
+    Local account format:
+      Administrator  or  .\\Administrator
     ─────────────────────────────────────────────────────────────────────────────
     """
     try:
@@ -1095,95 +1097,100 @@ def _winrm_connect(host: dict):
     user       = (host.get("username") or "Administrator").strip()
     pwd        = host.get("password") or ""
     domain     = (host.get("domain") or "").strip()
-    winrm_auth = (host.get("winrm_auth") or "negotiate").strip().lower()
+    # Always use ntlm — negotiate requires requests-kerberos which may not be installed
+    # ntlm works perfectly for both domain and local accounts without domain join
+    transport  = "ntlm"
 
     # ── Build fully-qualified username ────────────────────────────────────────
-    # If domain is provided and username doesn't already contain it, prepend it.
-    # This avoids needing users to manually type DOMAIN\user.
-    if domain:
-        if "\\" not in user and "@" not in user:
-            # Use NetBIOS format: DOMAIN\user (most reliable for NTLM)
-            # Strip any .com/.local suffix from domain for NetBIOS name
-            netbios = domain.split(".")[0].upper()
-            fq_user = f"{netbios}\\{user}"
-        else:
-            fq_user = user  # already has domain prefix
+    if domain and "\\" not in user and "@" not in user:
+        # Auto-prepend NetBIOS domain name (first component before any dot)
+        netbios = domain.split(".")[0].upper()
+        fq_user = f"{netbios}\\{user}"
     else:
-        fq_user = user
+        fq_user = user  # already qualified, or local account
 
     http_url  = f"http://{ip}:{port}/wsman"
     https_url = f"https://{ip}:5986/wsman"
 
-    # ── Build candidate list based on configured auth type ─────────────────
-    # negotiate = try NTLM first (works from non-domain server), falls back
-    #             to Kerberos only if server IS domain-joined — safe default
-    # Always try negotiate and ntlm — they both carry NTLM credentials fine
-    auth_order = []
-    if winrm_auth in ("negotiate", "ntlm"):
-        auth_order = ["negotiate", "ntlm"]
-    elif winrm_auth == "basic":
-        auth_order = ["basic", "negotiate", "ntlm"]
-    else:
-        auth_order = ["negotiate", "ntlm", "basic"]
-
-    # For local accounts (no domain), also try .\username variant
+    # Try candidates: NTLM HTTP, NTLM HTTPS, then basic HTTP as last resort
+    # For local accounts without domain, also try .\username variant
     user_variants = [fq_user]
     if not domain and "\\" not in fq_user and "@" not in fq_user:
         user_variants.append(".\\" + fq_user)
 
-    errors = {}
-    for transport in auth_order:
-        for uname in user_variants:
-            for url in [http_url, https_url]:
-                key = f"{transport}({uname})@{url.split('//')[1].split('/')[0]}"
-                try:
-                    s = winrm.Session(
-                        url, auth=(uname, pwd),
-                        transport=transport,
-                        server_cert_validation="ignore",
-                        operation_timeout_sec=30,
-                        read_timeout_sec=35,
-                    )
-                    r = s.run_cmd("echo ok")
-                    if r.status_code == 0:
-                        import logging
-                        logging.getLogger(__name__).info(
-                            f"[WinRM] Connected {ip}:{port} transport={transport} user={uname}"
-                        )
-                        return s
-                    stderr = r.std_err.decode(errors="ignore").strip()[:120]
-                    if stderr:
-                        errors[key] = stderr
-                except Exception as exc:
-                    err_msg = str(exc)
-                    # Skip HTTPS attempt if it's a connection refused (port 5986 not open)
-                    if "5986" in url and ("Connection refused" in err_msg or "timed out" in err_msg):
-                        break
-                    errors[key] = err_msg[:120]
+    candidates = []
+    for u in user_variants:
+        candidates.append((http_url,  "ntlm",  u))
+    for u in user_variants:
+        candidates.append((https_url, "ntlm",  u))
+    # Basic as absolute last resort (only works if WinRM AllowUnencrypted=true)
+    candidates.append((http_url, "basic", fq_user))
 
-    # ── Clear, actionable error message ───────────────────────────────────
-    err_lines = [f"WinRM connection to {ip}:{port} failed."]
-    err_lines.append("")
-    err_lines.append("CHECKLIST:")
-    err_lines.append("1. Enable WinRM on the Windows host:")
-    err_lines.append("     Enable-PSRemoting -Force")
-    err_lines.append("     Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value '*' -Force")
-    err_lines.append("2. Open firewall port 5985 (or 5986 for HTTPS)")
-    err_lines.append("3. Username format:")
+    errors = {}
+    for url, t, uname in candidates:
+        key = f"{t}({uname})@{ip}:{port}"
+        try:
+            s = winrm.Session(
+                url, auth=(uname, pwd),
+                transport=t,
+                server_cert_validation="ignore",
+                operation_timeout_sec=30,
+                read_timeout_sec=35,
+            )
+            r = s.run_cmd("echo ok")
+            if r.status_code == 0:
+                import logging
+                logging.getLogger(__name__).info(
+                    f"[WinRM] Connected {ip}:{port} transport={t} user={uname}"
+                )
+                return s
+            stderr = r.std_err.decode(errors="ignore").strip()[:150]
+            if stderr:
+                errors[key] = stderr
+        except Exception as exc:
+            err_msg = str(exc)
+            # Don't bother retrying HTTPS if port 5986 is clearly not open
+            if "5986" in url and any(x in err_msg for x in ["Connection refused", "timed out", "No route"]):
+                continue
+            # Skip if this is a transport-level "unsupported" error — no point retrying same
+            if "unsupported" in err_msg.lower():
+                errors[key] = err_msg[:150]
+                continue
+            errors[key] = err_msg[:150]
+
+    # ── Clear, actionable error message ───────────────────────────────────────
+    err_lines = [
+        f"WinRM connection to {ip}:{port} failed.",
+        "",
+        "Run these commands on the Windows host (as Administrator):",
+        "",
+        "  # 1. Enable WinRM",
+        "  Enable-PSRemoting -Force",
+        "",
+        "  # 2. Trust the InfraCommand server IP (or use * for all)",
+        "  Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value '192.168.101.80' -Force",
+        "",
+        "  # 3. Open firewall",
+        "  New-NetFirewallRule -Name WinRM-HTTP -Protocol TCP -LocalPort 5985 -Action Allow",
+        "",
+        "  # 4. Confirm WinRM is listening",
+        "  Test-WSMan -ComputerName localhost",
+        "",
+    ]
     if domain:
         netbios = domain.split(".")[0].upper()
-        err_lines.append(f"     Domain account: {netbios}\\{user}  (auto-applied)")
-        err_lines.append(f"     Or UPN format:  {user}@{domain}")
+        err_lines += [
+            f"Credentials used: {netbios}\\{user}  (NTLM, domain auto-applied)",
+            "If credentials are wrong, update username/password and retry.",
+        ]
     else:
-        err_lines.append(f"     Local account:  Administrator  or  .\\{user}")
-        err_lines.append(f"     Domain account: Enter domain in the 'AD Domain' field")
-    err_lines.append("4. Ensure NTLM is not blocked by GPO:")
-    err_lines.append("     Network security: LAN Manager auth level → NTLMv2 only")
-    err_lines.append("")
-    top_errors = list(errors.items())[:3]
-    if top_errors:
-        err_lines.append("Errors seen:")
-        for k, v in top_errors:
+        err_lines += [
+            f"Credentials used: local account '{fq_user}'",
+            "For domain accounts: enter the AD Domain in the host settings.",
+        ]
+    if errors:
+        err_lines += ["", "Errors seen:"]
+        for k, v in list(errors.items())[:3]:
             err_lines.append(f"  [{k}] {v}")
 
     raise ConnectionError("\n".join(err_lines))

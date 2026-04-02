@@ -270,7 +270,7 @@ function PromoteVMModal({vm, hostId, onClose, onAdded}) {
 function AddHostModal({onClose,onAdded,existingGroups=[]}) {
   const [form,setForm]=useState({name:"",ip:"",os_type:"linux",auth_type:"password",
     username:"root",password:"",ssh_key:"",ssh_port:22,winrm_port:5985,
-    winrm_auth:"negotiate",domain:"",group:"Default"});
+    winrm_auth:"ntlm",domain:"",group:"Default"});
   const [busy,setBusy]=useState(false);
   const [msg,setMsg]=useState(null);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
@@ -368,9 +368,9 @@ function AddHostModal({onClose,onAdded,existingGroups=[]}) {
           {isWin?(
             <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>WinRM Auth</label>
               <select value={form.winrm_auth} onChange={e=>set("winrm_auth",e.target.value)}>
-                <option value="negotiate">Negotiate (NTLM/Kerberos) — Recommended</option>
-                <option value="ntlm">NTLM — Explicit</option>
-                <option value="basic">Basic — Only if unencrypted allowed</option>
+                <option value="ntlm">NTLM — Recommended (no domain join needed)</option>
+                <option value="negotiate">Negotiate (needs requests-kerberos installed)</option>
+                <option value="basic">Basic — Only if AllowUnencrypted=true on host</option>
               </select>
             </div>
           ):(
