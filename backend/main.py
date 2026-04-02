@@ -61,7 +61,9 @@ class HostCreate(BaseModel):
     ssh_key: Optional[str] = None
     ssh_port: int = 22
     winrm_port: int = 5985
-    group: str = "Default"       # Discom / business unit group
+    winrm_auth: str = "negotiate"   # negotiate|ntlm|basic
+    domain: str = ""                # AD domain e.g. TPCODL or corp.tpcodl.com
+    group: str = "Default"
 
 class HostUpdate(BaseModel):
     name: Optional[str] = None
@@ -69,7 +71,9 @@ class HostUpdate(BaseModel):
     password: Optional[str] = None
     ssh_key: Optional[str] = None
     ssh_port: Optional[int] = None
-    group: Optional[str] = None  # allow reassigning group
+    domain: Optional[str] = None
+    winrm_auth: Optional[str] = None
+    group: Optional[str] = None
 
 
 def _collect_metrics(host: dict) -> dict:

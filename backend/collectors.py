@@ -1065,65 +1065,128 @@ def collect_kvm_vms(host: dict) -> list:
 
 def _winrm_connect(host: dict):
     """
-    Connect via WinRM. Tries ntlm then basic over HTTP then HTTPS.
-    For domain accounts use: DOMAIN\\username format.
-    For local accounts use: username (no prefix needed).
+    Connect via WinRM using NTLM (negotiate transport).
+
+    Authentication strategy — InfraCommand server does NOT need to be domain-joined:
+    ─────────────────────────────────────────────────────────────────────────────
+    1. negotiate  (tries NTLM first, Kerberos if domain-joined) — recommended
+    2. ntlm       (explicit NTLM — works from any Linux server to Windows)
+    3. basic       (only if WinRM AllowUnencrypted=true is set — avoid in prod)
+
+    Domain account formats:
+      DOMAIN\\username   e.g.  TPCODL\\inframon   (NetBIOS domain — most common)
+      username@domain   e.g.  inframon@corp.tpcodl.com  (UPN — also works)
+
+    Local account (no domain):
+      Administrator or .\\Administrator
+
+    Windows WinRM must be enabled on the target:
+      Enable-PSRemoting -Force
+      Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value "*" -Force
+    ─────────────────────────────────────────────────────────────────────────────
     """
     try:
         import winrm
     except ImportError:
-        raise ConnectionError("pywinrm not installed")
+        raise ConnectionError("pywinrm not installed — run: pip install pywinrm[security]")
 
-    ip   = host["ip"]
-    port = int(host.get("winrm_port") or 5985)
-    user = host["username"]
-    pwd  = host.get("password") or ""
+    ip         = host["ip"]
+    port       = int(host.get("winrm_port") or 5985)
+    user       = (host.get("username") or "Administrator").strip()
+    pwd        = host.get("password") or ""
+    domain     = (host.get("domain") or "").strip()
+    winrm_auth = (host.get("winrm_auth") or "negotiate").strip().lower()
 
-    # Build username variants
-    # Domain: "DOMAIN\\user" → use as-is
-    # Local:  "user" → try as-is and ".\\user"
-    usernames = [user]
-    if "\\" not in user and "@" not in user:
-        usernames = [user, ".\\" + user]
+    # ── Build fully-qualified username ────────────────────────────────────────
+    # If domain is provided and username doesn't already contain it, prepend it.
+    # This avoids needing users to manually type DOMAIN\user.
+    if domain:
+        if "\\" not in user and "@" not in user:
+            # Use NetBIOS format: DOMAIN\user (most reliable for NTLM)
+            # Strip any .com/.local suffix from domain for NetBIOS name
+            netbios = domain.split(".")[0].upper()
+            fq_user = f"{netbios}\\{user}"
+        else:
+            fq_user = user  # already has domain prefix
+    else:
+        fq_user = user
 
     http_url  = f"http://{ip}:{port}/wsman"
     https_url = f"https://{ip}:5986/wsman"
 
-    # Try negotiate first (NTLM/Kerberos auto), then ntlm, then basic
-    # basic first — works for local accounts without encryption requirement
-    # ntlm second — works for domain accounts but needs AllowUnencrypted=true
-    transports = ["basic", "ntlm"]
+    # ── Build candidate list based on configured auth type ─────────────────
+    # negotiate = try NTLM first (works from non-domain server), falls back
+    #             to Kerberos only if server IS domain-joined — safe default
+    # Always try negotiate and ntlm — they both carry NTLM credentials fine
+    auth_order = []
+    if winrm_auth in ("negotiate", "ntlm"):
+        auth_order = ["negotiate", "ntlm"]
+    elif winrm_auth == "basic":
+        auth_order = ["basic", "negotiate", "ntlm"]
+    else:
+        auth_order = ["negotiate", "ntlm", "basic"]
 
-    candidates = []
-    for u in usernames:
-        for t in transports:
-            candidates.append((http_url,  t, u))
-    for u in usernames:
-        for t in transports:
-            candidates.append((https_url, t, u))
+    # For local accounts (no domain), also try .\username variant
+    user_variants = [fq_user]
+    if not domain and "\\" not in fq_user and "@" not in fq_user:
+        user_variants.append(".\\" + fq_user)
 
     errors = {}
-    for url, transport, uname in candidates:
-        key = f"{transport}({uname})"
-        try:
-            s = winrm.Session(
-                url, auth=(uname, pwd),
-                transport=transport,
-                server_cert_validation="ignore",
-            )
-            r = s.run_cmd("echo ok")
-            if r.status_code == 0:
-                return s
-            errors[key] = r.std_err.decode(errors="ignore").strip()[:100]
-        except Exception as exc:
-            errors[key] = str(exc)[:100]
+    for transport in auth_order:
+        for uname in user_variants:
+            for url in [http_url, https_url]:
+                key = f"{transport}({uname})@{url.split('//')[1].split('/')[0]}"
+                try:
+                    s = winrm.Session(
+                        url, auth=(uname, pwd),
+                        transport=transport,
+                        server_cert_validation="ignore",
+                        operation_timeout_sec=30,
+                        read_timeout_sec=35,
+                    )
+                    r = s.run_cmd("echo ok")
+                    if r.status_code == 0:
+                        import logging
+                        logging.getLogger(__name__).info(
+                            f"[WinRM] Connected {ip}:{port} transport={transport} user={uname}"
+                        )
+                        return s
+                    stderr = r.std_err.decode(errors="ignore").strip()[:120]
+                    if stderr:
+                        errors[key] = stderr
+                except Exception as exc:
+                    err_msg = str(exc)
+                    # Skip HTTPS attempt if it's a connection refused (port 5986 not open)
+                    if "5986" in url and ("Connection refused" in err_msg or "timed out" in err_msg):
+                        break
+                    errors[key] = err_msg[:120]
 
-    err_summary = " | ".join(f"{k}: {v}" for k, v in list(errors.items())[:4])
-    raise ConnectionError(
-        f"WinRM auth failed for {ip}:{port}. Errors: {err_summary}\n"
-        f"Domain account format: DOMAIN\\\\username\n"
-        f"Local account format: username (e.g. inframonitor)"
-    )
+    # ── Clear, actionable error message ───────────────────────────────────
+    err_lines = [f"WinRM connection to {ip}:{port} failed."]
+    err_lines.append("")
+    err_lines.append("CHECKLIST:")
+    err_lines.append("1. Enable WinRM on the Windows host:")
+    err_lines.append("     Enable-PSRemoting -Force")
+    err_lines.append("     Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value '*' -Force")
+    err_lines.append("2. Open firewall port 5985 (or 5986 for HTTPS)")
+    err_lines.append("3. Username format:")
+    if domain:
+        netbios = domain.split(".")[0].upper()
+        err_lines.append(f"     Domain account: {netbios}\\{user}  (auto-applied)")
+        err_lines.append(f"     Or UPN format:  {user}@{domain}")
+    else:
+        err_lines.append(f"     Local account:  Administrator  or  .\\{user}")
+        err_lines.append(f"     Domain account: Enter domain in the 'AD Domain' field")
+    err_lines.append("4. Ensure NTLM is not blocked by GPO:")
+    err_lines.append("     Network security: LAN Manager auth level → NTLMv2 only")
+    err_lines.append("")
+    top_errors = list(errors.items())[:3]
+    if top_errors:
+        err_lines.append("Errors seen:")
+        for k, v in top_errors:
+            err_lines.append(f"  [{k}] {v}")
+
+    raise ConnectionError("\n".join(err_lines))
 
 
 def _run_ps(s, script: str):

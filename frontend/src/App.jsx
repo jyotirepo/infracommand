@@ -269,7 +269,8 @@ function PromoteVMModal({vm, hostId, onClose, onAdded}) {
 // ── Add Host Modal ─────────────────────────────────────────────────────────────
 function AddHostModal({onClose,onAdded,existingGroups=[]}) {
   const [form,setForm]=useState({name:"",ip:"",os_type:"linux",auth_type:"password",
-    username:"root",password:"",ssh_key:"",ssh_port:22,winrm_port:5985,group:"Default"});
+    username:"root",password:"",ssh_key:"",ssh_port:22,winrm_port:5985,
+    winrm_auth:"negotiate",domain:"",group:"Default"});
   const [busy,setBusy]=useState(false);
   const [msg,setMsg]=useState(null);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
@@ -277,9 +278,10 @@ function AddHostModal({onClose,onAdded,existingGroups=[]}) {
   const [testing,setTesting]=useState(false);
   const [newGroup,setNewGroup]=useState("");
   const [addingGroup,setAddingGroup]=useState(false);
+  const [showWinGuide,setShowWinGuide]=useState(false);
 
-  // All available groups: existing ones + any new one just typed
   const allGroups=[...new Set([...existingGroups,"Default"])].sort();
+  const isWin = form.os_type==="windows";
 
   const testConn=async()=>{
     if(!form.ip) return setMsg({t:"e",text:"Enter IP address first"});
@@ -355,27 +357,110 @@ function AddHostModal({onClose,onAdded,existingGroups=[]}) {
               <input type={t} value={form[k]} onChange={e=>set(k,e.target.value)} placeholder={p}/></div>
           ))}
           <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>OS / Hypervisor</label>
-            <select value={form.os_type} onChange={e=>{set("os_type",e.target.value);set("username",e.target.value==="windows"?"Administrator":"root");}}>
-              <option value="linux">🐧 Linux — KVM</option>
-              <option value="windows">🪟 Windows — Hyper-V</option>
+            <select value={form.os_type} onChange={e=>{
+              set("os_type",e.target.value);
+              set("username",e.target.value==="windows"?"Administrator":"root");
+              if(e.target.value==="windows") set("winrm_auth","negotiate");
+            }}>
+              <option value="linux">🐧 Linux — KVM (SSH)</option>
+              <option value="windows">🪟 Windows — Hyper-V (WinRM)</option>
             </select></div>
-          <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>Auth Type</label>
-            <select value={form.auth_type} onChange={e=>set("auth_type",e.target.value)}>
-              <option value="password">Password</option><option value="key">SSH Key (PEM)</option>
-            </select></div>
+          {isWin?(
+            <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>WinRM Auth</label>
+              <select value={form.winrm_auth} onChange={e=>set("winrm_auth",e.target.value)}>
+                <option value="negotiate">Negotiate (NTLM/Kerberos) — Recommended</option>
+                <option value="ntlm">NTLM — Explicit</option>
+                <option value="basic">Basic — Only if unencrypted allowed</option>
+              </select>
+            </div>
+          ):(
+            <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>Auth Type</label>
+              <select value={form.auth_type} onChange={e=>set("auth_type",e.target.value)}>
+                <option value="password">Password</option><option value="key">SSH Key (PEM)</option>
+              </select>
+            </div>
+          )}
           <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>Username</label>
-            <input value={form.username} onChange={e=>set("username",e.target.value)}/></div>
-          {form.os_type==="linux"
-            ?<div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>SSH Port</label>
-               <input type="number" value={form.ssh_port} onChange={e=>set("ssh_port",e.target.value)}/></div>
-            :<div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>WinRM Port</label>
-               <input type="number" value={form.winrm_port} onChange={e=>set("winrm_port",e.target.value)}/></div>}
-          {form.auth_type==="password"
+            <input value={form.username} onChange={e=>set("username",e.target.value)}
+              placeholder={isWin?"Administrator (domain added automatically)":"root"}/></div>
+          {isWin?(
+            <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>
+              WinRM Port</label>
+              <input type="number" value={form.winrm_port} onChange={e=>set("winrm_port",e.target.value)}/></div>
+          ):(
+            <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>SSH Port</label>
+              <input type="number" value={form.ssh_port} onChange={e=>set("ssh_port",e.target.value)}/></div>
+          )}
+          {form.auth_type==="password"||isWin
             ?<div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>Password</label>
                <input type="password" value={form.password} onChange={e=>set("password",e.target.value)}/></div>
             :<div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>SSH Private Key</label>
                <textarea rows={5} value={form.ssh_key} onChange={e=>set("ssh_key",e.target.value)} placeholder={"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"}/></div>}
         </div>
+
+        {/* ── Windows Domain / NTLM section ── */}
+        {isWin&&(
+          <div style={{marginTop:12,padding:"12px 14px",background:"#f0f9ff",borderRadius:8,border:"1px solid #bae6fd"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <label style={{fontSize:11,fontWeight:700,color:"#0369a1"}}>🔑 Active Directory / Domain Authentication</label>
+              <button type="button" style={{fontSize:10,color:"#0369a1",background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}
+                onClick={()=>setShowWinGuide(g=>!g)}>{showWinGuide?"Hide Guide":"WinRM Setup Guide"}</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>
+                  AD Domain <span style={{fontWeight:400,color:T.muted}}>(optional for local accounts)</span>
+                </label>
+                <input value={form.domain} onChange={e=>set("domain",e.target.value)}
+                  placeholder="e.g. TPCODL or corp.tpcodl.com"/>
+                {form.domain&&(
+                  <div style={{fontSize:10,color:"#0369a1",marginTop:4}}>
+                    Will authenticate as: <strong>{form.domain.split(".")[0].toUpperCase()}\{form.username||"Administrator"}</strong>
+                  </div>
+                )}
+              </div>
+              <div style={{background:"#e0f2fe",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#0369a1"}}>
+                <div style={{fontWeight:700,marginBottom:4}}>How NTLM works without domain join:</div>
+                <div>• InfraCommand sends credentials to the Windows host</div>
+                <div>• Windows validates against its own AD or local SAM</div>
+                <div>• <strong>No need</strong> to join InfraCommand server to the domain</div>
+                <div>• Each Discom can have its own domain — just enter it per host</div>
+              </div>
+            </div>
+            {showWinGuide&&(
+              <div style={{marginTop:10,padding:"10px 12px",background:"#fff",borderRadius:6,
+                border:"1px solid #bae6fd",fontSize:11,color:T.sub}}>
+                <div style={{fontWeight:700,color:T.text,marginBottom:6}}>Run these on each Windows host (as Administrator):</div>
+                <pre style={{background:"#0f1f2e",color:"#a5f3fc",padding:"8px 10px",borderRadius:5,
+                  fontSize:10,overflowX:"auto",margin:"0 0 8px"}}>
+{`# 1. Enable WinRM
+Enable-PSRemoting -Force
+
+# 2. Allow connections from InfraCommand server IP
+Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value "192.168.101.80" -Force
+# Or allow all (simpler but less secure):
+Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value "*" -Force
+
+# 3. Ensure WinRM service is running
+Start-Service WinRM
+Set-Service WinRM -StartupType Automatic
+
+# 4. Open firewall port 5985
+New-NetFirewallRule -Name "WinRM-HTTP" -DisplayName "WinRM HTTP" \`
+  -Protocol TCP -LocalPort 5985 -Action Allow
+
+# 5. Verify NTLM is allowed (check GPO)
+# Network security: LAN Manager authentication level
+# Should be: Send NTLMv2 response only`}
+                </pre>
+                <div style={{color:T.muted,fontSize:10}}>
+                  After setup, use <strong>Test Connection</strong> to verify. Domain accounts: enter domain above.
+                  Local accounts: leave domain blank, use local Administrator credentials.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         {testResult&&(
           <div style={{marginTop:12,padding:"10px 14px",borderRadius:8,fontSize:12,
             background:testResult.status==="ok"?"#f0fdf4":"#fff7ed",

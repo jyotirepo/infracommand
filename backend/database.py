@@ -26,7 +26,9 @@ class HostModel(Base):
     ssh_key     = Column(Text)
     ssh_port    = Column(Integer, default=22)
     winrm_port  = Column(Integer, default=5985)
-    group       = Column(String, default="Default")   # Discom / business unit group
+    winrm_auth  = Column(String, default="negotiate")   # negotiate|ntlm|basic|kerberos
+    domain      = Column(String, default="")            # AD domain e.g. TPCODL, corp.tpcodl.com
+    group       = Column(String, default="Default")     # Discom / business unit group
     status      = Column(String, default="unknown")
     created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -71,6 +73,12 @@ def _migrate():
         cols = [c["name"] for c in inspect(engine).get_columns("hosts")]
         if "group" not in cols:
             conn.execute(text("ALTER TABLE hosts ADD COLUMN \"group\" VARCHAR DEFAULT 'Default'"))
+            conn.commit()
+        if "domain" not in cols:
+            conn.execute(text("ALTER TABLE hosts ADD COLUMN domain VARCHAR DEFAULT ''"))
+            conn.commit()
+        if "winrm_auth" not in cols:
+            conn.execute(text("ALTER TABLE hosts ADD COLUMN winrm_auth VARCHAR DEFAULT 'negotiate'"))
             conn.commit()
 try:
     _migrate()
