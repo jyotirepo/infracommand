@@ -368,8 +368,7 @@ function AddHostModal({onClose,onAdded,existingGroups=[]}) {
           {isWin?(
             <div><label style={{fontSize:11,fontWeight:600,color:T.sub,display:"block",marginBottom:4}}>WinRM Auth</label>
               <select value={form.winrm_auth} onChange={e=>set("winrm_auth",e.target.value)}>
-                <option value="ntlm">NTLM — Recommended (no domain join needed)</option>
-                <option value="negotiate">Negotiate (needs requests-kerberos installed)</option>
+                <option value="ntlm">NTLM — Recommended (works without domain join)</option>
                 <option value="basic">Basic — Only if AllowUnencrypted=true on host</option>
               </select>
             </div>
