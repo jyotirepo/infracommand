@@ -538,113 +538,189 @@ function PortScanModal({target,hostId,vmId,ip,onClose}) {
 }
 
 // ── Vuln Scan Modal ───────────────────────────────────────────────────────────
-function VulnScanModal({target,hostId,vmId,ip,onClose}) {
-  const [result,setResult]=useState(null);
-  const [busy,setBusy]=useState(false);
+function VulnScanModal({target,hostId,vmId,ip,osType,onClose}) {
+  const [result,setResult]         = useState(null);
+  const [scanStatus,setScanStatus] = useState("idle");
+  const [scanMsg,setScanMsg]       = useState("");
+  const [elapsed,setElapsed]       = useState(0);
+  const [httpError,setHttpError]   = useState(null);
+  const pollRef  = useRef(null);
+  const timerRef = useRef(null);
+  const isWin = (osType||"").toLowerCase()==="windows";
 
-  const scan=async(force=false)=>{
-    if(!hostId || hostId==="undefined") {
-      setResult({error:"Host ID not available — try closing and reopening."});
-      return;
-    }
-    setBusy(true);setResult(null);
+  const clearTimers = () => {
+    if(pollRef.current)  clearInterval(pollRef.current);
+    if(timerRef.current) clearInterval(timerRef.current);
+  };
+
+  const startPolling = () => {
+    clearTimers();
+    setElapsed(0);
+    timerRef.current = setInterval(()=>setElapsed(e=>e+1), 1000);
+    pollRef.current  = setInterval(async()=>{
+      try {
+        const url = vmId ? `/hosts/${hostId}/vms/${vmId}/scan/status` : `/hosts/${hostId}/scan/status`;
+        const r = await api.get(url);
+        const {status, result: sr} = r.data;
+        if(status==="done"||status==="error") {
+          clearTimers();
+          setScanStatus(status);
+          if(sr) setResult(sr);
+        }
+      } catch(e) {
+        clearTimers();
+        setHttpError(e.response?.data?.detail||"Poll failed");
+        setScanStatus("error");
+      }
+    }, 3000);
+  };
+
+  const startScan = async(force=false) => {
+    if(!hostId||hostId==="undefined") { setHttpError("Host ID not available."); return; }
+    setHttpError(null); setResult(null); setScanStatus("running"); setScanMsg("");
     try {
       const url = vmId
         ? `/hosts/${hostId}/vms/${vmId}/scan${force?"?force=true":""}`
         : `/hosts/${hostId}/scan${force?"?force=true":""}`;
-      const r=await api.post(url);
-      setResult(r.data);
-    } catch(e){setResult({error:e.response?.data?.detail||"Scan failed"});}
-    setBusy(false);
+      const r = await api.post(url);
+      const {status, result: sr, message} = r.data;
+      setScanMsg(message||"");
+      if(status==="done"&&sr) { setScanStatus("done"); setResult(sr); }
+      else { setScanStatus("running"); startPolling(); }
+    } catch(e) {
+      setHttpError(e.response?.data?.detail||"Failed to start scan");
+      setScanStatus("error");
+    }
   };
-  // On open: fetch cached result first (no force), so it's instant if available
-  useEffect(()=>{ if(hostId && hostId!=="undefined") scan(false); },[hostId]); // eslint-disable-line
+
+  useEffect(()=>{
+    if(!hostId||hostId==="undefined") return;
+    (async()=>{
+      try {
+        const url = vmId ? `/hosts/${hostId}/vms/${vmId}/scan/status` : `/hosts/${hostId}/scan/status`;
+        const r = await api.get(url);
+        const {status, result: sr} = r.data;
+        if(status==="done"&&sr)      { setScanStatus("done"); setResult(sr); }
+        else if(status==="running")  { setScanStatus("running"); startPolling(); }
+      } catch(e) {}
+    })();
+    return ()=>clearTimers();
+  }, [hostId]); // eslint-disable-line
 
   const dl=()=>{
-    if(!result||result.error) return;
+    if(!result) return;
     const txt=`InfraCommand Vulnerability Report\nTarget: ${result.target} (${result.ip})\nDate: ${result.scanned_at}\n\nSUMMARY: Critical:${result.summary?.critical} High:${result.summary?.high} Medium:${result.summary?.medium}\n\n${result.vulns?.map(v=>`${v.id} [${v.severity}] CVSS:${v.cvss} ${v.pkg}: ${v.desc}`).join("\n")}`;
-    const a=document.createElement("a");a.href="data:text/plain,"+encodeURIComponent(txt);
-    a.download=`vuln-${result.target}-${Date.now()}.txt`;a.click();
+    const a=document.createElement("a"); a.href="data:text/plain,"+encodeURIComponent(txt);
+    a.download=`vuln-${result.target}-${Date.now()}.txt`; a.click();
   };
 
-  // Determine display state
-  const httpError   = result?.error;                       // API-level error (network / 4xx / 5xx)
-  const scanError   = result?.scan_error;                  // backend scan_error in result body
-  const hasVulns    = result?.vulns?.length > 0;
-  const scanOk      = result && !httpError;
+  const isRunning = scanStatus==="running";
+  const scanError = result?.scan_error;
+  const hasVulns  = result?.vulns?.length>0;
+  const mins=Math.floor(elapsed/60), secs=elapsed%60;
 
   return (
-    <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className="modal" style={{width:700,maxWidth:"96vw"}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
-          <div><div style={{fontWeight:700,fontSize:15}}>Vulnerability Scan — {target}</div>
-            <div style={{color:T.muted,fontSize:12}}>IP: {ip}</div></div>
-          <div style={{display:"flex",gap:8}}>
-            {scanOk&&hasVulns&&<button className="btn btn-ghost btn-sm" onClick={dl}>↓ Export</button>}
-            {/* Rescan always forces a fresh scan (bypasses cache) */}
-            <button className="btn btn-scan btn-sm" onClick={()=>scan(true)} disabled={busy}>
-              {busy?<><span className="spinner"/>Scanning...</>:"↻ Rescan"}
+    <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&(clearTimers(),onClose())}>
+      <div className="modal" style={{width:740,maxWidth:"96vw"}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:15}}>{isWin?"🪟":"🐧"} Vulnerability Scan — {target}</div>
+            <div style={{color:T.muted,fontSize:11,marginTop:2,display:"flex",gap:10,alignItems:"center"}}>
+              <span style={{fontFamily:"IBM Plex Mono"}}>{ip}</span>
+              <span style={{padding:"1px 7px",borderRadius:10,fontSize:10,fontWeight:600,
+                background:isWin?"#dbeafe":"#dcfce7",color:isWin?"#1d4ed8":"#166534"}}>
+                {isWin?"Windows — WinRM":"Linux — SSH:22"}
+              </span>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {result&&!isRunning&&<button className="btn btn-ghost btn-sm" onClick={dl}>↓ Export</button>}
+            <button className="btn btn-scan btn-sm" onClick={()=>startScan(true)} disabled={isRunning}>
+              {isRunning
+                ?<><span className="spinner"/>Scanning {mins>0?`${mins}m`:""}{String(secs).padStart(2,"0")}s</>
+                :"↻ Rescan"}
             </button>
-            <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+            <button className="btn btn-ghost btn-sm" onClick={()=>{clearTimers();onClose();}}>✕</button>
           </div>
         </div>
-        {busy&&<div className="scan-bar" style={{marginBottom:12}}/>}
 
-        {/* HTTP / API-level error */}
-        {httpError&&(
-          <div style={{color:T.red,padding:12,background:"#fee2e2",borderRadius:7,fontSize:13}}>
-            ⚠ {httpError}
+        {isRunning&&(
+          <div style={{marginBottom:12}}>
+            <div className="scan-bar"/>
+            <div style={{fontSize:11,color:T.muted,marginTop:6,display:"flex",gap:6,alignItems:"center"}}>
+              <span className="spinner" style={{width:10,height:10}}/>
+              {scanMsg||(isWin
+                ?"Connecting via WinRM → querying Windows Update + Trivy NVD..."
+                :"Connecting via SSH → fetching packages → running Trivy CVE scan...")}
+            </div>
           </div>
         )}
 
-        {/* Backend scan_error — scan ran but failed (e.g. WinRM auth, no IP) */}
-        {scanOk&&scanError&&(
-          <div style={{marginBottom:12,padding:"10px 14px",background:"#fff7ed",
-            border:"1px solid #fed7aa",borderRadius:7,fontSize:12,color:"#9a3412"}}>
+        {scanStatus==="idle"&&!httpError&&(
+          <div style={{padding:"30px 0",textAlign:"center",color:T.muted}}>
+            <div style={{fontSize:28,marginBottom:8}}>🔍</div>
+            <div style={{fontSize:13}}>No scan results yet</div>
+            <div style={{fontSize:11,marginTop:4}}>Click <strong>↻ Rescan</strong> to start a {isWin?"Windows (WinRM)":"Linux (SSH)"} scan</div>
+          </div>
+        )}
+
+        {httpError&&<div style={{color:T.red,padding:12,background:"#fee2e2",borderRadius:7,fontSize:12,marginBottom:12}}>⚠ {httpError}</div>}
+
+        {result&&scanError&&(
+          <div style={{marginBottom:12,padding:"10px 14px",background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:7,fontSize:12,color:"#9a3412"}}>
             <div style={{fontWeight:700,marginBottom:4}}>⚠ Scan Error</div>
-            <div style={{fontFamily:"IBM Plex Mono",fontSize:11,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
-              {scanError}
-            </div>
-            <div style={{marginTop:8,color:"#92400e"}}>
-              Click <strong>↻ Rescan</strong> to retry, or check that WinRM is enabled and credentials are correct.
+            <div style={{fontFamily:"IBM Plex Mono",fontSize:11,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{scanError}</div>
+            <div style={{marginTop:6,color:"#92400e",fontSize:11}}>
+              {isWin?"Check WinRM (5985/5986) is enabled and credentials are correct."
+                    :"Check SSH (port 22) and that Trivy is installed on the backend."}
             </div>
           </div>
         )}
 
-        {scanOk&&(
+        {result&&(
           <>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:12}}>
               {[["Total",result.summary?.total,T.blue],["Critical",result.summary?.critical,T.red],
-                ["High",result.summary?.high,T.amber],["Medium",result.summary?.medium,T.purple],["Low",result.summary?.low,T.muted]].map(([l,v,c])=>(
-                <KPI key={l} label={l} value={v??0} color={c}/>
-              ))}
+                ["High",result.summary?.high,T.amber],["Medium",result.summary?.medium,T.purple],
+                ["Low",result.summary?.low,T.muted]].map(([l,v,c])=>(<KPI key={l} label={l} value={v??0} color={c}/>))}
+            </div>
+            <div style={{fontSize:10,color:T.muted,marginBottom:10,display:"flex",gap:14,flexWrap:"wrap"}}>
+              {result.scanned_at&&<span>🕐 {new Date(result.scanned_at).toLocaleString("en-IN",{timeZone:"Asia/Kolkata"})}</span>}
+              {result.vulns?.some(v=>v.source==="Trivy/NVD")&&<span style={{color:"#6d28d9"}}>✦ Trivy/NVD CVEs</span>}
+              {result.vulns?.some(v=>v.source==="Windows Update")&&<span style={{color:"#0369a1"}}>✦ Windows Update KBs</span>}
             </div>
             {result.open_ports?.length>0&&(
-              <div style={{marginBottom:14}}>
-                <div className="section-hd">Open Ports</div>
-                {result.open_ports.map(p=><span key={p.port} className={`port-chip ${p.risky?"port-risky":"port-open"}`}>:{p.port} {p.service}</span>)}
+              <div style={{marginBottom:12}}>
+                <div className="section-hd">Open Ports ({result.open_ports.length})</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                  {result.open_ports.map(p=><span key={p.port} className={`port-chip ${p.risky?"port-risky":"port-open"}`}>:{p.port} {p.service}{p.risky?" ⚠":""}</span>)}
+                </div>
               </div>
             )}
             {hasVulns?(
-              <table>
-                <thead><tr><th>CVE / KB ID</th><th>Severity</th><th>CVSS</th><th>Source</th><th>Package</th><th>Description</th></tr></thead>
-                <tbody>{result.vulns.map((v,i)=>(
-                  <tr key={v.id+i}>
-                    <td><a href={v.url} target="_blank" rel="noreferrer" style={{color:T.blue,fontFamily:"IBM Plex Mono",fontSize:11}}>{v.id}</a></td>
-                    <td><SevBadge sev={v.severity}/></td>
-                    <td><span style={{fontFamily:"IBM Plex Mono",fontWeight:700,
-                      color:v.cvss>=9?T.red:v.cvss>=7?T.amber:T.sub}}>{v.cvss}</span></td>
-                    <td><span style={{fontSize:10,padding:"1px 5px",borderRadius:4,
-                      background:v.source==="Trivy/NVD"?"#ede9fe":"#f0fdf4",
-                      color:v.source==="Trivy/NVD"?"#6d28d9":"#16a34a"}}>{v.source||"Windows Update"}</span></td>
-                    <td><code style={{background:"#f1f5f9",padding:"2px 5px",borderRadius:4,fontSize:11}}>{v.pkg}</code></td>
-                    <td style={{color:T.sub,maxWidth:260,wordBreak:"break-word"}}>{v.desc}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
+              <div style={{maxHeight:"42vh",overflowY:"auto"}}>
+                <table>
+                  <thead><tr><th>CVE / KB ID</th><th>Severity</th><th style={{textAlign:"center"}}>CVSS</th><th>Source</th><th>Package</th><th>Description</th></tr></thead>
+                  <tbody>{result.vulns.map((v,i)=>(
+                    <tr key={(v.id||"v")+i} style={{background:v.port_exposed?"#fffbeb":""}}>
+                      <td style={{whiteSpace:"nowrap"}}>
+                        <a href={v.url||"#"} target="_blank" rel="noreferrer" style={{color:T.blue,fontFamily:"IBM Plex Mono",fontSize:11}}>{v.id}</a>
+                        {v.port_exposed&&<span title={`Exposed port ${v.exposed_port}`} style={{marginLeft:4,fontSize:9,color:T.amber}}>⚡:{v.exposed_port}</span>}
+                      </td>
+                      <td><SevBadge sev={v.severity}/></td>
+                      <td style={{textAlign:"center"}}><span style={{fontFamily:"IBM Plex Mono",fontWeight:700,fontSize:12,color:v.cvss>=9?T.red:v.cvss>=7?T.amber:T.sub}}>{v.cvss}</span></td>
+                      <td><span style={{fontSize:10,padding:"1px 6px",borderRadius:4,whiteSpace:"nowrap",
+                        background:v.source==="Trivy/NVD"?"#ede9fe":"#e0f2fe",
+                        color:v.source==="Trivy/NVD"?"#6d28d9":"#0369a1"}}>{v.source||"Windows Update"}</span></td>
+                      <td><code style={{background:"#f1f5f9",padding:"2px 5px",borderRadius:4,fontSize:11}}>{v.pkg}</code></td>
+                      <td style={{color:T.sub,maxWidth:230,wordBreak:"break-word",fontSize:11}}>{v.desc}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
             ):(
-              !scanError&&!busy&&(
-                <div style={{padding:"30px 0",textAlign:"center",color:T.muted}}>
+              !scanError&&!isRunning&&(
+                <div style={{padding:"24px 0",textAlign:"center",color:T.muted}}>
                   <div style={{fontSize:32,marginBottom:8}}>✅</div>
                   <div style={{fontSize:13,fontWeight:600}}>No vulnerabilities found</div>
                   <div style={{fontSize:11,marginTop:4}}>System appears up to date</div>
@@ -1217,6 +1293,7 @@ function DetailPanel({sel,hostData,onDbReload}) {
         hostId={hostId}
         vmId={isVM ? sel.vmId : null}
         ip={ip}
+        osType={isVM ? (sel.vm?.os_type||sel.vm?.hypervisor==="Hyper-V"?"windows":"linux") : (target?.os_type||"linux")}
         onClose={()=>setVulnModal(false)}/>}
     </div>
   );

@@ -2,7 +2,7 @@
 InfraCommand — FastAPI v3.0
 DB-backed, user-controlled refresh, proper OS detection
 """
-import uuid
+import uuid, threading
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -27,6 +27,20 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 # Mount auth routes
 app.include_router(auth_router, prefix="/api")
+
+# ── In-memory scan job store ──────────────────────────────────────────────────
+# Maps target_id → {"status": "running"|"done"|"error", "result": {...}, "started_at": ...}
+# Kept in memory only — survives restarts via DB cache.
+_scan_jobs: dict = {}
+_scan_jobs_lock = threading.Lock()
+
+def _get_job(target_id: str) -> dict | None:
+    with _scan_jobs_lock:
+        return _scan_jobs.get(target_id)
+
+def _set_job(target_id: str, job: dict):
+    with _scan_jobs_lock:
+        _scan_jobs[target_id] = job
 
 @app.on_event("startup")
 def on_startup():
@@ -739,18 +753,74 @@ def get_alerts(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     alerts.sort(key=lambda a: (0 if a["severity"] == "critical" else 1, a["host"]))
     return alerts
 
-# ── Scan endpoints (on-demand, target-specific) ────────────────────────────────
+# ── Scan endpoints (background, non-blocking) ────────────────────────────────
+
+def _run_scan_bg(target_id: str, target_name: str, target_type: str,
+                 ip: str, host_name: str, scan_ctx: dict, db_path: str):
+    """Run vuln_scan in a background thread, save result to DB when done."""
+    import logging
+    log = logging.getLogger(__name__)
+    try:
+        result = vuln_scan(target_id, target_name, target_type, ip,
+                           host_name=host_name, host_ctx=scan_ctx)
+        # Save to DB using a fresh session (background thread, no request scope)
+        from database import engine
+        from sqlalchemy.orm import Session as _Sess
+        with _Sess(engine) as db:
+            db_save_scan(db, target_id, result)
+        _set_job(target_id, {"status": "done", "result": result,
+                              "started_at": _get_job(target_id, {}).get("started_at","")})
+        log.info(f"[scan_bg] {target_type} {target_name} ({ip}) → done, "
+                 f"{len(result.get('vulns', []))} vulns")
+    except Exception as e:
+        log.error(f"[scan_bg] {target_type} {target_name} ({ip}) → error: {e}")
+        err_result = {
+            "target_id": target_id, "target": target_name, "target_type": target_type,
+            "ip": ip, "host": host_name,
+            "scanned_at": datetime.now(timezone.utc).isoformat(),
+            "scan_error": str(e), "vulns": [], "open_ports": [],
+            "summary": {"total":0,"critical":0,"high":0,"medium":0,"low":0,
+                        "open_ports":0,"risky_ports":0,"port_exposed":0},
+        }
+        try:
+            from database import engine
+            from sqlalchemy.orm import Session as _Sess
+            with _Sess(engine) as db:
+                db_save_scan(db, target_id, err_result)
+        except Exception:
+            pass
+        _set_job(target_id, {"status": "error", "result": err_result,
+                              "started_at": _get_job(target_id, {}).get("started_at","")})
+
+
+def _get_job(target_id: str, default=None):
+    """Helper that also accepts a default to avoid KeyError."""
+    with _scan_jobs_lock:
+        return _scan_jobs.get(target_id, default)
+
+
 @app.post("/api/hosts/{hid}/scan")
-def scan_host(hid: str, db: Session = Depends(get_db), force: bool = False, _=Depends(require_perm("scan"))):
+def scan_host(hid: str, db: Session = Depends(get_db), force: bool = False,
+              _=Depends(require_perm("scan"))):
+    """
+    Start a background vulnerability scan for a host.
+    Returns immediately with {"status":"running"} or {"status":"done", "result":{...}}.
+    Poll GET /api/hosts/{hid}/scan/status to check progress.
+    """
     h = db_get_host(db, hid)
     if not h: raise HTTPException(404, "Host not found")
-    # Return cached DB result unless the user explicitly requests a rescan
+
+    # Return cached DB result if not forcing rescan
     if not force:
         cached = db_get_scan(db, hid)
         if cached:
-            return cached
-    # Explicitly build scan context with correct os_type and port.
-    # Linux → SSH port 22.  Windows → WinRM port 5985/5986.
+            return {"status": "done", "result": cached}
+
+    # If a scan is already running for this target, return current job state
+    job = _get_job(hid)
+    if job and job.get("status") == "running":
+        return {"status": "running", "started_at": job.get("started_at", "")}
+
     os_type = (h.get("os_type") or "linux").strip().lower()
     scan_ctx = {
         **h,
@@ -758,33 +828,62 @@ def scan_host(hid: str, db: Session = Depends(get_db), force: bool = False, _=De
         "ssh_port":   int(h.get("ssh_port") or 22),
         "winrm_port": int(h.get("winrm_port") or 5985),
     }
-    result = vuln_scan(hid, h["name"], "host", h["ip"], host_ctx=scan_ctx)
-    db_save_scan(db, hid, result)
-    return result
+    started_at = datetime.now(timezone.utc).isoformat()
+    _set_job(hid, {"status": "running", "started_at": started_at})
+
+    from database import DB_PATH
+    t = threading.Thread(
+        target=_run_scan_bg,
+        args=(hid, h["name"], "host", h["ip"], h["name"], scan_ctx, DB_PATH),
+        daemon=True
+    )
+    t.start()
+    return {"status": "running", "started_at": started_at,
+            "os_type": os_type,
+            "message": f"Scan started for {h['name']} ({os_type.upper()} via {'WinRM' if os_type=='windows' else 'SSH'})"}
+
+
+@app.get("/api/hosts/{hid}/scan/status")
+def get_host_scan_status(hid: str, db: Session = Depends(get_db),
+                         _u=Depends(require_perm("view"))):
+    """Poll this endpoint to check if a background scan has finished."""
+    job = _get_job(hid)
+    if job:
+        return {"status": job["status"], "started_at": job.get("started_at",""),
+                "result": job.get("result") if job["status"] in ("done","error") else None}
+    # No running job — check DB for cached result
+    cached = db_get_scan(db, hid)
+    if cached:
+        return {"status": "done", "result": cached}
+    return {"status": "idle"}
+
 
 @app.get("/api/hosts/{hid}/scan")
 def get_host_scan(hid: str, db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
     r = db_get_scan(db, hid)
-    if not r: raise HTTPException(404,"No scan — run a scan first")
+    if not r: raise HTTPException(404, "No scan — run a scan first")
     return r
 
+
 @app.post("/api/hosts/{hid}/vms/{vid}/scan")
-def scan_vm(hid: str, vid: str, db: Session = Depends(get_db), force: bool = False, _u=Depends(require_perm("scan"))):
+def scan_vm(hid: str, vid: str, db: Session = Depends(get_db), force: bool = False,
+            _u=Depends(require_perm("scan"))):
+    """Start a background vulnerability scan for a VM."""
     h = db_get_host(db, hid)
     if not h: raise HTTPException(404, "Host not found")
     vms = db_get_vms(db, hid)
     vm = next((v for v in vms if v["id"] == vid), None)
     if not vm: raise HTTPException(404, "VM not found — refresh VMs first")
-    # Return cached DB result unless the user explicitly requests a rescan
+
     if not force:
         cached = db_get_scan(db, vid)
         if cached:
-            return cached
-    # Build VM scan context:
-    # - Use VM IP
-    # - For KVM VMs (Linux guests): inherit SSH creds from parent host, force os_type=linux
-    # - For Hyper-V VMs: check vm os_type field (now populated by collector) or fall back to
-    #   hypervisor type (Hyper-V hosts = Windows guests by default)
+            return {"status": "done", "result": cached}
+
+    job = _get_job(vid)
+    if job and job.get("status") == "running":
+        return {"status": "running", "started_at": job.get("started_at", "")}
+
     vm_os = (vm.get("os_type") or "").strip().lower()
     vm_os_fallback = (vm.get("os") or "").strip().lower()
     hypervisor = (vm.get("hypervisor") or "").strip()
@@ -794,28 +893,52 @@ def scan_vm(hid: str, vid: str, db: Session = Depends(get_db), force: bool = Fal
     elif vm_os_fallback:
         is_windows_vm = "windows" in vm_os_fallback
     else:
-        # If hypervisor is Hyper-V and no OS info, assume Windows guest
         is_windows_vm = hypervisor == "Hyper-V"
 
     vm_host_ctx = {
         **h,
-        # WinRM connects to the Hyper-V parent host IP, not the VM's IP.
-        # Linux VM scans SSH into the VM's IP directly (inherited from parent host creds).
         "ip":         h["ip"] if is_windows_vm else vm.get("ip", "N/A"),
         "name":       vm["name"],
-        "vm_name":    vm["name"],          # Invoke-Command target inside Hyper-V host
+        "vm_name":    vm["name"],
         "os_type":    "windows" if is_windows_vm else "linux",
-        "ssh_port":   int(h.get("ssh_port") or 22),        # Linux: SSH port
-        "winrm_port": int(h.get("winrm_port") or 5985),   # Windows: WinRM port
+        "ssh_port":   int(h.get("ssh_port") or 22),
+        "winrm_port": int(h.get("winrm_port") or 5985),
     }
-    result = vuln_scan(vid, vm["name"], "vm", vm.get("ip", "N/A"), h["name"], host_ctx=vm_host_ctx)
-    db_save_scan(db, vid, result)
-    return result
+
+    os_type = vm_host_ctx["os_type"]
+    started_at = datetime.now(timezone.utc).isoformat()
+    _set_job(vid, {"status": "running", "started_at": started_at})
+
+    from database import DB_PATH
+    t = threading.Thread(
+        target=_run_scan_bg,
+        args=(vid, vm["name"], "vm", vm.get("ip","N/A"), h["name"], vm_host_ctx, DB_PATH),
+        daemon=True
+    )
+    t.start()
+    return {"status": "running", "started_at": started_at,
+            "os_type": os_type,
+            "message": f"Scan started for VM {vm['name']} ({os_type.upper()} via {'WinRM+Invoke-Command' if os_type=='windows' else 'SSH'})"}
+
+
+@app.get("/api/hosts/{hid}/vms/{vid}/scan/status")
+def get_vm_scan_status(hid: str, vid: str, db: Session = Depends(get_db),
+                       _u=Depends(require_perm("view"))):
+    """Poll this endpoint to check if a background VM scan has finished."""
+    job = _get_job(vid)
+    if job:
+        return {"status": job["status"], "started_at": job.get("started_at",""),
+                "result": job.get("result") if job["status"] in ("done","error") else None}
+    cached = db_get_scan(db, vid)
+    if cached:
+        return {"status": "done", "result": cached}
+    return {"status": "idle"}
+
 
 @app.get("/api/hosts/{hid}/vms/{vid}/scan")
 def get_vm_scan(vid: str, hid: str, db: Session = Depends(get_db)):
     r = db_get_scan(db, vid)
-    if not r: raise HTTPException(404,"No scan — run a scan first")
+    if not r: raise HTTPException(404, "No scan — run a scan first")
     return r
 
 @app.post("/api/hosts/{hid}/portscan")
