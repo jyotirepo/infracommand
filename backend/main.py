@@ -1,5 +1,5 @@
 """
-InfraCommand — FastAPI v3.0
+ServerCapacity — FastAPI v3.0
 DB-backed, user-controlled refresh, proper OS detection
 """
 import uuid, threading
@@ -22,7 +22,7 @@ from collectors import (collect_linux_metrics, collect_windows_metrics,
 from auth import get_current_user, require_perm, bootstrap_admin
 from auth_routes import router as auth_router
 
-app = FastAPI(title="InfraCommand API", version="3.0.0", docs_url="/api/docs")
+app = FastAPI(title="ServerCapacity API", version="3.0.0", docs_url="/api/docs")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # Mount auth routes

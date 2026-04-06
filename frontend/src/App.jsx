@@ -23,8 +23,8 @@ api.interceptors.response.use(function(r){ return r; }, function(err) {
   return Promise.reject(err);
 });
 // ── Auth helpers ──────────────────────────────────────────────────────────────
-const TOKEN_KEY = "infracommand_token";
-const USER_KEY  = "infracommand_user";
+const TOKEN_KEY = "servercapacity_token";
+const USER_KEY  = "servercapacity_user";
 function saveAuth(token, user) {
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -420,9 +420,9 @@ function AddHostModal({onClose,onAdded,existingGroups=[]}) {
               </div>
               <div style={{background:"#e0f2fe",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#0369a1"}}>
                 <div style={{fontWeight:700,marginBottom:4}}>How NTLM works without domain join:</div>
-                <div>• InfraCommand sends credentials to the Windows host</div>
+                <div>• ServerCapacity sends credentials to the Windows host</div>
                 <div>• Windows validates against its own AD or local SAM</div>
-                <div>• <strong>No need</strong> to join InfraCommand server to the domain</div>
+                <div>• <strong>No need</strong> to join ServerCapacity server to the domain</div>
                 <div>• Each Discom can have its own domain — just enter it per host</div>
               </div>
             </div>
@@ -435,7 +435,7 @@ function AddHostModal({onClose,onAdded,existingGroups=[]}) {
 {`# 1. Enable WinRM
 Enable-PSRemoting -Force
 
-# 2. Allow connections from InfraCommand server IP
+# 2. Allow connections from ServerCapacity server IP
 Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value "192.168.101.80" -Force
 # Or allow all (simpler but less secure):
 Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value "*" -Force
@@ -594,7 +594,7 @@ function PortScanModal({target,hostId,vmId,ip,onClose}) {
       <div className="modal" style={{width:580}}>
         <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
           <div><div style={{fontWeight:700,fontSize:15}}>External Port Scan — {target}</div>
-            <div style={{color:T.muted,fontSize:12}}>Scanning {ip} from InfraCommand server</div></div>
+            <div style={{color:T.muted,fontSize:12}}>Scanning {ip} from ServerCapacity server</div></div>
           <div style={{display:"flex",gap:8}}>
             <button className="btn btn-port btn-sm" onClick={scan} disabled={busy}>{busy?<><span className="spinner"/>Scanning...</>:"\u21BB Rescan"}</button>
             <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
@@ -693,7 +693,7 @@ function VulnScanModal({target,hostId,vmId,ip,osType,onClose}) {
 
   const dl=()=>{
     if(!result) return;
-    const txt=`InfraCommand Vulnerability Report\nTarget: ${result.target} (${result.ip})\nDate: ${result.scanned_at}\n\nSUMMARY: Critical:${result.summary?.critical} High:${result.summary?.high} Medium:${result.summary?.medium}\n\n${result.vulns?.map(v=>`${v.id} [${v.severity}] CVSS:${v.cvss} ${v.pkg}: ${v.desc}`).join("\n")}`;
+    const txt=`ServerCapacity Vulnerability Report\nTarget: ${result.target} (${result.ip})\nDate: ${result.scanned_at}\n\nSUMMARY: Critical:${result.summary?.critical} High:${result.summary?.high} Medium:${result.summary?.medium}\n\n${result.vulns?.map(v=>`${v.id} [${v.severity}] CVSS:${v.cvss} ${v.pkg}: ${v.desc}`).join("\n")}`;
     const a=document.createElement("a"); a.href="data:text/plain,"+encodeURIComponent(txt);
     a.download=`vuln-${result.target}-${Date.now()}.txt`; a.click();
   };
@@ -2117,7 +2117,7 @@ function CapacityPlanning() {
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(13);
       doc.setFont("helvetica","bold");
-      doc.text("InfraCommand — Capacity Report", 38, 9);
+      doc.text("ServerCapacity — Capacity Report", 38, 9);
       doc.setFontSize(8);
       doc.setFont("helvetica","normal");
       doc.text("Discom: " + groupLabel + "  |  OS: " + osLabel + "  |  Hosts: " + rData.length + "  |  Generated: " + ts + " IST", 38, 16);
@@ -2188,7 +2188,7 @@ function CapacityPlanning() {
           doc.setFontSize(7);
           doc.setTextColor(130,130,130);
           var pg = doc.internal.getCurrentPageInfo().pageNumber;
-          doc.text("InfraCommand — " + groupLabel + " — Confidential  |  Page " + pg, 14, doc.internal.pageSize.height - 6);
+          doc.text("ServerCapacity — " + groupLabel + " — Confidential  |  Page " + pg, 14, doc.internal.pageSize.height - 6);
         },
         willDrawCell: function(data) {
           if (data.row.index === rows.length - 1) {
@@ -2199,7 +2199,7 @@ function CapacityPlanning() {
         },
       });
 
-      doc.save("InfraCommand-" + fileSlug + "-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".pdf");
+      doc.save("ServerCapacity-" + fileSlug + "-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".pdf");
 
     } else if (format === "excel") {
       // ── Excel generation via SheetJS ─────────────────────────────────────
@@ -2210,7 +2210,7 @@ function CapacityPlanning() {
                      "RAM Total (GB)","RAM Used (GB)","RAM Free (GB)",
                      "Disk Total (GB)","Disk Used (GB)","Disk Free (GB)","VMs"];
       var wsData = [
-        ["InfraCommand — Capacity Report — " + groupLabel],
+        ["ServerCapacity — Capacity Report — " + groupLabel],
         ["Generated: " + ts + " IST", "", "Discom: " + groupLabel, "OS Filter: " + osLabel],
         [],
         headers,
@@ -2249,7 +2249,7 @@ function CapacityPlanning() {
       var ws2 = XLSX.utils.aoa_to_sheet(vmData);
       XLSX.utils.book_append_sheet(wb, ws2, "VM Details");
 
-      XLSX.writeFile(wb, "InfraCommand-" + fileSlug + "-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".xlsx");
+      XLSX.writeFile(wb, "ServerCapacity-" + fileSlug + "-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".xlsx");
     }
   };
 
@@ -3027,7 +3027,7 @@ export default function App() {
           <div style={{padding:"12px 14px",display:"flex",alignItems:"center",gap:10,borderBottom:"1px solid #1e3347"}}>
             <DitLogo size={34} />
             <div>
-              <div style={{color:"#f0f9ff",fontWeight:800,fontSize:13}}>InfraCommand</div>
+              <div style={{color:"#f0f9ff",fontWeight:800,fontSize:13}}>ServerCapacity</div>
               <div style={{color:"#5b8fad",fontSize:10}}>D&amp;IT Monitor</div>
             </div>
           </div>
@@ -3136,7 +3136,7 @@ function LoginPage({ onLogin }) {
           <div style={{marginBottom:16,display:"flex",justifyContent:"center"}}>
             <DitLogo size={72}/>
           </div>
-          <div style={{fontWeight:800,fontSize:22,color:"#0f172a"}}>InfraCommand</div>
+          <div style={{fontWeight:800,fontSize:22,color:"#0f172a"}}>ServerCapacity</div>
           <div style={{color:"#64748b",fontSize:13,marginTop:4}}>Infrastructure Monitoring Platform</div>
         </div>
         <form onSubmit={submit}>
@@ -3159,7 +3159,7 @@ function LoginPage({ onLogin }) {
           </button>
         </form>
         <div style={{textAlign:"center",marginTop:24,fontSize:11,color:"#94a3b8"}}>
-          InfraCommand {_APP_VERSION} - Secured by JWT
+          ServerCapacity {_APP_VERSION} - Secured by JWT
         </div>
       </div>
     </div>

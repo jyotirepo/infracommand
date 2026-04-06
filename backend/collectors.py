@@ -1,5 +1,5 @@
 """
-InfraCommand collectors - SSH for Linux/KVM, WinRM for Windows/Hyper-V
+ServerCapacity collectors - SSH for Linux/KVM, WinRM for Windows/Hyper-V
 """
 import io, random, socket, json
 from datetime import datetime, timezone
@@ -1076,7 +1076,7 @@ def _winrm_connect(host: dict):
     • negotiate — requires requests-kerberos which is NOT installed by default.
                Will raise "unsupported auth method" if that lib is missing.
 
-    InfraCommand server does NOT need to be domain-joined.
+    ServerCapacity server does NOT need to be domain-joined.
     NTLM works purely machine-to-machine — the Windows host validates credentials
     against its own DC. Different Discoms with different AD domains work fine.
 
@@ -1167,7 +1167,7 @@ def _winrm_connect(host: dict):
         "  # 1. Enable WinRM",
         "  Enable-PSRemoting -Force",
         "",
-        "  # 2. Trust the InfraCommand server IP (or use * for all)",
+        "  # 2. Trust the ServerCapacity server IP (or use * for all)",
         "  Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value '192.168.101.80' -Force",
         "",
         "  # 3. Open firewall",
@@ -2343,7 +2343,7 @@ def vuln_scan(target_id, target_name, target_type, ip, host_name="", host_ctx=No
     if not host_ctx:
         trivy_error = (
             "Host credentials not available — scan was not triggered correctly. "
-            "Please use the Vuln Scan button inside InfraCommand."
+            "Please use the Vuln Scan button inside ServerCapacity."
         )
     elif ip in ("N/A", "", None):
         trivy_error = "No IP address available for this target. Set the VM IP first."
