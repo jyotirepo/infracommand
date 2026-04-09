@@ -1,7 +1,7 @@
 """
 ServerCapacity collectors - SSH for Linux/KVM, WinRM for Windows/Hyper-V
 """
-import io, random, socket, json
+import io, random, socket, json, time
 from datetime import datetime, timezone
 import paramiko
 
@@ -2285,15 +2285,34 @@ def _trivy_scan_via_server(host: dict, open_ports: list = None) -> list:
             "--pkg-types", "os",       # OS packages only — no npm/pip/gem
         ] + offline_flags + [tmpdir]
 
-        result = _sp.run(cmd, capture_output=True, text=True, timeout=150)
-        raw = result.stdout.strip()
+        # Twirp/RPC EOF from trivy-server is often transient under load.
+        # Retry a few times with short backoff before returning a hard failure.
+        retries = 3
+        last_stderr = ""
+        raw = ""
+        for attempt in range(1, retries + 1):
+            result = _sp.run(cmd, capture_output=True, text=True, timeout=150)
+            raw = (result.stdout or "").strip()
+            last_stderr = (result.stderr or "").strip()[:500]
 
-        if not raw or not raw.startswith("{"):
-            stderr = (result.stderr or "").strip()[:500]
+            if raw.startswith("{"):
+                break
+
+            retryable = any(x in last_stderr.lower() for x in [
+                "twirp error internal",
+                "failed to do request",
+                "eof",
+                "connection reset",
+                "timeout",
+                "temporarily unavailable",
+            ])
+            if attempt < retries and retryable:
+                time.sleep(1.5 * attempt)
+                continue
             raise RuntimeError(
                 "trivy scan returned no output for " + ip +
                 " (" + os_pretty + "). "
-                "stderr: " + stderr
+                "stderr: " + last_stderr
             )
 
         vulns = _parse_trivy_output(raw)

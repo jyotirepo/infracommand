@@ -790,30 +790,31 @@ def _run_scan_bg(target_id: str, target_name: str, target_type: str,
     os_type = (scan_ctx.get("os_type") or "linux").lower()
     log.info(f"[scan_bg] START {target_type} {target_name} ({ip}) os={os_type} timeout={SCAN_TIMEOUT_SECONDS}s")
 
+    ex = None
     try:
-        with _cf.ThreadPoolExecutor(max_workers=1) as ex:
-            future = ex.submit(_do_scan)
-            try:
-                result = future.result(timeout=SCAN_TIMEOUT_SECONDS)
-                _save_result(result, "done")
-                log.info(f"[scan_bg] DONE {target_name} ({ip}) → {len(result.get('vulns',[]))} vulns")
-            except _cf.TimeoutError:
-                future.cancel()
-                timeout_mins = SCAN_TIMEOUT_SECONDS // 60
-                msg = (
-                    f"Scan timed out after {timeout_mins} minutes. "
-                    f"{'WinRM connection or PowerShell script hung — check the Windows host is reachable and WinRM is responsive.' if os_type == 'windows' else 'SSH or Trivy scan took too long — check the host is reachable and the Trivy server is running.'}"
-                )
-                log.warning(f"[scan_bg] TIMEOUT {target_name} ({ip}) after {timeout_mins}m")
-                err_result = {
-                    "target_id": target_id, "target": target_name, "target_type": target_type,
-                    "ip": ip, "host": host_name,
-                    "scanned_at": datetime.now(timezone.utc).isoformat(),
-                    "scan_error": msg, "vulns": [], "open_ports": [],
-                    "summary": {"total":0,"critical":0,"high":0,"medium":0,"low":0,
-                                "open_ports":0,"risky_ports":0,"port_exposed":0},
-                }
-                _save_result(err_result, "error")
+        ex = _cf.ThreadPoolExecutor(max_workers=1)
+        future = ex.submit(_do_scan)
+        try:
+            result = future.result(timeout=SCAN_TIMEOUT_SECONDS)
+            _save_result(result, "done")
+            log.info(f"[scan_bg] DONE {target_name} ({ip}) → {len(result.get('vulns',[]))} vulns")
+        except _cf.TimeoutError:
+            future.cancel()
+            timeout_mins = SCAN_TIMEOUT_SECONDS // 60
+            msg = (
+                f"Scan timed out after {timeout_mins} minutes. "
+                f"{'WinRM connection or PowerShell script hung — check the Windows host is reachable and WinRM is responsive.' if os_type == 'windows' else 'SSH or Trivy scan took too long — check the host is reachable and the Trivy server is running.'}"
+            )
+            log.warning(f"[scan_bg] TIMEOUT {target_name} ({ip}) after {timeout_mins}m")
+            err_result = {
+                "target_id": target_id, "target": target_name, "target_type": target_type,
+                "ip": ip, "host": host_name,
+                "scanned_at": datetime.now(timezone.utc).isoformat(),
+                "scan_error": msg, "vulns": [], "open_ports": [],
+                "summary": {"total":0,"critical":0,"high":0,"medium":0,"low":0,
+                            "open_ports":0,"risky_ports":0,"port_exposed":0},
+            }
+            _save_result(err_result, "error")
     except Exception as e:
         log.error(f"[scan_bg] ERROR {target_name} ({ip}): {e}")
         err_result = {
@@ -825,6 +826,10 @@ def _run_scan_bg(target_id: str, target_name: str, target_type: str,
                         "open_ports":0,"risky_ports":0,"port_exposed":0},
         }
         _save_result(err_result, "error")
+    finally:
+        if ex:
+            # Do not block forever on worker shutdown when the scan thread is hung.
+            ex.shutdown(wait=False, cancel_futures=True)
 
 
 @app.post("/api/hosts/{hid}/scan")
