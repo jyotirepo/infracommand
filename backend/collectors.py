@@ -2325,14 +2325,33 @@ def _trivy_scan_via_server(host: dict, open_ports: list = None) -> list:
                 break
 
         if not raw.startswith("{"):
-            detail = " | ".join(errors[-3:]) if errors else "no stderr output"
-            raise RuntimeError(
-                "trivy scan returned no output for " + ip +
-                " (" + os_pretty + "). "
-                "Tried Trivy server endpoints: " + ", ".join(server_candidates) + ". "
-                "Last errors: " + detail + ". "
-                "Ensure trivy-server service/pod is reachable from backend."
-            )
+            # Final fallback: run trivy locally (no --server) against local DB cache.
+            # This keeps scans working when trivy-server is temporarily unavailable.
+            local_cmd = [
+                LOCAL_TRIVY, "rootfs",
+                "--format",   "json",
+                "--scanners", "vuln",
+                "--severity", "CRITICAL,HIGH,MEDIUM,LOW",
+                "--timeout",  "180s",
+                "--quiet",
+                "--skip-java-db-update",
+                "--pkg-types", "os",
+            ] + offline_flags + [tmpdir]
+
+            local_result = _sp.run(local_cmd, capture_output=True, text=True, timeout=210)
+            local_raw = (local_result.stdout or "").strip()
+            if local_raw.startswith("{"):
+                raw = local_raw
+            else:
+                detail = " | ".join(errors[-3:]) if errors else "no stderr output"
+                local_stderr = (local_result.stderr or "").strip()[:500]
+                raise RuntimeError(
+                    "trivy scan returned no output for " + ip +
+                    " (" + os_pretty + "). "
+                    "Tried Trivy server endpoints: " + ", ".join(server_candidates) + ". "
+                    "Last server errors: " + detail + ". "
+                    "Local fallback scan also failed: " + local_stderr
+                )
 
         vulns = _parse_trivy_output(raw)
 
