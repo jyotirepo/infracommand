@@ -2010,6 +2010,7 @@ def _parse_trivy_output(raw: str) -> list:
                 "url":      f"https://nvd.nist.gov/vuln/detail/{cve_id}"
                             if cve_id.startswith("CVE-")
                             else (v.get("PrimaryURL") or ""),
+                "source":   "Trivy/NVD",
             })
     # Sort CRITICAL → HIGH → MEDIUM → LOW, then CVSS desc
     vulns.sort(key=lambda x: (SEV_ORDER.get(x["severity"], 4), -x.get("cvss", 0)))

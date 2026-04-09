@@ -651,6 +651,15 @@ function VulnScanModal({target,hostId,vmId,ip,osType,onClose}) {
           setScanStatus(status);
           if(sr) setResult(sr);
         }
+        // Frontend safety timeout: if backend hasn't responded in 10 mins, stop polling
+        setElapsed(e => {
+          if(e >= 600) {
+            clearTimers();
+            setScanStatus("error");
+            setHttpError("Scan timed out after 10 minutes. The backend will finish and save the result — click ↻ Rescan to check for cached results.");
+          }
+          return e;
+        });
       } catch(e) {
         clearTimers();
         setHttpError(e.response?.data?.detail||"Poll failed");
@@ -770,8 +779,8 @@ function VulnScanModal({target,hostId,vmId,ip,osType,onClose}) {
             </div>
             <div style={{fontSize:10,color:T.muted,marginBottom:10,display:"flex",gap:14,flexWrap:"wrap"}}>
               {result.scanned_at&&<span>🕐 {new Date(result.scanned_at).toLocaleString("en-IN",{timeZone:"Asia/Kolkata"})}</span>}
-              {result.vulns?.some(v=>v.source==="Trivy/NVD")&&<span style={{color:"#6d28d9"}}>✦ Trivy/NVD CVEs</span>}
-              {result.vulns?.some(v=>v.source==="Windows Update")&&<span style={{color:"#0369a1"}}>✦ Windows Update KBs</span>}
+              {result.vulns?.some(v=>v.source==="Trivy/NVD"||(!v.source&&!isWin))&&<span style={{color:"#6d28d9"}}>✦ Trivy/NVD CVEs</span>}
+              {result.vulns?.some(v=>v.source==="Windows Update"||(isWin&&!v.source))&&<span style={{color:"#0369a1"}}>✦ Windows Update KBs</span>}
             </div>
             {result.open_ports?.length>0&&(
               <div style={{marginBottom:12}}>
@@ -794,8 +803,9 @@ function VulnScanModal({target,hostId,vmId,ip,osType,onClose}) {
                       <td><SevBadge sev={v.severity}/></td>
                       <td style={{textAlign:"center"}}><span style={{fontFamily:"IBM Plex Mono",fontWeight:700,fontSize:12,color:v.cvss>=9?T.red:v.cvss>=7?T.amber:T.sub}}>{v.cvss}</span></td>
                       <td><span style={{fontSize:10,padding:"1px 6px",borderRadius:4,whiteSpace:"nowrap",
-                        background:v.source==="Trivy/NVD"?"#ede9fe":"#e0f2fe",
-                        color:v.source==="Trivy/NVD"?"#6d28d9":"#0369a1"}}>{v.source||"Windows Update"}</span></td>
+                        background:v.source==="Trivy/NVD"||(v.source!=="Windows Update"&&!v.source)?"#ede9fe":"#e0f2fe",
+                        color:v.source==="Trivy/NVD"||(v.source!=="Windows Update"&&!v.source)?"#6d28d9":"#0369a1"}}>
+                          {v.source||(isWin?"Windows Update":"Trivy/NVD")}</span></td>
                       <td><code style={{background:"#f1f5f9",padding:"2px 5px",borderRadius:4,fontSize:11}}>{v.pkg}</code></td>
                       <td style={{color:T.sub,maxWidth:230,wordBreak:"break-word",fontSize:11}}>{v.desc}</td>
                     </tr>

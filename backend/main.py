@@ -759,25 +759,63 @@ def get_alerts(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
 
 # ── Scan endpoints (background, non-blocking) ────────────────────────────────
 
+SCAN_TIMEOUT_SECONDS = 600  # 10 minutes — scans that hang longer are killed
+
+
 def _run_scan_bg(target_id: str, target_name: str, target_type: str,
                  ip: str, host_name: str, scan_ctx: dict, db_path: str):
-    """Run vuln_scan in a background thread, save result to DB when done."""
-    import logging
+    """
+    Run vuln_scan in a background thread with a hard 10-minute timeout.
+    If the scan hangs (e.g. WinRM stuck, Trivy unresponsive), it is killed
+    and a timeout error is saved to the DB so the UI shows a clear message.
+    """
+    import logging, concurrent.futures as _cf
     log = logging.getLogger(__name__)
+
+    def _do_scan():
+        return vuln_scan(target_id, target_name, target_type, ip,
+                         host_name=host_name, host_ctx=scan_ctx)
+
+    def _save_result(result, status):
+        try:
+            from database import engine
+            from sqlalchemy.orm import Session as _Sess
+            with _Sess(engine) as db:
+                db_save_scan(db, target_id, result)
+        except Exception as save_err:
+            log.error(f"[scan_bg] DB save failed for {target_id}: {save_err}")
+        _set_job(target_id, {"status": status, "result": result,
+                              "started_at": (_get_job(target_id) or {}).get("started_at", "")})
+
+    os_type = (scan_ctx.get("os_type") or "linux").lower()
+    log.info(f"[scan_bg] START {target_type} {target_name} ({ip}) os={os_type} timeout={SCAN_TIMEOUT_SECONDS}s")
+
     try:
-        result = vuln_scan(target_id, target_name, target_type, ip,
-                           host_name=host_name, host_ctx=scan_ctx)
-        # Save to DB using a fresh session (background thread, no request scope)
-        from database import engine
-        from sqlalchemy.orm import Session as _Sess
-        with _Sess(engine) as db:
-            db_save_scan(db, target_id, result)
-        _set_job(target_id, {"status": "done", "result": result,
-                              "started_at": _get_job(target_id, {}).get("started_at","")})
-        log.info(f"[scan_bg] {target_type} {target_name} ({ip}) → done, "
-                 f"{len(result.get('vulns', []))} vulns")
+        with _cf.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(_do_scan)
+            try:
+                result = future.result(timeout=SCAN_TIMEOUT_SECONDS)
+                _save_result(result, "done")
+                log.info(f"[scan_bg] DONE {target_name} ({ip}) → {len(result.get('vulns',[]))} vulns")
+            except _cf.TimeoutError:
+                future.cancel()
+                timeout_mins = SCAN_TIMEOUT_SECONDS // 60
+                msg = (
+                    f"Scan timed out after {timeout_mins} minutes. "
+                    f"{'WinRM connection or PowerShell script hung — check the Windows host is reachable and WinRM is responsive.' if os_type == 'windows' else 'SSH or Trivy scan took too long — check the host is reachable and the Trivy server is running.'}"
+                )
+                log.warning(f"[scan_bg] TIMEOUT {target_name} ({ip}) after {timeout_mins}m")
+                err_result = {
+                    "target_id": target_id, "target": target_name, "target_type": target_type,
+                    "ip": ip, "host": host_name,
+                    "scanned_at": datetime.now(timezone.utc).isoformat(),
+                    "scan_error": msg, "vulns": [], "open_ports": [],
+                    "summary": {"total":0,"critical":0,"high":0,"medium":0,"low":0,
+                                "open_ports":0,"risky_ports":0,"port_exposed":0},
+                }
+                _save_result(err_result, "error")
     except Exception as e:
-        log.error(f"[scan_bg] {target_type} {target_name} ({ip}) → error: {e}")
+        log.error(f"[scan_bg] ERROR {target_name} ({ip}): {e}")
         err_result = {
             "target_id": target_id, "target": target_name, "target_type": target_type,
             "ip": ip, "host": host_name,
@@ -786,21 +824,7 @@ def _run_scan_bg(target_id: str, target_name: str, target_type: str,
             "summary": {"total":0,"critical":0,"high":0,"medium":0,"low":0,
                         "open_ports":0,"risky_ports":0,"port_exposed":0},
         }
-        try:
-            from database import engine
-            from sqlalchemy.orm import Session as _Sess
-            with _Sess(engine) as db:
-                db_save_scan(db, target_id, err_result)
-        except Exception:
-            pass
-        _set_job(target_id, {"status": "error", "result": err_result,
-                              "started_at": _get_job(target_id, {}).get("started_at","")})
-
-
-def _get_job(target_id: str, default=None):
-    """Helper that also accepts a default to avoid KeyError."""
-    with _scan_jobs_lock:
-        return _scan_jobs.get(target_id, default)
+        _save_result(err_result, "error")
 
 
 @app.post("/api/hosts/{hid}/scan")
