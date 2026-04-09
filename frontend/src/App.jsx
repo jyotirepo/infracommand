@@ -23,8 +23,8 @@ api.interceptors.response.use(function(r){ return r; }, function(err) {
   return Promise.reject(err);
 });
 // ── Auth helpers ──────────────────────────────────────────────────────────────
-const TOKEN_KEY = "servercapacity_token";
-const USER_KEY  = "servercapacity_user";
+const TOKEN_KEY = "infracommand_token";
+const USER_KEY  = "infracommand_user";
 function saveAuth(token, user) {
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
