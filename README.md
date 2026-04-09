@@ -284,4 +284,4 @@ pip install httpx pytest
 
 ---
 
-If you want, I can also provide a second README focused only on **operators/SRE runbook** (alerts, backup/restore, upgrade and rollback procedures).
+For production operations, see the dedicated SRE runbook: **[`README-OPERATIONS.md`](README-OPERATIONS.md)**.
