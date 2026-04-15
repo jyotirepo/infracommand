@@ -1,7 +1,7 @@
 """
 ServerCapacity collectors - SSH for Linux/KVM, WinRM for Windows/Hyper-V
 """
-import io, random, socket, json
+import io, random, socket, json, time
 from datetime import datetime, timezone
 import paramiko
 
@@ -2273,9 +2273,8 @@ def _trivy_scan_via_server(host: dict, open_ports: list = None) -> list:
         # ── Step 4: scan ──────────────────────────────────────────────────────
         offline_flags = ["--skip-db-update","--skip-check-update"] if TRIVY_SKIP_DB_UPDATE else []
 
-        cmd = [
+        base_cmd = [
             LOCAL_TRIVY, "rootfs",
-            "--server",   TRIVY_SERVER_URL,
             "--format",   "json",
             "--scanners", "vuln",
             "--severity", "CRITICAL,HIGH,MEDIUM,LOW",
@@ -2285,16 +2284,74 @@ def _trivy_scan_via_server(host: dict, open_ports: list = None) -> list:
             "--pkg-types", "os",       # OS packages only — no npm/pip/gem
         ] + offline_flags + [tmpdir]
 
-        result = _sp.run(cmd, capture_output=True, text=True, timeout=150)
-        raw = result.stdout.strip()
+        server_candidates = [TRIVY_SERVER_URL]
+        if TRIVY_SERVER_EXTERNAL_URL and TRIVY_SERVER_EXTERNAL_URL != TRIVY_SERVER_URL:
+            server_candidates.append(TRIVY_SERVER_EXTERNAL_URL)
 
-        if not raw or not raw.startswith("{"):
-            stderr = (result.stderr or "").strip()[:500]
-            raise RuntimeError(
-                "trivy scan returned no output for " + ip +
-                " (" + os_pretty + "). "
-                "stderr: " + stderr
-            )
+        # Twirp/RPC and "connection refused" failures can be transient
+        # (trivy-server restart / service flap). Retry per endpoint, then
+        # fail over to the secondary endpoint if configured.
+        retries_per_server = 2
+        raw = ""
+        errors = []
+        for server_url in server_candidates:
+            for attempt in range(1, retries_per_server + 1):
+                cmd = base_cmd[:1] + ["--server", server_url] + base_cmd[1:]
+                result = _sp.run(cmd, capture_output=True, text=True, timeout=150)
+                raw = (result.stdout or "").strip()
+                stderr = (result.stderr or "").strip()[:500]
+
+                if raw.startswith("{"):
+                    break
+
+                errors.append(f"{server_url} (attempt {attempt}/{retries_per_server}): {stderr}")
+                retryable = any(x in stderr.lower() for x in [
+                    "twirp error internal",
+                    "failed to do request",
+                    "connection refused",
+                    "eof",
+                    "connection reset",
+                    "no route to host",
+                    "timeout",
+                    "temporarily unavailable",
+                ])
+                if attempt < retries_per_server and retryable:
+                    time.sleep(1.5 * attempt)
+                    continue
+                # Non-retryable or attempts exhausted for this server → try next endpoint.
+                break
+
+            if raw.startswith("{"):
+                break
+
+        if not raw.startswith("{"):
+            # Final fallback: run trivy locally (no --server) against local DB cache.
+            # This keeps scans working when trivy-server is temporarily unavailable.
+            local_cmd = [
+                LOCAL_TRIVY, "rootfs",
+                "--format",   "json",
+                "--scanners", "vuln",
+                "--severity", "CRITICAL,HIGH,MEDIUM,LOW",
+                "--timeout",  "180s",
+                "--quiet",
+                "--skip-java-db-update",
+                "--pkg-types", "os",
+            ] + offline_flags + [tmpdir]
+
+            local_result = _sp.run(local_cmd, capture_output=True, text=True, timeout=210)
+            local_raw = (local_result.stdout or "").strip()
+            if local_raw.startswith("{"):
+                raw = local_raw
+            else:
+                detail = " | ".join(errors[-3:]) if errors else "no stderr output"
+                local_stderr = (local_result.stderr or "").strip()[:500]
+                raise RuntimeError(
+                    "trivy scan returned no output for " + ip +
+                    " (" + os_pretty + "). "
+                    "Tried Trivy server endpoints: " + ", ".join(server_candidates) + ". "
+                    "Last server errors: " + detail + ". "
+                    "Local fallback scan also failed: " + local_stderr
+                )
 
         vulns = _parse_trivy_output(raw)
 
