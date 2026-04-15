@@ -158,11 +158,20 @@ const StorBar = ({pct}) => {
   const col=pct>85?T.red:pct>65?T.amber:T.green;
   return <div className="stor-bar"><div className="stor-fill" style={{width:`${Math.min(100,pct||0)}%`,background:col}}/></div>;
 };
-const KPI = ({label,value,color,sub}) => (
-  <div className="kpi">
+const KPI = ({label,value,color,sub,onClick,linkLabel}) => (
+  <div
+    className="kpi"
+    onClick={onClick}
+    role={onClick ? "button" : undefined}
+    tabIndex={onClick ? 0 : undefined}
+    onKeyDown={onClick ? (e)=>{ if(e.key==="Enter" || e.key===" "){ e.preventDefault(); onClick(); } } : undefined}
+    style={onClick ? {cursor:"pointer"} : undefined}
+    title={onClick ? (linkLabel || "Open") : undefined}
+  >
     <div className="kpi-val" style={{color:color||T.blue}}>{value}</div>
     <div className="kpi-lbl">{label}</div>
     {sub&&<div style={{fontSize:10,color:T.muted,marginTop:2}}>{sub}</div>}
+    {onClick&&<div style={{fontSize:10,color:T.blue,marginTop:6,fontWeight:700}}>{linkLabel||"View"} →</div>}
   </div>
 );
 const SrcBadge = ({src}) =>
@@ -1905,22 +1914,36 @@ function InfraView({rawHosts,onGlobalReload}) {
   );
 }
 
-function Overview({hosts,summary,history}) {
+function Overview({hosts,summary,history,onNavigate}) {
   const [selHost,setSelHost]=useState(null);
   const host=selHost?hosts.find(h=>h.id===selHost):null;
   const m=host?.metrics||{};
   const stor=m.storage||[];
   const ports=m.active_ports||[];
+  const liveCount = hosts.filter(h=>h.metrics?.source==="live").length;
+
+  const kpis = [
+    { label:"Hosts",   value:summary.hosts,                     color:T.blue,  to:"infra",  linkLabel:"Open Infrastructure" },
+    { label:"VMs",     value:summary.total_vms,                 color:T.cyan,  to:"infra",  linkLabel:"Open Infrastructure" },
+    { label:"Avg CPU", value:`${summary.avg_cpu}%`,             color:summary.avg_cpu>80?T.red:T.green },
+    { label:"Warnings",value:summary.warnings,                  color:summary.warnings>0?T.amber:T.green, to:"alerts", linkLabel:"Open Alerts" },
+    { label:"Live",    value:liveCount,                         color:T.green, to:"infra",  linkLabel:"Open Infrastructure" },
+  ];
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       {/* Global KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
-        {[["Hosts",summary.hosts,T.blue],["VMs",summary.total_vms,T.cyan],
-          ["Avg CPU",`${summary.avg_cpu}%`,summary.avg_cpu>80?T.red:T.green],
-          ["Warnings",summary.warnings,summary.warnings>0?T.amber:T.green],
-          ["Live",hosts.filter(h=>h.metrics?.source==="live").length,T.green]].map(([l,v,c])=>(
-          <div key={l} className="card shadow"><KPI label={l} value={v} color={c}/></div>
+        {kpis.map(k=>(
+          <div key={k.label} className="card shadow">
+            <KPI
+              label={k.label}
+              value={k.value}
+              color={k.color}
+              onClick={k.to && onNavigate ? ()=>onNavigate(k.to) : undefined}
+              linkLabel={k.linkLabel}
+            />
+          </div>
         ))}
       </div>
 
@@ -3099,7 +3122,7 @@ export default function App() {
             </a>
           </div>
           <div style={{flex:1,overflowY:"auto",padding:view==="infra"?"14px":"22px"}}>
-            {view==="overview" && <Overview hosts={hosts} summary={summary} history={history}/>}
+            {view==="overview" && <Overview hosts={hosts} summary={summary} history={history} onNavigate={setView}/>}
             {view==="infra"    && <InfraView rawHosts={hosts} onGlobalReload={loadData}/>}
             {view==="logs"     && <Logs hosts={hosts}/>}
             {view==="alerts"   && <Alerts/>}
