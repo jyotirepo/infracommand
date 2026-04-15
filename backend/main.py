@@ -2,9 +2,13 @@
 ServerCapacity — FastAPI v3.0
 DB-backed, user-controlled refresh, proper OS detection
 """
-import uuid, threading
+import uuid, threading, os, smtplib
 from datetime import datetime, timezone
 from typing import Optional
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +18,7 @@ from sqlalchemy.orm import Session
 from database import (get_db, db_save_host, db_get_hosts, db_get_host, db_delete_host,
                       db_save_metrics, db_get_metrics, db_save_vms, db_get_vms,
                       db_save_scan, db_get_scan, db_save_patch, db_get_patch,
-                      db_save_logs, db_get_logs)
+                      db_save_logs, db_get_logs, db_set_config, db_get_config)
 from collectors import (collect_linux_metrics, collect_windows_metrics,
                         collect_patch_cross, collect_windows_patch,
                         collect_kvm_vms, collect_hyperv_vms,
@@ -74,6 +78,21 @@ class HostUpdate(BaseModel):
     domain: Optional[str] = None
     winrm_auth: Optional[str] = None
     group: Optional[str] = None
+
+SMTP_SETTINGS_KEY = "smtp_settings"
+
+class SMTPSettingsIn(BaseModel):
+    host: str
+    port: int = 587
+    username: str = ""
+    password: Optional[str] = None
+    from_email: str
+    use_tls: bool = True
+
+class CapacityEmailRequest(BaseModel):
+    discom: str
+    os_type: str
+    to_email: str
 
 
 def _collect_metrics(host: dict) -> dict:
@@ -231,8 +250,54 @@ def summary(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
         "warnings": sum(1 for m in metrics if m.get("cpu",0)>85 or m.get("ram",0)>85),
     }
 
-@app.get("/api/capacity")
-def get_capacity(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
+def _load_smtp_settings(db: Session) -> dict:
+    stored = db_get_config(db, SMTP_SETTINGS_KEY, default={}) or {}
+    if not isinstance(stored, dict):
+        stored = {}
+    return {
+        "host":      stored.get("host") or os.environ.get("SMTP_HOST", ""),
+        "port":      int(stored.get("port") or os.environ.get("SMTP_PORT", "587")),
+        "username":  stored.get("username") or os.environ.get("SMTP_USER", ""),
+        "password":  stored.get("password") or os.environ.get("SMTP_PASS", ""),
+        "from_email":stored.get("from_email") or os.environ.get("SMTP_FROM", "devopsadmin@domain.com"),
+        "use_tls":   bool(stored.get("use_tls", True)),
+    }
+
+def _make_simple_pdf(lines: list[str]) -> bytes:
+    """Generate a lightweight text-only PDF without extra dependencies."""
+    safe_lines = [str(x).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)") for x in (lines or [])]
+    max_lines = 42
+    lines_page = safe_lines[:max_lines]
+    content = "BT\n/F1 10 Tf\n40 800 Td\n14 TL\n"
+    for ln in lines_page:
+        content += f"({ln}) Tj\nT*\n"
+    if len(safe_lines) > max_lines:
+        content += "(...truncated...) Tj\nT*\n"
+    content += "ET\n"
+    stream = content.encode("latin-1", errors="ignore")
+
+    objs = []
+    objs.append(b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n")
+    objs.append(b"2 0 obj << /Type /Pages /Count 1 /Kids [3 0 R] >> endobj\n")
+    objs.append(b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n")
+    objs.append(f"4 0 obj << /Length {len(stream)} >> stream\n".encode("ascii") + stream + b"endstream endobj\n")
+    objs.append(b"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n")
+
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for o in objs:
+        offsets.append(len(pdf))
+        pdf.extend(o)
+
+    xref_pos = len(pdf)
+    pdf.extend(f"xref\n0 {len(objs)+1}\n".encode("ascii"))
+    pdf.extend(b"0000000000 65535 f \n")
+    for off in offsets[1:]:
+        pdf.extend(f"{off:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(f"trailer << /Size {len(objs)+1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode("ascii"))
+    return bytes(pdf)
+
+def _build_capacity_report(db: Session) -> list:
     """Capacity planning: host hardware totals vs VM allocations vs free."""
     def _num(v, default=0.0):
         try:
@@ -351,6 +416,125 @@ def get_capacity(db: Session = Depends(get_db), _u=Depends(require_perm("view"))
         })
 
     return sorted(report, key=lambda x: (x.get("host_name") or "").lower())
+
+@app.get("/api/capacity")
+def get_capacity(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
+    return _build_capacity_report(db)
+
+@app.get("/api/email-settings")
+def get_email_settings(db: Session = Depends(get_db), _u=Depends(require_perm("manage_users"))):
+    s = _load_smtp_settings(db)
+    return {
+        "host": s.get("host", ""),
+        "port": s.get("port", 587),
+        "username": s.get("username", ""),
+        "from_email": s.get("from_email", ""),
+        "use_tls": bool(s.get("use_tls", True)),
+        "password_set": bool(s.get("password")),
+    }
+
+@app.put("/api/email-settings")
+def save_email_settings(payload: SMTPSettingsIn, db: Session = Depends(get_db),
+                        _u=Depends(require_perm("manage_users"))):
+    current = _load_smtp_settings(db)
+    next_val = {
+        "host": payload.host.strip(),
+        "port": int(payload.port),
+        "username": (payload.username or "").strip(),
+        "password": payload.password if payload.password not in (None, "") else current.get("password", ""),
+        "from_email": payload.from_email.strip(),
+        "use_tls": bool(payload.use_tls),
+    }
+    if not next_val["host"]:
+        raise HTTPException(400, "SMTP host is required")
+    if next_val["port"] <= 0:
+        raise HTTPException(400, "SMTP port must be > 0")
+    if not next_val["from_email"]:
+        raise HTTPException(400, "From email is required")
+    db_set_config(db, SMTP_SETTINGS_KEY, next_val)
+    return {"ok": True, "message": "Email settings saved"}
+
+@app.post("/api/capacity/email-report")
+def email_capacity_report(payload: CapacityEmailRequest, db: Session = Depends(get_db),
+                          _u=Depends(require_perm("view"))):
+    rows = _build_capacity_report(db)
+    discom = (payload.discom or "All").strip()
+    os_type = (payload.os_type or "linux").strip().lower()
+    to_email = (payload.to_email or "").strip()
+
+    if not to_email:
+        raise HTTPException(400, "Recipient email is required")
+    if os_type not in ("linux", "windows"):
+        raise HTTPException(400, "os_type must be linux or windows")
+
+    if discom != "All":
+        rows = [r for r in rows if (r.get("group") or "Default") == discom]
+    rows = [r for r in rows if (r.get("os_type") or "linux").lower() == os_type]
+    if not rows:
+        raise HTTPException(404, "No capacity rows found for selected Discom/OS")
+
+    report_lines = [
+        "Capacity Report",
+        f"Discom: {discom}",
+        f"OS: {os_type.capitalize()}",
+        "Type: physical",
+        f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC",
+        "",
+        "Host | IP | vCPU total/used/free | RAM total/used/free GB | Disk total/used/free GB",
+        "-" * 100,
+    ]
+    for h in rows:
+        report_lines.append(
+            f"{h.get('host_name','')} | {h.get('host_ip','')} | "
+            f"{h.get('cpu_vcpus',0)}/{h.get('vm_vcpu_alloc',0)}/{h.get('free_vcpus',0)} | "
+            f"{h.get('ram_total_gb',0)}/{h.get('vm_ram_alloc_gb',0)}/{h.get('free_ram_gb',0)} | "
+            f"{h.get('disk_total_gb',0)}/{h.get('disk_used_gb',0)}/{h.get('free_disk_gb',0)}"
+        )
+    pdf_bytes = _make_simple_pdf(report_lines)
+
+    smtp_cfg = _load_smtp_settings(db)
+    if not smtp_cfg.get("host"):
+        raise HTTPException(400, "SMTP is not configured. Ask admin to configure Email Settings.")
+
+    subject = f"Capacity report for {discom} {os_type.capitalize()} physical"
+    body = (
+        f"Hi,\n\n"
+        f"Please find attached the capacity report.\n\n"
+        f"Discom: {discom}\n"
+        f"OS: {os_type.capitalize()}\n"
+        f"Type: physical\n"
+        f"Hosts: {len(rows)}\n"
+        f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC\n\n"
+        f"Thanks & Regards,\n"
+        f"LinuxAmin"
+    )
+
+    msg = MIMEMultipart()
+    msg["Subject"] = subject
+    msg["From"] = smtp_cfg["from_email"]
+    msg["To"] = to_email
+    msg.attach(MIMEText(body, "plain"))
+
+    attach = MIMEBase("application", "pdf")
+    attach.set_payload(pdf_bytes)
+    encoders.encode_base64(attach)
+    safe_discom = "".join(ch for ch in discom if ch.isalnum() or ch in ("-", "_")).strip() or "all"
+    attach.add_header("Content-Disposition",
+                      f'attachment; filename="capacity-{safe_discom}-{os_type}-physical.pdf"')
+    msg.attach(attach)
+
+    try:
+        with smtplib.SMTP(smtp_cfg["host"], int(smtp_cfg["port"]), timeout=15) as server:
+            server.ehlo()
+            if smtp_cfg.get("use_tls"):
+                server.starttls()
+            if smtp_cfg.get("username") and smtp_cfg.get("password"):
+                server.login(smtp_cfg["username"], smtp_cfg["password"])
+            server.sendmail(smtp_cfg["from_email"], [to_email], msg.as_string())
+    except Exception as e:
+        raise HTTPException(500, f"Failed to send email: {e}")
+
+    return {"ok": True, "message": f"Report mailed to {to_email}", "rows": len(rows)}
 
 @app.get("/api/overview")
 def get_overview(db: Session = Depends(get_db), _u=Depends(require_perm("view"))):
@@ -790,30 +974,31 @@ def _run_scan_bg(target_id: str, target_name: str, target_type: str,
     os_type = (scan_ctx.get("os_type") or "linux").lower()
     log.info(f"[scan_bg] START {target_type} {target_name} ({ip}) os={os_type} timeout={SCAN_TIMEOUT_SECONDS}s")
 
+    ex = None
     try:
-        with _cf.ThreadPoolExecutor(max_workers=1) as ex:
-            future = ex.submit(_do_scan)
-            try:
-                result = future.result(timeout=SCAN_TIMEOUT_SECONDS)
-                _save_result(result, "done")
-                log.info(f"[scan_bg] DONE {target_name} ({ip}) → {len(result.get('vulns',[]))} vulns")
-            except _cf.TimeoutError:
-                future.cancel()
-                timeout_mins = SCAN_TIMEOUT_SECONDS // 60
-                msg = (
-                    f"Scan timed out after {timeout_mins} minutes. "
-                    f"{'WinRM connection or PowerShell script hung — check the Windows host is reachable and WinRM is responsive.' if os_type == 'windows' else 'SSH or Trivy scan took too long — check the host is reachable and the Trivy server is running.'}"
-                )
-                log.warning(f"[scan_bg] TIMEOUT {target_name} ({ip}) after {timeout_mins}m")
-                err_result = {
-                    "target_id": target_id, "target": target_name, "target_type": target_type,
-                    "ip": ip, "host": host_name,
-                    "scanned_at": datetime.now(timezone.utc).isoformat(),
-                    "scan_error": msg, "vulns": [], "open_ports": [],
-                    "summary": {"total":0,"critical":0,"high":0,"medium":0,"low":0,
-                                "open_ports":0,"risky_ports":0,"port_exposed":0},
-                }
-                _save_result(err_result, "error")
+        ex = _cf.ThreadPoolExecutor(max_workers=1)
+        future = ex.submit(_do_scan)
+        try:
+            result = future.result(timeout=SCAN_TIMEOUT_SECONDS)
+            _save_result(result, "done")
+            log.info(f"[scan_bg] DONE {target_name} ({ip}) → {len(result.get('vulns',[]))} vulns")
+        except _cf.TimeoutError:
+            future.cancel()
+            timeout_mins = SCAN_TIMEOUT_SECONDS // 60
+            msg = (
+                f"Scan timed out after {timeout_mins} minutes. "
+                f"{'WinRM connection or PowerShell script hung — check the Windows host is reachable and WinRM is responsive.' if os_type == 'windows' else 'SSH or Trivy scan took too long — check the host is reachable and the Trivy server is running.'}"
+            )
+            log.warning(f"[scan_bg] TIMEOUT {target_name} ({ip}) after {timeout_mins}m")
+            err_result = {
+                "target_id": target_id, "target": target_name, "target_type": target_type,
+                "ip": ip, "host": host_name,
+                "scanned_at": datetime.now(timezone.utc).isoformat(),
+                "scan_error": msg, "vulns": [], "open_ports": [],
+                "summary": {"total":0,"critical":0,"high":0,"medium":0,"low":0,
+                            "open_ports":0,"risky_ports":0,"port_exposed":0},
+            }
+            _save_result(err_result, "error")
     except Exception as e:
         log.error(f"[scan_bg] ERROR {target_name} ({ip}): {e}")
         err_result = {
@@ -825,6 +1010,10 @@ def _run_scan_bg(target_id: str, target_name: str, target_type: str,
                         "open_ports":0,"risky_ports":0,"port_exposed":0},
         }
         _save_result(err_result, "error")
+    finally:
+        if ex:
+            # Do not block forever on worker shutdown when the scan thread is hung.
+            ex.shutdown(wait=False, cancel_futures=True)
 
 
 @app.post("/api/hosts/{hid}/scan")
