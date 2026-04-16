@@ -64,6 +64,12 @@ class LogModel(Base):
     data        = Column(Text)   # JSON list
     updated_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+class AppConfigModel(Base):
+    __tablename__ = "app_config"
+    key         = Column(String, primary_key=True)
+    value       = Column(Text, default="")
+    updated_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
 Base.metadata.create_all(engine)
 
 # ── Auto-migrate: add 'group' column to existing DBs that predate this field ──
@@ -274,3 +280,22 @@ def db_save_logs(db: Session, host_id: str, logs: list):
 def db_get_logs(db: Session, host_id: str) -> list:
     l = db.get(LogModel, host_id)
     return json.loads(l.data) if l else []
+
+def db_set_config(db: Session, key: str, value: dict | str):
+    payload = value if isinstance(value, str) else json.dumps(value, default=str)
+    existing = db.get(AppConfigModel, key)
+    if existing:
+        existing.value = payload
+        existing.updated_at = datetime.now(timezone.utc)
+    else:
+        db.add(AppConfigModel(key=key, value=payload))
+    db.commit()
+
+def db_get_config(db: Session, key: str, default=None):
+    row = db.get(AppConfigModel, key)
+    if not row or row.value is None:
+        return default
+    try:
+        return json.loads(row.value)
+    except Exception:
+        return row.value
