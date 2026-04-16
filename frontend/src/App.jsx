@@ -158,11 +158,20 @@ const StorBar = ({pct}) => {
   const col=pct>85?T.red:pct>65?T.amber:T.green;
   return <div className="stor-bar"><div className="stor-fill" style={{width:`${Math.min(100,pct||0)}%`,background:col}}/></div>;
 };
-const KPI = ({label,value,color,sub}) => (
-  <div className="kpi">
+const KPI = ({label,value,color,sub,onClick,linkLabel}) => (
+  <div
+    className="kpi"
+    onClick={onClick}
+    role={onClick ? "button" : undefined}
+    tabIndex={onClick ? 0 : undefined}
+    onKeyDown={onClick ? (e)=>{ if(e.key==="Enter" || e.key===" "){ e.preventDefault(); onClick(); } } : undefined}
+    style={onClick ? {cursor:"pointer"} : undefined}
+    title={onClick ? (linkLabel || "Open") : undefined}
+  >
     <div className="kpi-val" style={{color:color||T.blue}}>{value}</div>
     <div className="kpi-lbl">{label}</div>
     {sub&&<div style={{fontSize:10,color:T.muted,marginTop:2}}>{sub}</div>}
+    {onClick&&<div style={{fontSize:10,color:T.blue,marginTop:6,fontWeight:700}}>{linkLabel||"View"} →</div>}
   </div>
 );
 const SrcBadge = ({src}) =>
@@ -1905,22 +1914,36 @@ function InfraView({rawHosts,onGlobalReload}) {
   );
 }
 
-function Overview({hosts,summary,history}) {
+function Overview({hosts,summary,history,onNavigate}) {
   const [selHost,setSelHost]=useState(null);
   const host=selHost?hosts.find(h=>h.id===selHost):null;
   const m=host?.metrics||{};
   const stor=m.storage||[];
   const ports=m.active_ports||[];
+  const liveCount = hosts.filter(h=>h.metrics?.source==="live").length;
+
+  const kpis = [
+    { label:"Hosts",   value:summary.hosts,                     color:T.blue,  to:"infra",  linkLabel:"Open Infrastructure" },
+    { label:"VMs",     value:summary.total_vms,                 color:T.cyan,  to:"infra",  linkLabel:"Open Infrastructure" },
+    { label:"Avg CPU", value:`${summary.avg_cpu}%`,             color:summary.avg_cpu>80?T.red:T.green },
+    { label:"Warnings",value:summary.warnings,                  color:summary.warnings>0?T.amber:T.green, to:"alerts", linkLabel:"Open Alerts" },
+    { label:"Live",    value:liveCount,                         color:T.green, to:"infra",  linkLabel:"Open Infrastructure" },
+  ];
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       {/* Global KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
-        {[["Hosts",summary.hosts,T.blue],["VMs",summary.total_vms,T.cyan],
-          ["Avg CPU",`${summary.avg_cpu}%`,summary.avg_cpu>80?T.red:T.green],
-          ["Warnings",summary.warnings,summary.warnings>0?T.amber:T.green],
-          ["Live",hosts.filter(h=>h.metrics?.source==="live").length,T.green]].map(([l,v,c])=>(
-          <div key={l} className="card shadow"><KPI label={l} value={v} color={c}/></div>
+        {kpis.map(k=>(
+          <div key={k.label} className="card shadow">
+            <KPI
+              label={k.label}
+              value={k.value}
+              color={k.color}
+              onClick={k.to && onNavigate ? ()=>onNavigate(k.to) : undefined}
+              linkLabel={k.linkLabel}
+            />
+          </div>
         ))}
       </div>
 
@@ -2046,10 +2069,46 @@ function CapacityPlanning() {
   const [genReport,setGenReport]   = useState(false);
   const [groupFilter,setGroupFilter] = useState("All");  // Discom group filter
   const [capGroups,setCapGroups]     = useState([]);     // all groups from API
+  const [mailOpen,setMailOpen]       = useState(false);
+  const [sendingMail,setSendingMail] = useState(false);
+  const [mailMsg,setMailMsg]         = useState(null);
+  const [mailForm,setMailForm]       = useState({ discom:"All", os_type:"linux", to_email:"" });
 
   useEffect(()=>{
     api.get("/groups").then(r=>setCapGroups(r.data||[])).catch(()=>{});
   },[]);
+
+  const openMailDialog = () => {
+    setMailMsg(null);
+    setMailForm({
+      discom: groupFilter === "All" ? "All" : groupFilter,
+      os_type: osTab,
+      to_email: "",
+    });
+    setMailOpen(true);
+  };
+
+  const sendMailReport = async () => {
+    if (!mailForm.to_email) {
+      setMailMsg({t:"e", text:"Recipient email is required"});
+      return;
+    }
+    setSendingMail(true); setMailMsg(null);
+    try {
+      const pdfPack = await generateReport("pdf-email");
+      const payload = {
+        ...mailForm,
+        pdf_data_uri: pdfPack?.dataUri || "",
+        filename: pdfPack?.filename || "",
+      };
+      const r = await api.post("/capacity/email-report", payload);
+      setMailMsg({t:"ok", text:r.data?.message || "Mail sent"});
+      setTimeout(()=>setMailOpen(false), 1200);
+    } catch(e) {
+      setMailMsg({t:"e", text:e.response?.data?.detail || e.message || "Failed to send mail"});
+    }
+    setSendingMail(false);
+  };
 
   const selectedHost = sel ? data.find(h=>h.host_id===sel) || null : null;
   const gb = v => { const x=Number(v); return Number.isFinite(x)&&x>0?`${x} GB`:"—"; };
@@ -2093,6 +2152,23 @@ function CapacityPlanning() {
     var ts = new Date().toLocaleString("en-IN",{timeZone:"Asia/Kolkata"});
     var osLabel = osTab === "linux" ? "Linux" : "Windows";
     var groupLabel = groupFilter === "All" ? "All Discoms" : groupFilter;
+    var pdfSafe = function(v){
+      return String(v||"")
+        .replace(/%ˇ/g, ",")
+        .replace(/ˇ/g, ",")
+        .replace(/[·•]/g, ",")
+        .replace(/[—–]/g, "-")
+        .replace(/[^\x20-\x7E]/g, ",")
+        .replace(/\s*,\s*/g, ", ")
+        .replace(/,\s*,+/g, ", ")
+        .trim();
+    };
+    var pdfJoin = function(parts){
+      return parts.map(pdfSafe).join(", ");
+    };
+    var pdfTs = pdfSafe(ts);
+    var pdfOsLabel = pdfSafe(osLabel);
+    var pdfGroupLabel = pdfSafe(groupLabel);
     var fileSlug = (groupFilter==="All"?"all":groupFilter.replace(/[^a-z0-9]/gi,"-").toLowerCase());
 
     // ── SHARED: load logo as base64 ──────────────────────────────────────────
@@ -2107,7 +2183,7 @@ function CapacityPlanning() {
       });
     } catch(e) { /* logo optional */ }
 
-    if (format === "pdf") {
+    if (format === "pdf" || format === "pdf-email") {
       // ── PDF generation via jsPDF + autoTable ────────────────────────────
       var jsPDFLib = await import("jspdf");
       var autoTable = (await import("jspdf-autotable")).default;
@@ -2127,23 +2203,21 @@ function CapacityPlanning() {
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(13);
       doc.setFont("helvetica","bold");
-      doc.text("ServerCapacity — Capacity Report", 38, 9);
+      doc.text("ServerCapacity - Capacity Report", 38, 9);
       doc.setFontSize(8);
       doc.setFont("helvetica","normal");
-      doc.text("Discom: " + groupLabel + "  |  OS: " + osLabel + "  |  Hosts: " + rData.length + "  |  Generated: " + ts + " IST", 38, 16);
+      doc.text(pdfJoin(["Discom: " + pdfGroupLabel, "OS: " + pdfOsLabel, "Hosts: " + rData.length, "Generated: " + pdfTs + " IST"]), 38, 16);
 
-      // Sub-header line
-      doc.setFillColor(0, 123, 255);
-      doc.rect(0, 22, 297, 1.2, "F");
+      // Blue separator line removed as requested
 
       // Table
       var headers = ["Host","CPU Model","vCPU Total","vCPU Used","vCPU Free",
                      "RAM Total (GB)","RAM Used (GB)","RAM Free (GB)",
-                     "Disk Total (GB)","Disk Used (GB)","Disk Free (GB)","VMs"];
+                     "Disk Total (GB)","Disk Used (GB)","Disk Free (GB)","VMs"].map(pdfSafe);
       var rows = rData.map(function(h) {
         return [
-          h.host_name + (h.host_ip ? "\n" + h.host_ip : ""),
-          h.cpu_model || "—",
+          pdfSafe(h.host_name) + (h.host_ip ? "\n" + pdfSafe(h.host_ip) : ""),
+          pdfSafe(h.cpu_model || "-"),
           String(h.cpu_vcpus || 0),
           String(h.vm_vcpu_alloc || 0),
           String(h.free_vcpus != null ? h.free_vcpus : 0),
@@ -2198,7 +2272,7 @@ function CapacityPlanning() {
           doc.setFontSize(7);
           doc.setTextColor(130,130,130);
           var pg = doc.internal.getCurrentPageInfo().pageNumber;
-          doc.text("ServerCapacity — " + groupLabel + " — Confidential  |  Page " + pg, 14, doc.internal.pageSize.height - 6);
+          doc.text("ServerCapacity - " + pdfGroupLabel + " - Confidential, Page " + pg, 14, doc.internal.pageSize.height - 6);
         },
         willDrawCell: function(data) {
           if (data.row.index === rows.length - 1) {
@@ -2209,7 +2283,11 @@ function CapacityPlanning() {
         },
       });
 
-      doc.save("ServerCapacity-" + fileSlug + "-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".pdf");
+      var pdfName = "ServerCapacity-" + fileSlug + "-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".pdf";
+      if (format === "pdf-email") {
+        return { filename: pdfName, dataUri: doc.output("datauristring") };
+      }
+      doc.save(pdfName);
 
     } else if (format === "excel") {
       // ── Excel generation via SheetJS ─────────────────────────────────────
@@ -2331,6 +2409,7 @@ function CapacityPlanning() {
                 📊 Excel
               </button>
             </div>
+            <button className="btn btn-ghost" onClick={openMailDialog}>✉️ Email</button>
           </div>
         </div>
         <div style={{display:"flex",gap:0,borderRadius:8,overflow:"hidden",
@@ -2629,6 +2708,51 @@ function CapacityPlanning() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {mailOpen&&(
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setMailOpen(false)}>
+          <div className="modal" style={{width:460}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{fontWeight:700,fontSize:15}}>Email Capacity Report</div>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setMailOpen(false)}>✕</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:T.sub,display:"block",marginBottom:4}}>Discom</label>
+                <select value={mailForm.discom} onChange={e=>setMailForm(f=>({...f,discom:e.target.value}))}>
+                  <option value="All">All Discoms</option>
+                  {capGroups.map(g=><option key={g} value={g}>{g}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:T.sub,display:"block",marginBottom:4}}>OS</label>
+                <select value={mailForm.os_type} onChange={e=>setMailForm(f=>({...f,os_type:e.target.value}))}>
+                  <option value="linux">Linux</option>
+                  <option value="windows">Windows</option>
+                </select>
+              </div>
+              <div style={{gridColumn:"1/-1"}}>
+                <label style={{fontSize:11,fontWeight:700,color:T.sub,display:"block",marginBottom:4}}>To Email</label>
+                <input type="email" value={mailForm.to_email}
+                  onChange={e=>setMailForm(f=>({...f,to_email:e.target.value}))}
+                  placeholder="ops-team@example.com"/>
+              </div>
+            </div>
+            <div style={{fontSize:11,color:T.muted,marginTop:12}}>
+              Subject format: <code>Capacity report for &lt;discom&gt; &lt;OS&gt; physical</code>
+            </div>
+            {mailMsg&&<div style={{marginTop:12,padding:"8px 10px",borderRadius:6,fontSize:12,
+              background:mailMsg.t==="ok"?"#dcfce7":"#fee2e2",
+              color:mailMsg.t==="ok"?"#166534":"#991b1b"}}>{mailMsg.text}</div>}
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16}}>
+              <button className="btn btn-ghost" onClick={()=>setMailOpen(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={sendMailReport} disabled={sendingMail}>
+                {sendingMail?<><span className="spinner"/>Sending...</>:"Send Report"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -2977,10 +3101,103 @@ function DebugConsole() {
   );
 }
 
+function EmailSettingsPage() {
+  const [form,setForm] = useState({host:"",port:587,username:"",password:"",from_email:"",use_tls:true});
+  const [busy,setBusy] = useState(false);
+  const [msg,setMsg]   = useState(null);
+
+  const load = useCallback(async ()=>{
+    try{
+      const r = await api.get("/email-settings");
+      setForm(f=>({
+        ...f,
+        host:r.data?.host||"",
+        port:r.data?.port||587,
+        username:r.data?.username||"",
+        password:"",
+        from_email:r.data?.from_email||"",
+        use_tls:!!r.data?.use_tls,
+      }));
+    }catch(e){
+      setMsg({t:"e",text:e.response?.data?.detail || "Failed to load email settings"});
+    }
+  },[]);
+
+  useEffect(()=>{ load(); },[load]);
+
+  const save = async ()=>{
+    setBusy(true); setMsg(null);
+    try{
+      const payload = {...form};
+      if(!payload.password) delete payload.password;
+      const r = await api.put("/email-settings", payload);
+      setMsg({t:"ok",text:r.data?.message || "Saved"});
+      setForm(f=>({...f,password:""}));
+    }catch(e){
+      setMsg({t:"e",text:e.response?.data?.detail || "Failed to save settings"});
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14,maxWidth:760}}>
+      <div className="card shadow" style={{padding:16}}>
+        <div style={{fontWeight:700,fontSize:16}}>Email Settings (Admin)</div>
+        <div style={{fontSize:12,color:T.muted,marginTop:4}}>
+          Configure SMTP details used for sending capacity reports.
+        </div>
+      </div>
+      <div className="card shadow" style={{padding:16}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 140px",gap:12}}>
+          <div>
+            <label style={{fontSize:11,fontWeight:700,color:T.sub,display:"block",marginBottom:4}}>SMTP Host</label>
+            <input value={form.host} onChange={e=>setForm(f=>({...f,host:e.target.value}))}/>
+          </div>
+          <div>
+            <label style={{fontSize:11,fontWeight:700,color:T.sub,display:"block",marginBottom:4}}>SMTP Port</label>
+            <input type="number" value={form.port} onChange={e=>setForm(f=>({...f,port:Number(e.target.value)||0}))}/>
+          </div>
+          <div>
+            <label style={{fontSize:11,fontWeight:700,color:T.sub,display:"block",marginBottom:4}}>SMTP Username</label>
+            <input value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))}/>
+          </div>
+          <div>
+            <label style={{fontSize:11,fontWeight:700,color:T.sub,display:"block",marginBottom:4}}>Use TLS</label>
+            <select value={form.use_tls ? "yes":"no"} onChange={e=>setForm(f=>({...f,use_tls:e.target.value==="yes"}))}>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+          <div style={{gridColumn:"1/-1"}}>
+            <label style={{fontSize:11,fontWeight:700,color:T.sub,display:"block",marginBottom:4}}>From Email</label>
+            <input type="email" value={form.from_email} onChange={e=>setForm(f=>({...f,from_email:e.target.value}))}/>
+          </div>
+          <div style={{gridColumn:"1/-1"}}>
+            <label style={{fontSize:11,fontWeight:700,color:T.sub,display:"block",marginBottom:4}}>SMTP Password</label>
+            <input type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))}
+              placeholder="Leave blank to keep existing password"/>
+          </div>
+        </div>
+        {msg&&<div style={{marginTop:12,padding:"8px 10px",borderRadius:6,fontSize:12,
+          background:msg.t==="ok"?"#dcfce7":"#fee2e2",
+          color:msg.t==="ok"?"#166534":"#991b1b"}}>{msg.text}</div>}
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16}}>
+          <button className="btn btn-ghost" onClick={load}>Reload</button>
+          <button className="btn btn-primary" onClick={save} disabled={busy}>
+            {busy?<><span className="spinner"/>Saving...</>:"Save SMTP Settings"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // \u2500\u2500 App Shell \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 const VIEWS=[{id:"overview",icon:"\uD83D\uDCCA",label:"Overview"},{id:"infra",icon:"\uD83D\uDDA7",label:"Infrastructure"},
              {id:"logs",icon:"\uD83D\uDCCB",label:"Logs"},{id:"alerts",icon:"\uD83D\uDD14",label:"Alerts"},
-             {id:"patches",icon:"\uD83D\uDD27",label:"Patches"},{id:"capacity",icon:"\uD83D\uDCCA",label:"Capacity"},{id:"vmip",icon:"\uD83D\uDD2C",label:"VM IP Debug"},{id:"scans",icon:"\uD83D\uDD12",label:"Vuln Scans"},{id:"users",icon:"\uD83D\uDC65",label:"Users"},{id:"debug",icon:"\uD83D\uDEE0",label:"Debug"}];
+             {id:"patches",icon:"\uD83D\uDD27",label:"Patches"},{id:"capacity",icon:"\uD83D\uDCCA",label:"Capacity"},
+             {id:"emailcfg",icon:"✉️",label:"Email Setup"},
+             {id:"vmip",icon:"\uD83D\uDD2C",label:"VM IP Debug"},{id:"scans",icon:"\uD83D\uDD12",label:"Vuln Scans"},{id:"users",icon:"\uD83D\uDC65",label:"Users"},{id:"debug",icon:"\uD83D\uDEE0",label:"Debug"}];
 
 export default function App() {
   // \u2500\u2500 All hooks first (React rules) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -3042,7 +3259,10 @@ export default function App() {
             </div>
           </div>
           <div style={{padding:"0 8px",flex:1}}>
-            {VIEWS.filter(function(v){ return v.id !== "users" || hasPerm(authUser,"manage_users"); }).map(v=>(
+            {VIEWS.filter(function(v){
+              if ((v.id === "users" || v.id === "emailcfg") && !hasPerm(authUser,"manage_users")) return false;
+              return true;
+            }).map(v=>(
               <button key={v.id} onClick={()=>setView(v.id)} style={{
                 width:"100%",display:"flex",alignItems:"center",gap:9,padding:"9px 12px",
                 borderRadius:7,border:"none",cursor:"pointer",fontFamily:"IBM Plex Sans",
@@ -3074,6 +3294,9 @@ export default function App() {
               <div>{hosts.length} hosts - {summary.total_vms||0} VMs</div>
               {lastUpd&&<div>Updated: {lastUpd}</div>}
             </div>
+            <div style={{fontSize:9,color:"#2f4f66",opacity:.65,marginBottom:8}}>
+              Proprietary © JyotiRanjan
+            </div>
             <button onClick={handleLogout}
               style={{width:"100%",padding:"7px",borderRadius:7,border:"1px solid #1e3347",
                 background:"transparent",color:"#5b8fad",fontSize:11,cursor:"pointer"}}>
@@ -3099,12 +3322,13 @@ export default function App() {
             </a>
           </div>
           <div style={{flex:1,overflowY:"auto",padding:view==="infra"?"14px":"22px"}}>
-            {view==="overview" && <Overview hosts={hosts} summary={summary} history={history}/>}
+            {view==="overview" && <Overview hosts={hosts} summary={summary} history={history} onNavigate={setView}/>}
             {view==="infra"    && <InfraView rawHosts={hosts} onGlobalReload={loadData}/>}
             {view==="logs"     && <Logs hosts={hosts}/>}
             {view==="alerts"   && <Alerts/>}
             {view==="patches"  && <Patches/>}
             {view==="capacity"  && <CapacityPlanning/>}
+            {view==="emailcfg" && hasPerm(authUser,"manage_users") && <EmailSettingsPage/>}
             {view==="vmip"     && <VMIPDebug hosts={hosts}/>}
             {view==="debug"    && <DebugConsole/>}
             {view==="scans"    && <AllScans/>}
@@ -3170,6 +3394,9 @@ function LoginPage({ onLogin }) {
         </form>
         <div style={{textAlign:"center",marginTop:24,fontSize:11,color:"#94a3b8"}}>
           ServerCapacity {_APP_VERSION} - Secured by JWT
+        </div>
+        <div style={{textAlign:"center",marginTop:6,fontSize:10,color:"#cbd5e1",opacity:.55}}>
+          Proprietary © JyotiRanjan
         </div>
       </div>
     </div>
