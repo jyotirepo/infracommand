@@ -2152,7 +2152,20 @@ function CapacityPlanning() {
     var ts = new Date().toLocaleString("en-IN",{timeZone:"Asia/Kolkata"});
     var osLabel = osTab === "linux" ? "Linux" : "Windows";
     var groupLabel = groupFilter === "All" ? "All Discoms" : groupFilter;
-    var pdfSafe = function(v){ return String(v||"").replace(/[^\x20-\x7E]/g, ","); };
+    var pdfSafe = function(v){
+      return String(v||"")
+        .replace(/%ˇ/g, ",")
+        .replace(/ˇ/g, ",")
+        .replace(/[·•]/g, ",")
+        .replace(/[—–]/g, "-")
+        .replace(/[^\x20-\x7E]/g, ",")
+        .replace(/\s*,\s*/g, ", ")
+        .replace(/,\s*,+/g, ", ")
+        .trim();
+    };
+    var pdfJoin = function(parts){
+      return parts.map(pdfSafe).join(", ");
+    };
     var pdfTs = pdfSafe(ts);
     var pdfOsLabel = pdfSafe(osLabel);
     var pdfGroupLabel = pdfSafe(groupLabel);
@@ -2256,19 +2269,17 @@ function CapacityPlanning() {
       doc.text("ServerCapacity - Capacity Report", 38, 9);
       doc.setFontSize(8);
       doc.setFont("helvetica","normal");
-      doc.text("Discom: " + pdfGroupLabel + ", OS: " + pdfOsLabel + ", Hosts: " + rData.length + ", Generated: " + pdfTs + " IST", 38, 16);
+      doc.text(pdfJoin(["Discom: " + pdfGroupLabel, "OS: " + pdfOsLabel, "Hosts: " + rData.length, "Generated: " + pdfTs + " IST"]), 38, 16);
 
-      // Sub-header line
-      doc.setFillColor(0, 123, 255);
-      doc.rect(38, 22, 259, 1.2, "F"); // keep away from logo area
+      // Blue separator line removed as requested
 
       // Table
       var headers = ["Host","CPU Model","vCPU Total","vCPU Used","vCPU Free",
                      "RAM Total (GB)","RAM Used (GB)","RAM Free (GB)",
-                     "Disk Total (GB)","Disk Used (GB)","Disk Free (GB)","VMs"];
+                     "Disk Total (GB)","Disk Used (GB)","Disk Free (GB)","VMs"].map(pdfSafe);
       var rows = rData.map(function(h) {
         return [
-          h.host_name + (h.host_ip ? "\n" + h.host_ip : ""),
+          pdfSafe(h.host_name) + (h.host_ip ? "\n" + pdfSafe(h.host_ip) : ""),
           pdfSafe(h.cpu_model || "-"),
           String(h.cpu_vcpus || 0),
           String(h.vm_vcpu_alloc || 0),
