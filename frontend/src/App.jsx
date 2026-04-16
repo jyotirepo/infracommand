@@ -2171,7 +2171,7 @@ function CapacityPlanning() {
     var pdfGroupLabel = pdfSafe(groupLabel);
     var fileSlug = (groupFilter==="All"?"all":groupFilter.replace(/[^a-z0-9]/gi,"-").toLowerCase());
 
-    // ── SHARED: load logo as base64 ──────────────────────────────────────────
+    // ── Load logo ────────────────────────────────────────────────────────────
     var logoBase64 = null;
     try {
       var imgRes = await fetch("/logo.jpg");
@@ -2181,27 +2181,90 @@ function CapacityPlanning() {
         r.onloadend = function(){ res(r.result); };
         r.readAsDataURL(imgBlob);
       });
-    } catch(e) { /* logo optional */ }
+    } catch(e) {}
 
     if (format === "pdf" || format === "pdf-email") {
       // ── PDF generation via jsPDF + autoTable ────────────────────────────
       var jsPDFLib = await import("jspdf");
       var autoTable = (await import("jspdf-autotable")).default;
       var jsPDF = jsPDFLib.jsPDF || jsPDFLib.default;
-      var doc = new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+      var doc = new jsPDF({orientation:"landscape", unit:"mm", format:"a4"});
+      var PW = 297, PH = 210; // A4 landscape
 
-      // Header bar
-      doc.setFillColor(15, 31, 46);
-      doc.rect(0, 0, 297, 22, "F");
+      // ── Colour palette ───────────────────────────────────────────────────
+      var COL = {
+        navy:   [15,  31,  46],
+        blue:   [29, 123, 255],
+        green:  [22, 163,  74],
+        amber:  [245,158, 11],
+        red:    [220,  38,  38],
+        purple: [124, 58, 237],
+        white:  [255,255,255],
+        lgrey:  [245,248,252],
+        mgrey:  [148,163,184],
+        dgrey:  [55,  65,  81],
+        border: [226,232,240],
+      };
 
-      // D&IT Logo (top-left inside header)
-      if (logoBase64) {
-        try { doc.addImage(logoBase64, "JPEG", 4, 2, 28, 18); } catch(e){}
+      // ── Helpers ──────────────────────────────────────────────────────────
+      var setFill = function(c){ doc.setFillColor(c[0],c[1],c[2]); };
+      var setTxt  = function(c){ doc.setTextColor(c[0],c[1],c[2]); };
+      var setDraw = function(c){ doc.setDrawColor(c[0],c[1],c[2]); };
+
+      // Draw a horizontal utilisation bar
+      // x,y = top-left, w=width, h=height, pct=0-100, colour
+      var drawBar = function(x, y, w, h, pct, col) {
+        // Background track
+        setFill(COL.lgrey);
+        setDraw(COL.border);
+        doc.roundedRect(x, y, w, h, 0.8, 0.8, "FD");
+        // Fill
+        var fillW = Math.max(0, Math.min(w, w * pct / 100));
+        if(fillW > 0) {
+          setFill(col);
+          doc.roundedRect(x, y, fillW, h, 0.8, 0.8, "F");
+        }
+      };
+
+      // KPI summary card
+      var drawKPI = function(x, y, w, h, label, value, sub, col) {
+        setFill(COL.white);
+        setDraw(COL.border);
+        doc.roundedRect(x, y, w, h, 1.5, 1.5, "FD");
+        // Colour accent bar on left
+        setFill(col);
+        doc.roundedRect(x, y, 2.5, h, 1, 1, "F");
+        setTxt(COL.mgrey);
+        doc.setFontSize(6);
+        doc.setFont("helvetica","normal");
+        doc.text(label.toUpperCase(), x+5, y+5);
+        setTxt(col);
+        doc.setFontSize(14);
+        doc.setFont("helvetica","bold");
+        doc.text(String(value), x+5, y+11.5);
+        setTxt(COL.mgrey);
+        doc.setFontSize(6);
+        doc.setFont("helvetica","normal");
+        doc.text(sub, x+5, y+16);
+      };
+
+      // ── PAGE 1: Cover / Summary ──────────────────────────────────────────
+
+      // Dark header bar
+      setFill(COL.navy);
+      doc.rect(0, 0, PW, 28, "F");
+      // Blue accent line under header
+      setFill(COL.blue);
+      doc.rect(0, 28, PW, 1.5, "F");
+
+      // Logo
+      if(logoBase64) {
+        try { doc.addImage(logoBase64, "JPEG", 5, 3, 22, 22); } catch(e){}
       }
 
-      // Title text
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(13);
+      // Title
+      setTxt(COL.white);
+      doc.setFontSize(18);
       doc.setFont("helvetica","bold");
       doc.text("ServerCapacity - Capacity Report", 38, 9);
       doc.setFontSize(8);
@@ -2246,39 +2309,239 @@ function CapacityPlanning() {
           vms:        a.vms        + Number(h.vm_count||0),
         };
       },{vcpus:0,vcpu_alloc:0,free_vcpus:0,ram:0,ram_used:0,free_ram:0,disk:0,disk_used:0,free_disk:0,vms:0});
+
+      var vcpuPct  = tot.vcpus  ? Math.round(tot.vcpu_alloc/tot.vcpus*100)  : 0;
+      var ramPct   = tot.ram    ? Math.round(tot.ram_used/tot.ram*100)       : 0;
+      var diskPct  = tot.disk   ? Math.round(tot.disk_used/tot.disk*100)     : 0;
+
+      // ── KPI Summary Cards ────────────────────────────────────────────────
+      var kpiY = 33, kpiH = 20, kpiGap = 3;
+      var kpiW = (PW - 10 - kpiGap*6) / 7;
+      var kpis = [
+        ["Total Hosts",  rData.length,                  "In this report",                 COL.navy],
+        ["Total vCPUs",  tot.vcpus,                     vcpuPct+"% allocated",            COL.blue],
+        ["vCPU Used",    tot.vcpu_alloc,                 tot.free_vcpus+" vCPUs free",     COL.purple],
+        ["Total RAM",    tot.ram.toFixed(1)+" GB",       ramPct+"% allocated",             COL.amber],
+        ["RAM Used",     tot.ram_used.toFixed(1)+" GB",  tot.free_ram.toFixed(1)+" GB free",COL.red],
+        ["Total Disk",   tot.disk.toFixed(0)+" GB",      diskPct+"% used",                 COL.green],
+        ["Total VMs",    tot.vms,                        "Across all hosts",               COL.blue],
+      ];
+      kpis.forEach(function(k, i) {
+        drawKPI(5 + i*(kpiW+kpiGap), kpiY, kpiW, kpiH, k[0], k[1], k[2], k[3]);
+      });
+
+      // ── Utilisation Summary Bars ─────────────────────────────────────────
+      var barSectY = kpiY + kpiH + 6;
+      setTxt(COL.dgrey);
+      doc.setFontSize(8);
+      doc.setFont("helvetica","bold");
+      doc.text("CLUSTER UTILISATION OVERVIEW", 5, barSectY);
+
+      setFill(COL.border);
+      doc.rect(5, barSectY+1, PW-10, 0.3, "F");
+
+      var bY = barSectY + 6;
+      var bW = 80, bH = 4.5;
+      var summaryBars = [
+        ["vCPU Allocation", vcpuPct, tot.vcpu_alloc+" of "+tot.vcpus+" vCPUs used",
+          vcpuPct>=90?COL.red:vcpuPct>=75?COL.amber:COL.blue],
+        ["RAM Allocation",  ramPct,  tot.ram_used.toFixed(1)+" of "+tot.ram.toFixed(1)+" GB used",
+          ramPct>=90?COL.red:ramPct>=75?COL.amber:COL.amber],
+        ["Disk Usage",      diskPct, tot.disk_used.toFixed(1)+" of "+tot.disk.toFixed(1)+" GB used",
+          diskPct>=90?COL.red:diskPct>=75?COL.amber:COL.green],
+      ];
+      summaryBars.forEach(function(b, i) {
+        var bx = 5 + i*(bW+15);
+        setTxt(COL.dgrey);
+        doc.setFontSize(7);
+        doc.setFont("helvetica","bold");
+        doc.text(b[0], bx, bY);
+        drawBar(bx, bY+2, bW, bH, b[1], b[3]);
+        setTxt(COL.mgrey);
+        doc.setFontSize(6.5);
+        doc.setFont("helvetica","normal");
+        doc.text(b[2] + "  (" + b[1] + "%)", bx, bY+bH+5);
+        // Percentage label on bar
+        setTxt(COL.white);
+        doc.setFontSize(6);
+        if(b[1] > 15) {
+          doc.text(b[1]+"%", bx+2, bY+2+bH-1);
+        }
+      });
+
+      // ── Per-host mini bar chart section ─────────────────────────────────
+      var chartY = bY + bH + 16;
+      setTxt(COL.dgrey);
+      doc.setFontSize(8);
+      doc.setFont("helvetica","bold");
+      doc.text("PER-HOST UTILISATION  (vCPU% \u2502 RAM% \u2502 Disk%)", 5, chartY);
+      setFill(COL.border);
+      doc.rect(5, chartY+1, PW-10, 0.3, "F");
+
+      var chY = chartY + 5;
+      var hostBarW = 18; // width for each host's set of 3 bars
+      var barSetGap = 1;
+      var singleH = 3.5;
+      var maxHostsPerRow = Math.floor((PW-10)/(hostBarW+barSetGap));
+      var hostsToChart = rData.slice(0, maxHostsPerRow*2); // up to 2 rows
+
+      var row0 = hostsToChart.slice(0, maxHostsPerRow);
+      var row1 = hostsToChart.slice(maxHostsPerRow, maxHostsPerRow*2);
+
+      [row0, row1].forEach(function(rowHosts, ri) {
+        rowHosts.forEach(function(h, ci) {
+          var hx = 5 + ci*(hostBarW+barSetGap);
+          var hy = chY + ri*18;
+          var vcpuP = h.cpu_vcpus ? Math.min(100,Math.round(Number(h.vm_vcpu_alloc||0)/Number(h.cpu_vcpus)*100)) : 0;
+          var ramP  = h.ram_total_gb ? Math.min(100,Math.round(Number(h.vm_ram_alloc_gb||0)/Number(h.ram_total_gb)*100)) : 0;
+          var diskP = h.disk_total_gb ? Math.min(100,Math.round(Number(h.disk_used_gb||0)/Number(h.disk_total_gb)*100)) : 0;
+
+          // Host name (truncated)
+          setTxt(COL.dgrey);
+          doc.setFontSize(5);
+          doc.setFont("helvetica","bold");
+          var hname = (h.host_name||"").length>12 ? (h.host_name||"").slice(0,11)+"\u2026" : (h.host_name||"");
+          doc.text(hname, hx, hy);
+
+          // 3 mini bars
+          var barPcts = [vcpuP, ramP, diskP];
+          var barCols = [
+            vcpuP>=90?COL.red:vcpuP>=75?COL.amber:COL.blue,
+            ramP>=90?COL.red:ramP>=75?COL.amber:COL.amber,
+            diskP>=90?COL.red:diskP>=75?COL.amber:COL.green,
+          ];
+          var barLabels = ["C","R","D"];
+          barPcts.forEach(function(p, bi) {
+            var by = hy+1.5+bi*(singleH+1);
+            // Label
+            setTxt(COL.mgrey);
+            doc.setFontSize(4.5);
+            doc.setFont("helvetica","normal");
+            doc.text(barLabels[bi], hx, by+singleH-0.5);
+            // Bar
+            drawBar(hx+3, by, hostBarW-3, singleH, p, barCols[bi]);
+            // Pct text
+            setTxt(COL.white);
+            doc.setFontSize(4);
+            if(p>20) doc.text(p+"%", hx+4, by+singleH-0.8);
+          });
+        });
+      });
+
+      // ── Footer on page 1 ─────────────────────────────────────────────────
+      setTxt(COL.mgrey);
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica","normal");
+      doc.text(
+        "ServerCapacity \u2014 " + groupLabel + " \u2014 Confidential  |  C=vCPU%  R=RAM%  D=Disk%  |  Page 1",
+        5, PH-4
+      );
+
+      // ── PAGE 2: Detailed Data Table ──────────────────────────────────────
+      doc.addPage();
+
+      // Header on page 2
+      setFill(COL.navy);
+      doc.rect(0, 0, PW, 18, "F");
+      setFill(COL.blue);
+      doc.rect(0, 18, PW, 1, "F");
+      if(logoBase64) {
+        try { doc.addImage(logoBase64, "JPEG", 4, 1, 15, 15); } catch(e){}
+      }
+      setTxt(COL.white);
+      doc.setFontSize(12);
+      doc.setFont("helvetica","bold");
+      doc.text("Host Details \u2014 " + groupLabel + " \u2502 " + osLabel, 23, 9);
+      setTxt([148,163,184]);
+      doc.setFontSize(7);
+      doc.setFont("helvetica","normal");
+      doc.text("Generated: " + ts + " IST  \u2502  Hosts: " + rData.length, 23, 15);
+
+      // Data table
+      var headers = [
+        "Host","CPU Model",
+        "vCPU\nTotal","vCPU\nUsed","vCPU\nFree",
+        "RAM Total\n(GB)","RAM Used\n(GB)","RAM Free\n(GB)",
+        "Disk Total\n(GB)","Disk Used\n(GB)","Disk Free\n(GB)","VMs"
+      ];
+      var rows = rData.map(function(h) {
+        var vcpuP = h.cpu_vcpus ? Math.round(Number(h.vm_vcpu_alloc||0)/Number(h.cpu_vcpus)*100) : 0;
+        var ramP  = h.ram_total_gb ? Math.round(Number(h.vm_ram_alloc_gb||0)/Number(h.ram_total_gb)*100) : 0;
+        var diskP = h.disk_total_gb ? Math.round(Number(h.disk_used_gb||0)/Number(h.disk_total_gb)*100) : 0;
+        return [
+          h.host_name + "\n" + (h.host_ip||""),
+          (h.cpu_model||"\u2014").replace(/\(R\)/g,"").replace(/\(TM\)/g,"").replace(/CPU/,"").trim().slice(0,35),
+          String(h.cpu_vcpus||0),
+          String(h.vm_vcpu_alloc||0) + "\n(" + vcpuP + "%)",
+          String(h.free_vcpus!=null?h.free_vcpus:0),
+          String(h.ram_total_gb||0),
+          String(h.vm_ram_alloc_gb||0) + "\n(" + ramP + "%)",
+          String(h.free_ram_gb!=null?h.free_ram_gb:0),
+          String(h.disk_total_gb||0),
+          String(h.disk_used_gb!=null?h.disk_used_gb:0) + "\n(" + diskP + "%)",
+          String(h.free_disk_gb!=null?h.free_disk_gb:0),
+          String(h.vm_count||0),
+        ];
+      });
+
+      // Totals row
       rows.push([
-        "TOTAL ("+rData.length+" hosts)","",
-        String(tot.vcpus), String(tot.vcpu_alloc), String(tot.free_vcpus),
-        tot.ram.toFixed(1), tot.ram_used.toFixed(1), tot.free_ram.toFixed(1),
-        tot.disk.toFixed(1), tot.disk_used.toFixed(1), tot.free_disk.toFixed(1),
+        "TOTAL (" + rData.length + " hosts)", "",
+        String(tot.vcpus),
+        String(tot.vcpu_alloc)+"\n("+vcpuPct+"%)",
+        String(tot.free_vcpus),
+        tot.ram.toFixed(1),
+        tot.ram_used.toFixed(1)+"\n("+ramPct+"%)",
+        tot.free_ram.toFixed(1),
+        tot.disk.toFixed(1),
+        tot.disk_used.toFixed(1)+"\n("+diskPct+"%)",
+        tot.free_disk.toFixed(1),
         String(tot.vms)
       ]);
 
       autoTable(doc, {
         head: [headers],
         body: rows,
-        startY: 26,
-        styles: {fontSize:7, cellPadding:2},
-        headStyles: {fillColor:[15,31,46], textColor:255, fontStyle:"bold", fontSize:7},
-        alternateRowStyles: {fillColor:[245,248,252]},
+        startY: 22,
+        styles: { fontSize:6.5, cellPadding:2.5, lineColor:[226,232,240], lineWidth:0.2 },
+        headStyles: { fillColor:COL.navy, textColor:255, fontStyle:"bold", fontSize:6.5,
+                      halign:"center", cellPadding:3 },
+        alternateRowStyles: { fillColor:[245,248,252] },
         columnStyles: {
-          0:{cellWidth:32}, 1:{cellWidth:40},
-          2:{cellWidth:16,halign:"center"}, 3:{cellWidth:16,halign:"center"}, 4:{cellWidth:16,halign:"center"},
-          5:{cellWidth:20,halign:"right"},  6:{cellWidth:20,halign:"right"},  7:{cellWidth:20,halign:"right"},
-          8:{cellWidth:20,halign:"right"},  9:{cellWidth:20,halign:"right"},  10:{cellWidth:20,halign:"right"},
-          11:{cellWidth:12,halign:"center"},
+          0:{cellWidth:30, fontStyle:"bold"},
+          1:{cellWidth:42, fontSize:6},
+          2:{cellWidth:14, halign:"center"},
+          3:{cellWidth:16, halign:"center"},
+          4:{cellWidth:14, halign:"center"},
+          5:{cellWidth:18, halign:"right"},
+          6:{cellWidth:18, halign:"right"},
+          7:{cellWidth:18, halign:"right"},
+          8:{cellWidth:18, halign:"right"},
+          9:{cellWidth:18, halign:"right"},
+          10:{cellWidth:18, halign:"right"},
+          11:{cellWidth:12, halign:"center"},
         },
-        didDrawPage: function(data) {
-          doc.setFontSize(7);
-          doc.setTextColor(130,130,130);
+        didDrawPage: function(d) {
+          setTxt(COL.mgrey);
+          doc.setFontSize(6.5);
+          doc.setFont("helvetica","normal");
           var pg = doc.internal.getCurrentPageInfo().pageNumber;
           doc.text("ServerCapacity - " + pdfGroupLabel + " - Confidential, Page " + pg, 14, doc.internal.pageSize.height - 6);
         },
-        willDrawCell: function(data) {
-          if (data.row.index === rows.length - 1) {
-            data.cell.styles.fillColor = [15, 31, 46];
-            data.cell.styles.textColor = [255, 255, 255];
-            data.cell.styles.fontStyle = "bold";
+        willDrawCell: function(d) {
+          // Highlight overcommitted cells (>100% allocation)
+          var txt = String(d.cell.raw||"");
+          var pctMatch = txt.match(/\((\d+)%\)/);
+          if(pctMatch) {
+            var pct = parseInt(pctMatch[1]);
+            if(pct >= 100)      d.cell.styles.fillColor = [254,226,226];
+            else if(pct >= 80)  d.cell.styles.fillColor = [254,243,199];
+          }
+          // Totals row
+          if(d.row.index === rows.length - 1) {
+            d.cell.styles.fillColor = COL.navy;
+            d.cell.styles.textColor = [255,255,255];
+            d.cell.styles.fontStyle = "bold";
           }
         },
       });
