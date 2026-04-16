@@ -2249,18 +2249,37 @@ function CapacityPlanning() {
       setTxt(COL.white);
       doc.setFontSize(18);
       doc.setFont("helvetica","bold");
-      doc.text("ServerCapacity \u2014 Capacity Report", 32, 12);
-      doc.setFontSize(8.5);
+      doc.text("ServerCapacity - Capacity Report", 38, 9);
+      doc.setFontSize(8);
       doc.setFont("helvetica","normal");
-      setTxt([148,163,184]);
-      doc.text(
-        "Discom: " + groupLabel + "  \u2502  OS: " + osLabel +
-        "  \u2502  Hosts: " + rData.length +
-        "  \u2502  Generated: " + ts + " IST",
-        32, 21
-      );
+      doc.text("Discom: " + groupLabel + ", OS: " + osLabel + ", Hosts: " + rData.length + ", Generated: " + ts + " IST", 38, 16);
 
-      // ── Totals ────────────────────────────────────────────────────────────
+      // Sub-header line
+      doc.setFillColor(0, 123, 255);
+      doc.rect(0, 22, 297, 1.2, "F");
+
+      // Table
+      var headers = ["Host","CPU Model","vCPU Total","vCPU Used","vCPU Free",
+                     "RAM Total (GB)","RAM Used (GB)","RAM Free (GB)",
+                     "Disk Total (GB)","Disk Used (GB)","Disk Free (GB)","VMs"];
+      var rows = rData.map(function(h) {
+        return [
+          h.host_name + (h.host_ip ? "\n" + h.host_ip : ""),
+          h.cpu_model || "—",
+          String(h.cpu_vcpus || 0),
+          String(h.vm_vcpu_alloc || 0),
+          String(h.free_vcpus != null ? h.free_vcpus : 0),
+          String(h.ram_total_gb || 0),
+          String(h.vm_ram_alloc_gb || 0),
+          String(h.free_ram_gb != null ? h.free_ram_gb : 0),
+          String(h.disk_total_gb || 0),
+          String(h.disk_used_gb != null ? h.disk_used_gb : 0),
+          String(h.free_disk_gb != null ? h.free_disk_gb : 0),
+          String(h.vm_count || 0),
+        ];
+      });
+
+      // Totals summary row
       var tot = rData.reduce(function(a,h){
         return {
           vcpus:      a.vcpus      + Number(h.cpu_vcpus||0),
@@ -2492,14 +2511,7 @@ function CapacityPlanning() {
           doc.setFontSize(6.5);
           doc.setFont("helvetica","normal");
           var pg = doc.internal.getCurrentPageInfo().pageNumber;
-          doc.text(
-            "ServerCapacity \u2014 " + groupLabel + " \u2014 Confidential  |  Page " + pg,
-            5, PH-4
-          );
-          // Repeat header bar on additional pages
-          if(pg > 2) {
-            setFill(COL.navy); doc.rect(0,0,PW,6,"F");
-          }
+          doc.text("ServerCapacity - " + groupLabel + " - Confidential, Page " + pg, 14, doc.internal.pageSize.height - 6);
         },
         willDrawCell: function(d) {
           // Highlight overcommitted cells (>100% allocation)
