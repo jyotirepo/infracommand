@@ -2152,6 +2152,10 @@ function CapacityPlanning() {
     var ts = new Date().toLocaleString("en-IN",{timeZone:"Asia/Kolkata"});
     var osLabel = osTab === "linux" ? "Linux" : "Windows";
     var groupLabel = groupFilter === "All" ? "All Discoms" : groupFilter;
+    var pdfSafe = function(v){ return String(v||"").replace(/[^\x20-\x7E]/g, ","); };
+    var pdfTs = pdfSafe(ts);
+    var pdfOsLabel = pdfSafe(osLabel);
+    var pdfGroupLabel = pdfSafe(groupLabel);
     var fileSlug = (groupFilter==="All"?"all":groupFilter.replace(/[^a-z0-9]/gi,"-").toLowerCase());
 
     // ── Load logo ────────────────────────────────────────────────────────────
@@ -2252,11 +2256,11 @@ function CapacityPlanning() {
       doc.text("ServerCapacity - Capacity Report", 38, 9);
       doc.setFontSize(8);
       doc.setFont("helvetica","normal");
-      doc.text("Discom: " + groupLabel + ", OS: " + osLabel + ", Hosts: " + rData.length + ", Generated: " + ts + " IST", 38, 16);
+      doc.text("Discom: " + pdfGroupLabel + ", OS: " + pdfOsLabel + ", Hosts: " + rData.length + ", Generated: " + pdfTs + " IST", 38, 16);
 
       // Sub-header line
       doc.setFillColor(0, 123, 255);
-      doc.rect(0, 22, 297, 1.2, "F");
+      doc.rect(38, 22, 259, 1.2, "F"); // keep away from logo area
 
       // Table
       var headers = ["Host","CPU Model","vCPU Total","vCPU Used","vCPU Free",
@@ -2265,7 +2269,7 @@ function CapacityPlanning() {
       var rows = rData.map(function(h) {
         return [
           h.host_name + (h.host_ip ? "\n" + h.host_ip : ""),
-          h.cpu_model || "—",
+          pdfSafe(h.cpu_model || "-"),
           String(h.cpu_vcpus || 0),
           String(h.vm_vcpu_alloc || 0),
           String(h.free_vcpus != null ? h.free_vcpus : 0),
@@ -2511,7 +2515,7 @@ function CapacityPlanning() {
           doc.setFontSize(6.5);
           doc.setFont("helvetica","normal");
           var pg = doc.internal.getCurrentPageInfo().pageNumber;
-          doc.text("ServerCapacity - " + groupLabel + " - Confidential, Page " + pg, 14, doc.internal.pageSize.height - 6);
+          doc.text("ServerCapacity - " + pdfGroupLabel + " - Confidential, Page " + pg, 14, doc.internal.pageSize.height - 6);
         },
         willDrawCell: function(d) {
           // Highlight overcommitted cells (>100% allocation)
