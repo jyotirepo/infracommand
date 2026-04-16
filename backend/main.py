@@ -2,7 +2,7 @@
 ServerCapacity — FastAPI v3.0
 DB-backed, user-controlled refresh, proper OS detection
 """
-import uuid, threading, os, smtplib
+import uuid, threading, os, smtplib, base64
 from datetime import datetime, timezone
 from typing import Optional
 from email.mime.multipart import MIMEMultipart
@@ -93,6 +93,8 @@ class CapacityEmailRequest(BaseModel):
     discom: str
     os_type: str
     to_email: str
+    pdf_data_uri: Optional[str] = None
+    filename: Optional[str] = None
 
 
 def _collect_metrics(host: dict) -> dict:
@@ -473,24 +475,40 @@ def email_capacity_report(payload: CapacityEmailRequest, db: Session = Depends(g
     if not rows:
         raise HTTPException(404, "No capacity rows found for selected Discom/OS")
 
-    report_lines = [
-        "Capacity Report",
-        f"Discom: {discom}",
-        f"OS: {os_type.capitalize()}",
-        "Type: physical",
-        f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC",
-        "",
-        "Host | IP | vCPU total/used/free | RAM total/used/free GB | Disk total/used/free GB",
-        "-" * 100,
-    ]
-    for h in rows:
-        report_lines.append(
-            f"{h.get('host_name','')} | {h.get('host_ip','')} | "
-            f"{h.get('cpu_vcpus',0)}/{h.get('vm_vcpu_alloc',0)}/{h.get('free_vcpus',0)} | "
-            f"{h.get('ram_total_gb',0)}/{h.get('vm_ram_alloc_gb',0)}/{h.get('free_ram_gb',0)} | "
-            f"{h.get('disk_total_gb',0)}/{h.get('disk_used_gb',0)}/{h.get('free_disk_gb',0)}"
-        )
-    pdf_bytes = _make_simple_pdf(report_lines)
+    pdf_bytes = b""
+    file_name = payload.filename or ""
+    if payload.pdf_data_uri:
+        try:
+            uri = payload.pdf_data_uri.strip()
+            b64 = uri.split(",", 1)[1] if "," in uri else uri
+            pdf_bytes = base64.b64decode(b64)
+        except Exception:
+            raise HTTPException(400, "Invalid PDF payload from UI")
+
+    if not pdf_bytes:
+        report_lines = [
+            "Capacity Report",
+            f"Discom: {discom}",
+            f"OS: {os_type.capitalize()}",
+            "Type: physical",
+            f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC",
+            "",
+            "Host | IP | vCPU total/used/free | RAM total/used/free GB | Disk total/used/free GB",
+            "-" * 100,
+        ]
+        for h in rows:
+            report_lines.append(
+                f"{h.get('host_name','')} | {h.get('host_ip','')} | "
+                f"{h.get('cpu_vcpus',0)}/{h.get('vm_vcpu_alloc',0)}/{h.get('free_vcpus',0)} | "
+                f"{h.get('ram_total_gb',0)}/{h.get('vm_ram_alloc_gb',0)}/{h.get('free_ram_gb',0)} | "
+                f"{h.get('disk_total_gb',0)}/{h.get('disk_used_gb',0)}/{h.get('free_disk_gb',0)}"
+            )
+        pdf_bytes = _make_simple_pdf(report_lines)
+    if not file_name:
+        safe_discom = "".join(ch for ch in discom if ch.isalnum() or ch in ("-", "_")).strip() or "all"
+        file_name = f"capacity-{safe_discom}-{os_type}-physical.pdf"
+    if not file_name.lower().endswith(".pdf"):
+        file_name += ".pdf"
 
     smtp_cfg = _load_smtp_settings(db)
     if not smtp_cfg.get("host"):
@@ -518,9 +536,8 @@ def email_capacity_report(payload: CapacityEmailRequest, db: Session = Depends(g
     attach = MIMEBase("application", "pdf")
     attach.set_payload(pdf_bytes)
     encoders.encode_base64(attach)
-    safe_discom = "".join(ch for ch in discom if ch.isalnum() or ch in ("-", "_")).strip() or "all"
     attach.add_header("Content-Disposition",
-                      f'attachment; filename="capacity-{safe_discom}-{os_type}-physical.pdf"')
+                      f'attachment; filename="{file_name}"')
     msg.attach(attach)
 
     try:

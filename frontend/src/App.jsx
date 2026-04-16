@@ -2095,7 +2095,13 @@ function CapacityPlanning() {
     }
     setSendingMail(true); setMailMsg(null);
     try {
-      const r = await api.post("/capacity/email-report", mailForm);
+      const pdfPack = await generateReport("pdf-email");
+      const payload = {
+        ...mailForm,
+        pdf_data_uri: pdfPack?.dataUri || "",
+        filename: pdfPack?.filename || "",
+      };
+      const r = await api.post("/capacity/email-report", payload);
       setMailMsg({t:"ok", text:r.data?.message || "Mail sent"});
       setTimeout(()=>setMailOpen(false), 1200);
     } catch(e) {
@@ -2160,7 +2166,8 @@ function CapacityPlanning() {
       });
     } catch(e) {}
 
-    if (format === "pdf") {
+    if (format === "pdf" || format === "pdf-email") {
+      // ── PDF generation via jsPDF + autoTable ────────────────────────────
       var jsPDFLib = await import("jspdf");
       var autoTable = (await import("jspdf-autotable")).default;
       var jsPDF = jsPDFLib.jsPDF || jsPDFLib.default;
@@ -2512,7 +2519,11 @@ function CapacityPlanning() {
         },
       });
 
-      doc.save("ServerCapacity-" + fileSlug + "-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".pdf");
+      var pdfName = "ServerCapacity-" + fileSlug + "-" + osLabel + "-" + new Date().toISOString().slice(0,10) + ".pdf";
+      if (format === "pdf-email") {
+        return { filename: pdfName, dataUri: doc.output("datauristring") };
+      }
+      doc.save(pdfName);
 
     } else if (format === "excel") {
       // ── Excel generation via SheetJS ─────────────────────────────────────
